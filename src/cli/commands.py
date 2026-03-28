@@ -1,0 +1,211 @@
+"""
+commands.py — Executes parsed intents for the Kryptos CLI.
+
+Each cmd_* function receives an intent dict produced by NLParser.parse()
+and calls the appropriate report queries + display functions.
+"""
+
+import logging
+from typing import Optional
+
+from src.cli import agent_manager as am
+from src.cli import display as d
+from src.reports import trade_report as rpt
+
+logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────
+# Agent lifecycle
+# ──────────────────────────────────────────────────────────────
+
+def cmd_start(params: dict) -> None:
+    mode = params.get("mode", "paper")
+    d.print_info(f"Starting agent in [bold]{mode.upper()}[/bold] mode …")
+    result = am.start(mode)
+    if result["ok"]:
+        d.print_ok(result["message"])
+        d.print_info(f"Logs → {result.get('log_file', 'agent.log')}")
+    else:
+        d.print_error(result["message"])
+
+
+def cmd_stop(_params: dict) -> None:
+    d.print_info("Sending stop signal to agent …")
+    result = am.stop()
+    if result["ok"]:
+        d.print_ok(result["message"])
+    else:
+        d.print_error(result["message"])
+
+
+def cmd_status(params: dict, config: Optional[dict] = None) -> None:
+    data = am.status(config)
+    d.print_agent_status(data)
+
+
+def cmd_next_schedule(_params: dict, config: Optional[dict] = None) -> None:
+    data = am.get_next_schedule(config)
+    d.print_next_schedule(data)
+
+
+# ──────────────────────────────────────────────────────────────
+# Reports
+# ──────────────────────────────────────────────────────────────
+
+def cmd_view_report(params: dict, config: Optional[dict] = None) -> None:
+    if config is None:
+        d.print_error("No config loaded — cannot query databases.")
+        return
+
+    mode   = params.get("mode", "paper")
+    days   = params.get("days") or 30
+    pair   = params.get("pair")
+    limit  = params.get("count") or 50
+    detail = params.get("detail", "summary")
+
+    # Portfolio summary first
+    portfolio = rpt.get_portfolio_summary(mode, config)
+    if portfolio:
+        d.print_portfolio_summary(portfolio)
+
+    # Trades
+    trades = rpt.get_trades_with_decisions(mode, config, days=days, pair=pair, limit=limit)
+    show_llm = (detail == "detailed")
+    d.print_trades_table(trades, show_llm=show_llm)
+
+    # Summary metrics
+    metrics = rpt.get_performance_metrics(mode, config, days=days)
+    if metrics and metrics.get("total_trades", 0) > 0:
+        d.print_performance_metrics(metrics)
+
+
+def cmd_trade_details(params: dict, config: Optional[dict] = None) -> None:
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+
+    mode  = params.get("mode", "paper")
+    pair  = params.get("pair")
+    days  = params.get("days") or 7
+    count = params.get("count") or 5
+
+    trades = rpt.get_trades_with_decisions(mode, config, days=days, pair=pair, limit=count)
+
+    if not trades:
+        d.print_warn("No closed trades found for those filters.")
+        return
+
+    for trade in trades:
+        d.print_trade_detail(trade)
+
+
+def cmd_llm_decisions(params: dict, config: Optional[dict] = None) -> None:
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+
+    mode     = params.get("mode", "paper")
+    pair     = params.get("pair")
+    days     = params.get("days") or 7
+    limit    = params.get("count") or 20
+    dtype    = params.get("decision_type")
+    detail   = params.get("detail", "summary")
+
+    decisions = rpt.get_llm_decision_detail(
+        mode, config, pair=pair, decision_type=dtype, days=days, limit=limit
+    )
+
+    if detail == "detailed":
+        for dec in decisions:
+            d.print_llm_decision(dec, compact=False)
+    else:
+        d.print_llm_decisions_table(decisions)
+
+    # Append patterns summary
+    patterns = rpt.get_llm_decision_patterns(mode, config, days=days)
+    if patterns:
+        d.print_llm_patterns(patterns)
+
+
+def cmd_win_rate(params: dict, config: Optional[dict] = None) -> None:
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    mode = params.get("mode", "paper")
+    days = params.get("days") or 14
+    metrics = rpt.get_performance_metrics(mode, config, days=days)
+    d.print_performance_metrics(metrics)
+
+
+def cmd_daily_summary(params: dict, config: Optional[dict] = None) -> None:
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    mode = params.get("mode", "paper")
+    date = params.get("date")  # None == today
+    data = rpt.get_daily_summary(mode, config, date_str=date)
+    d.print_daily_summary(data)
+
+
+def cmd_open_positions(params: dict, config: Optional[dict] = None) -> None:
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    mode     = params.get("mode", "paper")
+    portfolio = rpt.get_portfolio_summary(mode, config)
+    d.print_portfolio_summary(portfolio)
+
+
+def cmd_tail_log(params: dict) -> None:
+    lines_count = params.get("lines") or 30
+    lines = am.tail_log(lines_count)
+    d.print_log_tail(lines)
+
+
+def cmd_help(_params: dict) -> None:
+    d.print_help()
+
+
+# ──────────────────────────────────────────────────────────────
+# Intent dispatcher
+# ──────────────────────────────────────────────────────────────
+
+def dispatch(intent_obj: dict, config: Optional[dict] = None) -> bool:
+    """
+    Dispatch a parsed intent dict to the correct command function.
+    Returns False if intent is 'exit', True otherwise.
+    """
+    intent = intent_obj.get("intent", "help")
+    params = intent_obj.get("params", {})
+
+    if intent == "exit":
+        d.print_info("Goodbye from Kryptos.")
+        return False
+
+    dispatch_map = {
+        "start_agent":    lambda: cmd_start(params),
+        "stop_agent":     lambda: cmd_stop(params),
+        "agent_status":   lambda: cmd_status(params, config),
+        "next_schedule":  lambda: cmd_next_schedule(params, config),
+        "view_report":    lambda: cmd_view_report(params, config),
+        "trade_details":  lambda: cmd_trade_details(params, config),
+        "llm_decisions":  lambda: cmd_llm_decisions(params, config),
+        "daily_summary":  lambda: cmd_daily_summary(params, config),
+        "win_rate":       lambda: cmd_win_rate(params, config),
+        "open_positions": lambda: cmd_open_positions(params, config),
+        "tail_log":       lambda: cmd_tail_log(params),
+        "help":           lambda: cmd_help(params),
+    }
+
+    fn = dispatch_map.get(intent)
+    if fn:
+        try:
+            fn()
+        except Exception as exc:
+            d.print_error(f"Command failed: {exc}")
+            logger.exception("Dispatch error for intent '%s'", intent)
+    else:
+        d.print_warn(f"Unknown intent: '{intent}'. Type [bold]help[/bold] to see commands.")
+
+    return True

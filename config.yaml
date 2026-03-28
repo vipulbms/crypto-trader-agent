@@ -1,0 +1,93 @@
+# ══════════════════════════════════════════════════════════════
+# Kryptos — AI Crypto Trading Agent — Configuration
+# ══════════════════════════════════════════════════════════════
+
+# ──────────────────────────────────────────────
+# Trading parameters
+# ──────────────────────────────────────────────
+trading:
+  stop_loss_pct: 5            # Fixed — not recommended to change
+
+  # Global default take-profit. Overridden per pair below.
+  # Allowed values: 5 | 8 | 12 | 16 | 20
+  take_profit_pct: 8
+
+  # Allowed take-profit levels — validated at startup
+  allowed_take_profit_pcts: [5, 8, 12, 16, 20]
+
+  max_position_pct: 30        # Max % of portfolio per single trade
+  max_open_positions: 3       # Max concurrent open positions (across all pairs)
+  cycle_interval_minutes: 15  # How often the agent runs a decision cycle
+
+  pairs:
+    - pair: BTC/USD
+      take_profit_pct: 8      # BTC moves slowly — conservative target
+      stop_loss_pct: 5
+    - pair: ETH/USD
+      take_profit_pct: 12
+      stop_loss_pct: 5
+    - pair: BNB/USD
+      take_profit_pct: 12
+      stop_loss_pct: 5
+    - pair: SOL/USD
+      take_profit_pct: 16     # SOL is volatile — can reach larger moves
+      stop_loss_pct: 5
+
+# ──────────────────────────────────────────────
+# Paper trading mode
+# ──────────────────────────────────────────────
+paper:
+  starting_balance_usd: 1000
+  slippage_pct: 0.05          # Simulated fill slippage (%)
+  require_kraken_private_api: false  # No API keys needed in paper mode
+
+# ──────────────────────────────────────────────
+# Technical analysis — indicator settings
+# ──────────────────────────────────────────────
+indicators:
+  rsi_period: 14
+  rsi_oversold: 35
+  rsi_overbought: 65
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_period: 20
+  bb_std: 2
+  ema_fast: 20
+  ema_slow: 50
+  atr_period: 14
+  candle_buffer_size: 200     # Number of 1-min candles to keep in memory
+  candle_interval: 1          # Candle interval in minutes
+
+# ──────────────────────────────────────────────
+# LLM settings
+# ──────────────────────────────────────────────
+llm:
+  model: qwen2.5:14b            # Primary model — best tool-calling at 7B
+  fallback_model: llama3.1:8b  # Used if primary fails
+  base_url: http://localhost:11434
+  timeout_seconds: 60
+  max_reasoning_chars: 500     # Max chars stored in audit reasoning_summary
+
+# ──────────────────────────────────────────────
+# Notifications
+# ──────────────────────────────────────────────
+notifications:
+  telegram_enabled: true
+  approval_timeout_seconds: 300   # 5 min to approve/reject in hybrid mode
+  daily_report_hour_utc: 23       # Send daily summary at 11pm UTC
+
+# ──────────────────────────────────────────────
+# Risk limits
+# ──────────────────────────────────────────────
+risk:
+  daily_loss_limit_pct: 10    # Stop all trading if daily loss exceeds 10%
+  min_cash_reserve_pct: 10    # Always keep at least 10% as cash
+
+# ──────────────────────────────────────────────
+# Storage
+# ──────────────────────────────────────────────
+storage:
+  paper_db: paper_trading.db
+  live_db: live_trading.db
+  audit_db: audit.db

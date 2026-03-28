@@ -1,0 +1,29 @@
+# Exchange connectivity
+ccxt>=4.5.0
+ccxt[pro]>=4.5.0
+
+# Local LLM
+ollama>=0.4.0
+
+# Agent framework
+smolagents>=1.5.0
+
+# Technical analysis
+ta>=0.11.0
+pandas>=2.0.0
+numpy>=1.26.0
+
+# Async / WebSocket
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Notifications
+python-telegram-bot>=21.0
+
+# Config & env
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+
+# Utilities
+requests>=2.31.0
+python-dateutil>=2.9.0
