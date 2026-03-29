@@ -147,6 +147,23 @@ Restart the agent after adding a pair for it to take effect.
 
 ---
 
+### `/commit`
+
+Commits and pushes changes to GitHub. Automatically derives a commit message from the diff, or accepts a custom subject line.
+
+```
+/commit
+/commit fix daily loss limit bug
+```
+
+What it does:
+1. Reviews changed files and stages only source files (`.py`, `.yaml`, `.md`, `.txt`, skill files)
+2. Never stages `.env`, `data/`, `logs/`, or `__pycache__`
+3. Derives a conventional commit message (`fix:`, `feat:`, `docs:`, `refactor:`) from the diff, or uses your message
+4. Commits and pushes to `main`
+
+---
+
 ## How the Agent Decides
 
 Every 15 minutes:
@@ -402,3 +419,4 @@ storage:
 | [plan.md](plan.md) | Architecture, decision cycle, LLM prompts, indicator scoring, CLI architecture, database design, full config reference |
 | [business-requirement.md](business-requirement.md) | Full BRD — functional requirements, NFRs, business rules, acceptance criteria, risks, glossary |
 | [.claude/skills/add-pair/SKILL.md](.claude/skills/add-pair/SKILL.md) | `/add-pair` Claude Code skill — onboards a new trading pair across all required files in one command |
+| [.claude/skills/commit/SKILL.md](.claude/skills/commit/SKILL.md) | `/commit` Claude Code skill — stages, commits, and pushes changes to GitHub safely |
