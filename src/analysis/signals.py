@@ -6,9 +6,12 @@ Produces BUY / SELL / HOLD with a confidence strength and human-readable reasons
 import logging
 from typing import Optional
 
+from src.utils.timing import timed
+
 logger = logging.getLogger(__name__)
 
 
+@timed("pair")
 def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     """
     Evaluate indicator values and produce a signal dict:

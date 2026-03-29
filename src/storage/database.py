@@ -282,8 +282,8 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM paper_wallet")
     if cursor.fetchone()[0] == 0:
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
+        from src.utils.tz import now_sgt_iso
+        now = now_sgt_iso()
         cursor.execute(
             "INSERT INTO paper_wallet (updated_at, cash_usd) VALUES (?, ?)",
             (now, starting_balance)

@@ -67,7 +67,7 @@ def build_cycle_prompt(
     pair_tp = pair_tp_config or {}
 
     lines = [
-        f"=== CYCLE: {cycle_time} UTC {mode_label} ===",
+        f"=== CYCLE: {cycle_time} SGT {mode_label} ===",
         "",
         "--- PORTFOLIO STATE ---",
         f"Total Balance:        ${portfolio['total_usd']:.2f}",

@@ -7,6 +7,8 @@ All actions are passed through the risk manager before any order is placed.
 import logging
 from typing import Optional
 
+from ..utils.timing import timed
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +52,7 @@ class TradingTools:
     # Tool: propose_buy
     # ──────────────────────────────────────────────
 
+    @timed("pair", "usd_amount")
     def propose_buy(self, pair: str, usd_amount: float) -> str:
         """
         Propose buying a crypto pair with a given USD amount.
@@ -196,6 +199,7 @@ class TradingTools:
     # Tool: propose_sell
     # ──────────────────────────────────────────────
 
+    @timed("pair", "reason")
     def propose_sell(self, pair: str, reason: str = "Agent decision") -> str:
         """
         Propose closing (selling) an open position for the given pair.
@@ -266,6 +270,7 @@ class TradingTools:
     # Tool: hold
     # ──────────────────────────────────────────────
 
+    @timed("pair", "reason")
     def hold(self, pair: str, reason: str) -> str:
         """
         Explicitly hold (do nothing) for the given pair this cycle.

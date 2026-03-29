@@ -12,9 +12,12 @@ import ta.momentum
 import ta.trend
 import ta.volatility
 
+from src.utils.timing import timed
+
 logger = logging.getLogger(__name__)
 
 
+@timed("config")
 def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     """
     Compute technical indicators from a list of OHLCV candle dicts.
@@ -22,7 +25,7 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     Returns a flat dict of indicator values for the most recent candle,
     or None if there are insufficient candles.
     """
-    if not candles or len(candles) < 60:
+    if not candles or len(candles) < 60:  # 60 × 15-min = 15 hours minimum before computing indicators
         return None
 
     ind_cfg = config.get("indicators", {})

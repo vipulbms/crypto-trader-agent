@@ -7,16 +7,16 @@ failure NEVER crashes the agent.
 import json
 import logging
 import traceback
-from datetime import datetime, timezone
 from typing import Optional
 
 from .database import get_connection
+from ..utils.tz import now_sgt_iso
 
 logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_sgt_iso()
 
 
 class AuditLogger:

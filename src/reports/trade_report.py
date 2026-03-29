@@ -9,8 +9,10 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Optional
+
+from src.utils.tz import now_sgt, to_sgt
 
 from src.storage.database import get_connection
 
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────
 
 def _days_ago_iso(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return (now_sgt() - timedelta(days=days)).isoformat()
 
 
 def _audit_conn(config: dict) -> sqlite3.Connection:
@@ -79,7 +81,7 @@ def get_portfolio_summary(mode: str, config: dict) -> dict:
     ).fetchone()
 
     # Today's closed trades for daily P&L
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = now_sgt().strftime("%Y-%m-%d")
     if mode == "paper":
         daily_trades = tc.execute(
             "SELECT pnl_usd FROM paper_trades WHERE DATE(closed_at)=?", (today,)
@@ -174,7 +176,7 @@ def get_trades_with_decisions(
 def _offset_iso(iso_str: str, offset_secs: int) -> str:
     """Shift an ISO timestamp by offset_secs seconds."""
     try:
-        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt = to_sgt(datetime.fromisoformat(iso_str.replace("Z", "+00:00")))
         return (dt + timedelta(seconds=offset_secs)).isoformat()
     except Exception:
         return iso_str
@@ -533,7 +535,7 @@ def get_llm_decision_detail(
 def get_daily_summary(mode: str, config: dict, date_str: Optional[str] = None) -> dict:
     """Return trade activity and P&L for a specific date (default: today)."""
     if not date_str:
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = now_sgt().strftime("%Y-%m-%d")
 
     tc = _trade_conn(config, mode)
     table = "paper_trades" if mode == "paper" else "live_trades"

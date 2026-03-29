@@ -6,8 +6,9 @@ loss limit are enforced deterministically — NOT by the LLM.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Optional
+
+from src.utils.timing import timed
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class RiskManager:
         tp_pct = self.get_take_profit_pct(pair)
         return round(entry_price * (1 + tp_pct / 100), 8)
 
+    @timed("pair", "proposed_usd", "open_positions_count")
     def validate_buy(
         self,
         pair: str,
@@ -130,6 +132,7 @@ class RiskManager:
 
         return (True, reason, round(capped, 2))
 
+    @timed("pair", "open_positions_count")
     def validate_sell(
         self,
         pair: str,

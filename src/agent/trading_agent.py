@@ -7,8 +7,10 @@ The LLM decides; the risk manager enforces; the broker executes.
 import json
 import logging
 import time
-from datetime import datetime, timezone
 from typing import Optional
+
+from ..utils.tz import now_sgt
+from ..utils.timing import timed, set_cycle_id
 
 import ollama
 
@@ -109,6 +111,7 @@ class TradingAgent:
     # Main cycle
     # ──────────────────────────────────────────────
 
+    @timed("cycle_id")
     def run_cycle(
         self,
         cycle_id: int,
@@ -119,8 +122,9 @@ class TradingAgent:
         Run one full decision cycle across all pairs.
         Returns list of action summaries.
         """
+        set_cycle_id(cycle_id)
         self._tools.set_cycle_context(cycle_id)
-        cycle_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        cycle_time = now_sgt().strftime("%Y-%m-%d %H:%M:%S")
 
         cycle_prompt = build_cycle_prompt(
             cycle_time=cycle_time,
@@ -145,6 +149,7 @@ class TradingAgent:
 
         return results
 
+    @timed("cycle_id", "pair")
     def _run_pair_decision(
         self,
         cycle_id: int,

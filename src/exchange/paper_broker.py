@@ -6,20 +6,21 @@ No Kraken API keys required.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 from ..storage.database import get_connection
+from ..utils.tz import SGT, now_sgt, now_sgt_iso
+from ..utils.timing import timed
 
 logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_sgt_iso()
 
 
 def _ts_now() -> int:
-    return int(datetime.now(timezone.utc).timestamp())
+    return int(now_sgt().timestamp())
 
 
 class PaperBroker:
@@ -85,6 +86,7 @@ class PaperBroker:
     # Order simulation
     # ──────────────────────────────────────────────
 
+    @timed("pair", "side", "usd_amount", "current_price")
     def place_order(
         self,
         pair: str,
@@ -157,6 +159,7 @@ class PaperBroker:
             "position_id":        position_id,
         }
 
+    @timed("position_id", "exit_price", "exit_reason")
     def close_position(
         self,
         position_id: int,
@@ -186,7 +189,7 @@ class PaperBroker:
         pnl_pct     = round(pnl_usd / pos["usd_value"] * 100, 2) if pos["usd_value"] else 0.0
 
         opened_ts   = datetime.fromisoformat(pos["opened_at"])
-        hold_secs   = int((datetime.now(timezone.utc) - opened_ts.replace(tzinfo=timezone.utc)).total_seconds())
+        hold_secs   = int((now_sgt() - opened_ts.replace(tzinfo=opened_ts.tzinfo or SGT)).total_seconds())
 
         # Update position status
         conn.execute(
@@ -241,6 +244,7 @@ class PaperBroker:
     # Called on every price tick from the main loop
     # ──────────────────────────────────────────────
 
+    @timed("pair", "current_price")
     def check_stops_and_tp(
         self,
         pair: str,

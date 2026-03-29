@@ -10,8 +10,10 @@ Colour scheme:
   white    → general body text
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
+
+from src.utils.tz import to_sgt
 
 from rich.console import Console
 from rich.panel import Panel
@@ -556,7 +558,7 @@ def _short_dt(iso: str) -> str:
     if not iso:
         return "—"
     try:
-        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        dt = to_sgt(datetime.fromisoformat(iso.replace("Z", "+00:00")))
         return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return iso[:16]

@@ -10,6 +10,7 @@ import logging
 import time
 from collections import deque
 from datetime import datetime, timezone
+from ..utils.timing import timed
 from typing import Dict, Optional
 
 import requests
@@ -99,6 +100,7 @@ class WebSocketFeed:
         buf = self._buffers.get(pair)
         return len(buf) >= min_candles if buf else False
 
+    @timed()
     async def start(self) -> None:
         """Back-fill history then start live WebSocket feed."""
         await self._backfill_all()
@@ -125,6 +127,7 @@ class WebSocketFeed:
         for pair in self._pairs:
             await loop.run_in_executor(None, self._backfill_pair, pair)
 
+    @timed("pair")
     def _backfill_pair(self, pair: str) -> None:
         rest_pair = REST_PAIR_MAP.get(pair)
         if not rest_pair:

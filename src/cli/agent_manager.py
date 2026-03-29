@@ -12,8 +12,10 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from typing import Optional
+
+from src.utils.tz import SGT, now_sgt
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ def _write_pid(pid: int, mode: str) -> None:
         json.dump({
             "pid": pid,
             "mode": mode,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": now_sgt().isoformat(),
         }, f)
 
 
@@ -175,8 +177,8 @@ def status(config: Optional[dict] = None) -> dict:
 
         if result["running"] and info.get("started_at"):
             try:
-                started = datetime.fromisoformat(info["started_at"].replace("Z", "+00:00"))
-                uptime  = datetime.now(timezone.utc) - started
+                started = datetime.fromisoformat(info["started_at"]).astimezone(SGT)
+                uptime  = now_sgt() - started
                 total_s = int(uptime.total_seconds())
                 h = total_s // 3600
                 m = (total_s % 3600) // 60
@@ -232,12 +234,12 @@ def get_next_schedule(config: Optional[dict] = None) -> dict:
         except Exception:
             pass
 
-    now = datetime.now(timezone.utc)
+    now = now_sgt()
 
     if last_cycle_at:
         try:
-            last = datetime.fromisoformat(last_cycle_at.replace("Z", "+00:00"))
-            nxt  = last + __import__("datetime").timedelta(minutes=interval_min)
+            last = datetime.fromisoformat(last_cycle_at).astimezone(SGT)
+            nxt  = last + timedelta(minutes=interval_min)
             if nxt < now:
                 nxt = now  # overdue — should happen immediately
             wait_secs = max(0, int((nxt - now).total_seconds()))
