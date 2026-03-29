@@ -159,8 +159,10 @@ Commits and pushes changes to GitHub. Automatically derives a commit message fro
 What it does:
 1. Reviews changed files and stages only source files (`.py`, `.yaml`, `.md`, `.txt`, skill files)
 2. Never stages `.env`, `data/`, `logs/`, or `__pycache__`
-3. Derives a conventional commit message (`fix:`, `feat:`, `docs:`, `refactor:`) from the diff, or uses your message
-4. Commits and pushes to `main`
+3. Updates `CHANGELOG.md` with a summary of the changes
+4. Updates the Claude memory file with any new conventions or decisions
+5. Derives a conventional commit message (`fix:`, `feat:`, `docs:`, `refactor:`) from the diff, or uses your message
+6. Commits and pushes to `main`
 
 ---
 
