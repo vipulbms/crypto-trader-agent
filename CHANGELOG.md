@@ -2,6 +2,30 @@
 
 ---
 
+## Session: 2026-03-29 (continued — night)
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|---|---|---|
+| All pairs returning HOLD strength=0 after BB config change | `bb_min_width_pct=1.5%` was suppressing BB signals on pairs with band widths of 0.7–1.4% (most pairs) | Reverted `bb_min_width_pct` to 0.5%; fixed the real problem in `signals.py` instead |
+| Simultaneous upper+lower BB signals on narrow bands | BB buy and sell checks were independent — both could fire when price was between tight bands | `near_lower` and `near_upper_for_sell` now computed once and are mutually exclusive; if both fire, neither is awarded |
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/analysis/signals.py` | BB upper/lower checks now mutually exclusive — simultaneous touch awards neither |
+| `config.yaml` | `bb_min_width_pct` reverted to 0.5%; `bb_buy_tolerance_pct` and `bb_sell_tolerance_pct` kept at 0.5% |
+
+### Key Insight
+The BB squeeze fix belongs in the **signal logic** (mutual exclusion), not in the config threshold. Raising `bb_min_width_pct` to catch squeeze suppresses too many valid signals. The correct fix is: if price is simultaneously near both bands, award neither — the bands are too tight to be meaningful regardless of the width threshold.
+
+### Current market state (2026-03-29 23:xx SGT)
+MACD histogram is negative across all 10 pairs — genuine bearish momentum phase. No BUY signals expected until MACD turns positive or RSI drops below 30 on at least one pair. Agent correctly HOLDing.
+
+---
+
 ## Session: 2026-03-29 (continued — evening)
 
 ### Bugs Fixed

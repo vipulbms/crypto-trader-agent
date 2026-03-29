@@ -87,7 +87,11 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     bb_width_pct = ((bb_upper - bb_lower) / price * 100) if (bb_upper and bb_lower and price) else 0
     bb_wide_enough = bb_width_pct >= bb_min_width
 
-    if bb_wide_enough and bb_lower is not None and price and price <= bb_lower * bb_buy_tol:
+    # Only award lower BB buy point if price is NOT simultaneously near the upper band
+    # (simultaneous touch = squeezed bands; awarding both creates contradictory signals)
+    near_lower = bb_wide_enough and bb_lower is not None and price and price <= bb_lower * bb_buy_tol
+    near_upper_for_sell = bb_wide_enough and bb_upper is not None and price and price >= bb_upper * bb_sell_tol
+    if near_lower and not near_upper_for_sell:
         buy_score += w_bb_lower
         reasons.append(f"Price at/near lower Bollinger Band (${price:.2f} ≤ ${bb_lower:.2f})")
 
@@ -104,7 +108,7 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         sell_score += w_macd_hist_neg
         reasons.append("MACD histogram negative (bearish momentum)")
 
-    if bb_wide_enough and bb_upper is not None and price and price >= bb_upper * bb_sell_tol:
+    if near_upper_for_sell and not near_lower:
         sell_score += w_bb_upper
         reasons.append(f"Price at/near upper Bollinger Band (${price:.2f} ≥ ${bb_upper:.2f})")
 

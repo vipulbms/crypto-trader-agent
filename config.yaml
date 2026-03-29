@@ -72,7 +72,7 @@ indicators:
   macd_signal: 9
   bb_period: 50           # 50×15-min = 12.5 hrs; prevents band-squeeze false signals (was 20)
   bb_std: 2
-  bb_min_width_pct: 1.5   # Ignore BB signals when band gap < 1.5% of price (squeezed bands = noise)
+  bb_min_width_pct: 0.5   # Ignore BB signals when band gap < 0.5% of price (squeezed bands = noise)
   bb_buy_tolerance_pct: 0.5   # Price may be up to 0.5% above lower BB and still count as a touch
   bb_sell_tolerance_pct: 0.5  # Price may be up to 0.5% below upper BB and still count as a touch
   ema_fast: 20
