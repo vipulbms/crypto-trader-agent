@@ -23,6 +23,11 @@
 | ETH/USD | 12% | 5% |
 | BNB/USD | 12% | 5% |
 | SOL/USD | 16% | 5% |
+| XRP/USD | 12% | 5% |
+| TRX/USD | 12% | 5% |
+| DOGE/USD | 20% | 5% |
+| ADA/USD | 12% | 5% |
+| LTC/USD | 12% | 5% |
 
 ---
 
@@ -314,12 +319,17 @@ trading:
     - pair: ETH/USD;  take_profit_pct: 12
     - pair: BNB/USD;  take_profit_pct: 12
     - pair: SOL/USD;  take_profit_pct: 16
+    - pair: XRP/USD;  take_profit_pct: 12
+    - pair: TRX/USD;  take_profit_pct: 12
+    - pair: DOGE/USD;  take_profit_pct: 20
+    - pair: ADA/USD;  take_profit_pct: 12
+    - pair: LTC/USD;  take_profit_pct: 12
 
 paper:
   starting_balance_usd: 1000
 
 llm:
-  model: qwen2.5:7b
+  model: qwen2.5:14b
   fallback_model: llama3.1:8b
   base_url: http://localhost:11434
   timeout_seconds: 60

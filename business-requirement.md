@@ -81,7 +81,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 | ID | Requirement |
 |---|---|
-| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD |
+| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, DAD/USD, LTC/USD |
 | FR-02 | The system MUST receive real-time price data from the Kraken public WebSocket feed (`wss://ws.kraken.com/v2`) |
 | FR-03 | The system MUST back-fill historical OHLCV candles from the Kraken public REST API on startup |
 | FR-04 | The system MUST maintain a rolling buffer of at least 200 one-minute candles per pair |
@@ -101,7 +101,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 | ID | Requirement |
 |---|---|
-| FR-11 | The system MUST use a locally hosted LLM (Ollama `qwen2.5:7b`) for final trade decisions |
+| FR-11 | The system MUST use a locally hosted LLM (Ollama `qwen2.5:14b`) for final trade decisions |
 | FR-12 | The LLM MUST receive a structured prompt each cycle containing portfolio state, per-pair indicators, signal direction, take-profit targets, and current holdings |
 | FR-13 | The LLM MUST call exactly one tool per pair per cycle: `propose_buy`, `propose_sell`, or `hold` |
 | FR-14 | Every `hold` decision MUST include a written reason from the LLM |
@@ -298,7 +298,7 @@ Live trading is authorised only after:
 
 | ID | Assumption |
 |---|---|
-| A-01 | The product owner will install Ollama and pull `qwen2.5:7b` before running the agent |
+| A-01 | The product owner will install Ollama and pull `qwen2.5:14b` before running the agent |
 | A-02 | The product owner has or will create a Kraken account with Spot trading enabled |
 | A-03 | Telegram bot setup is optional; the agent operates correctly without it |
 | A-04 | The machine running the agent has a stable internet connection for the Kraken price feed |
@@ -330,7 +330,7 @@ Live trading is authorised only after:
 | EMA | Exponential Moving Average — a trend-following indicator that weights recent prices more heavily |
 | Hold | A decision by the agent to take no action on a pair for the current cycle |
 | Intent | A classified user action (e.g. `view_report`, `start_agent`) extracted from a natural-language command by `NLParser` |
-| LLM | Large Language Model — the AI model (`qwen2.5:7b`) that makes trading judgements and powers the CLI NL parser |
+| LLM | Large Language Model — the AI model (`qwen2.5:14b`) that makes trading judgements and powers the CLI NL parser |
 | MACD | Moving Average Convergence Divergence — a momentum indicator |
 | NL / NLParser | Natural Language / the `NLParser` class that converts free-text input to a structured intent + params object |
 | Paper trading | Simulated trading using virtual money to validate strategy without financial risk |

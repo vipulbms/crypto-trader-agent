@@ -44,7 +44,7 @@ def print_welcome(mode: str = "paper") -> None:
         Panel(
             f"[bold white]AI-powered crypto trading agent[/bold white]\n"
             f"Mode: [{mode_style}]{mode.upper()}[/{mode_style}]  •  "
-            f"Pairs: BTC/USD  ETH/USD  BNB/USD  SOL/USD\n"
+            f"Pairs: BTC/USD  ETH/USD  BNB/USD  SOL/USD  XRP/USD  TRX/USD  DOGE/USD  ADA/USD\n"
             f"[dim]Type a question or command. Try [bold]help[/bold] to see what I can do.[/dim]",
             border_style="cyan",
             title="[bold cyan]Kryptos[/bold cyan]",

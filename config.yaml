@@ -32,6 +32,27 @@ trading:
     - pair: SOL/USD
       take_profit_pct: 16     # SOL is volatile — can reach larger moves
       stop_loss_pct: 5
+ #   - pair: USDT/USD
+ #     take_profit_pct: 5     # Stablecoin — should barely move. Use 5 as a trip-wire or just remove it
+ #     stop_loss_pct: 5
+    - pair: XRP/USD
+      take_profit_pct: 12     # High volatility, news-driven spikes
+      stop_loss_pct: 5
+#    - pair: USDC/USD
+#      take_profit_pct: 5     # Stablecoin — should barely move. Use 5 as a trip-wire or just remove it
+#      stop_loss_pct: 5
+    - pair: TRX/USD
+      take_profit_pct: 12     # TRX is volatile — can reach larger moves
+      stop_loss_pct: 5
+    - pair: DOGE/USD
+      take_profit_pct: 20     # Extremely meme-driven, can swing 20-30% in hours
+      stop_loss_pct: 5
+    - pair: ADA/USD
+      take_profit_pct: 12     # Moderate volatility, similar to ETH
+      stop_loss_pct: 5
+    - pair: LTC/USD
+      take_profit_pct: 12     #  Tends to follow BTC with amplified moves (1.5–2x). 12 fits well
+      stop_loss_pct: 5
 
 # ──────────────────────────────────────────────
 # Paper trading mode
@@ -66,8 +87,8 @@ llm:
   model: qwen2.5:14b            # Primary model — best tool-calling at 7B
   fallback_model: llama3.1:8b  # Used if primary fails
   base_url: http://localhost:11434
-  timeout_seconds: 60
-  max_reasoning_chars: 500     # Max chars stored in audit reasoning_summary
+  timeout_seconds: 180
+  max_reasoning_chars: 1000     # Max chars stored in audit reasoning_summary
 
 # ──────────────────────────────────────────────
 # Notifications

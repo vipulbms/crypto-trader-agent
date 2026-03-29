@@ -23,6 +23,11 @@ PAIR_MAP = {
     "ETH/USD": "ETH/USD",
     "BNB/USD": "BNB/USD",
     "SOL/USD": "SOL/USD",
+    "XRP/USD": "XRP/USD",
+    "TRX/USD": "TRX/USD",
+    "DOGE/USD": "DOGE/USD",
+    "ADA/USD": "ADA/USD",
+    "LTC/USD": "LTC/USD",
 }
 
 # Kraken REST public OHLC pair names (different format from WS)
@@ -31,6 +36,11 @@ REST_PAIR_MAP = {
     "ETH/USD": "ETHUSD",
     "BNB/USD": "BNBUSD",
     "SOL/USD": "SOLUSD",
+    "XRP/USD": "XRPUSD",
+    "TRX/USD": "TRXUSD",
+    "DOGE/USD": "XDGUSD",
+    "ADA/USD": "ADAUSD",
+    "LTC/USD": "LTCUSD",
 }
 
 KRAKEN_WS_URL = "wss://ws.kraken.com/v2"

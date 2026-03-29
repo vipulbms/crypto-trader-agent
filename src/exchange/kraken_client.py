@@ -16,6 +16,11 @@ KRAKEN_PAIR_MAP = {
     "ETH/USD": "ETH/USD",
     "BNB/USD": "BNB/USD",
     "SOL/USD": "SOL/USD",
+    "XRP/USD": "XRP/USD",
+    "TRX/USD": "TRX/USD",
+    "DOGE/USD": "DOGE/USD",
+    "ADA/USD": "ADA/USD",
+    "LTC/USD": "LTC/USD",
 }
 
 

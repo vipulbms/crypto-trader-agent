@@ -35,8 +35,8 @@ INTENTS = {
     "exit":             "Exit the Kryptos CLI",
 }
 
-PAIRS = ["BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD",
-         "BTC", "ETH", "BNB", "SOL"]
+PAIRS = ["BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD", "TRX/USD", "DOGE/USD", "ADA/USD", "LTC/USD",
+         "BTC", "ETH", "BNB", "SOL", "XRP", "TRX", "XDG", "ADA", "LTC"]
 
 _SYSTEM_PROMPT = """You are an intent-classification assistant for a crypto trading CLI called Kryptos.
 
@@ -47,7 +47,7 @@ Available intents:
 
 Parameters you can extract:
 - mode: "paper" or "live"  (default: "paper")
-- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD  (or null)
+- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD  (or null)
 - days: integer number of days  (default: 7 for decisions, 30 for trades)
 - count: integer number of records to show
 - date: ISO date string YYYY-MM-DD  (or null)

@@ -19,6 +19,7 @@ The agent:
 import argparse
 import asyncio
 import logging
+import logging.handlers
 import os
 import sys
 import time
@@ -35,7 +36,11 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/agent.log"),
+        logging.handlers.RotatingFileHandler(
+            "logs/agent.log",
+            maxBytes=100 * 1024 * 1024,  # 100 MB
+            backupCount=4,               # 1 active + 4 previous
+        ),
     ],
 )
 logger = logging.getLogger("main")
