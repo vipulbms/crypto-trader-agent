@@ -21,6 +21,7 @@ KRAKEN_PAIR_MAP = {
     "DOGE/USD": "DOGE/USD",
     "ADA/USD": "ADA/USD",
     "LTC/USD": "LTC/USD",
+    "RAILS/USD": "RAILS/USD",
 }
 
 

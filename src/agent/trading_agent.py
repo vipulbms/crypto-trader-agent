@@ -197,8 +197,8 @@ class TradingAgent:
                     tool_called = tc.function.name
                     tool_args   = dict(tc.function.arguments)
                     decision_type = (
-                        "TRADE_BUY"  if tool_called == "propose_buy"  else
-                        "TRADE_SELL" if tool_called == "propose_sell" else
+                        "BUY"  if tool_called == "propose_buy"  else
+                        "SELL" if tool_called == "propose_sell" else
                         "HOLD"
                     )
                 break
@@ -231,21 +231,22 @@ class TradingAgent:
 
         self._tools.set_llm_decision_id(decision_id)
 
-        # Execute the tool
+        # Execute the tool — always use the known pair from signals, never the LLM's
+        # tool_args pair (which may be hallucinated)
         try:
             if tool_called == "propose_buy":
                 return self._tools.propose_buy(
-                    pair=tool_args.get("pair", pair),
+                    pair=pair,
                     usd_amount=float(tool_args.get("usd_amount", 0)),
                 )
             elif tool_called == "propose_sell":
                 return self._tools.propose_sell(
-                    pair=tool_args.get("pair", pair),
+                    pair=pair,
                     reason=tool_args.get("reason", "Agent decision"),
                 )
             else:
                 return self._tools.hold(
-                    pair=tool_args.get("pair", pair),
+                    pair=pair,
                     reason=tool_args.get("reason", "No reason given"),
                 )
         except Exception as e:

@@ -13,7 +13,7 @@ Build a local AI agent that autonomously trades cryptocurrency on Kraken, with t
 | Max open positions | 3 across all pairs |
 | Daily loss limit | 10% of starting balance |
 | Minimum cash reserve | 10% of portfolio |
-| Pairs | BTC/USD · ETH/USD · BNB/USD · SOL/USD |
+| Pairs | BTC/USD · ETH/USD · BNB/USD · SOL/USD · ADA/USD · XRP/USD · TRX/USD · DOGE/USD · LTC/USD · RAILS/USD    |
 | Decision cycle | Every 15 minutes |
 | Paper mode balance | $1,000 virtual USD |
 
@@ -221,7 +221,7 @@ RULES (non-negotiable — enforced by the risk manager, not you):
 
 YOUR ROLE:
 - You receive a market summary and portfolio state every 15 minutes
-- You monitor 4 pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD
+- You monitor 10 pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD
 - You have 3 tools: propose_buy, propose_sell, hold
 - Your goal is capital PRESERVATION first, gains second
 - You are a CONSERVATIVE agent — only trade on strong, clear signal confluence

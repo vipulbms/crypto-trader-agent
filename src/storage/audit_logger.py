@@ -133,7 +133,7 @@ class AuditLogger:
         cycle_id: int,
         pair: str,
         model_name: str,
-        decision_type: str,       # 'TRADE_BUY' | 'TRADE_SELL' | 'HOLD'
+        decision_type: str,       # 'BUY' | 'SELL' | 'HOLD'
         tool_called: str,          # 'propose_buy' | 'propose_sell' | 'hold'
         raw_llm_output: str,
         tool_args: Optional[dict] = None,

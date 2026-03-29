@@ -29,6 +29,7 @@
 | DOGE/USD | 20% | 5% | Meme-driven; can swing 20–30% in hours |
 | ADA/USD | 12% | 5% | Moderate volatility, similar to ETH |
 | LTC/USD | 12% | 5% | Follows BTC with 1.5–2× amplification |
+| RAILS/USD | 20% | 5% | Meme-driven; can swing 20–30% in hours  |
 
 ---
 

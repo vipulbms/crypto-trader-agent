@@ -13,6 +13,7 @@
 | 1.0 | Initial release — trading agent, paper/live mode, audit trail, reporting scripts |
 | 1.1 | Added: Kryptos CLI (NL REPL + direct subcommands), Reports module (9 query functions), NL intent parser with Ollama + keyword fallback, agent process manager, Rich terminal display layer |
 | 1.2 | Changed candle interval from 1-min to 15-min; expanded pair list from 4 to 9 pairs (added XRP, TRX, DOGE, ADA, LTC); updated indicator parameters (BB period 50, EMA slow 200, RSI thresholds 30/60); added BB band-squeeze guard; all parameters externalised to config.yaml; added SGT timezone throughout; added rotating log files (100 MB, 4 backups); added per-method performance timing; expanded config.yaml with `signals:`, `exchange:`, and new `indicators:` keys |
+| 1.3 | Added RAILS/USD as 10th trading pair (TP 20%, SL 5%); added RAILS to WebSocket PAIR_MAP and REST_PAIR_MAP; added `/add-pair` Claude Code skill for onboarding new pairs |
 
 ---
 
@@ -52,7 +53,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 ### 4.1 In Scope
 
-- Automated monitoring and trading of nine cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD**
+- Automated monitoring and trading of ten cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD**
 - Technical analysis of market data (RSI, MACD, Bollinger Bands, EMA, ATR)
 - AI-assisted buy, sell, and hold decisions using a locally hosted LLM
 - Deterministic risk management layer that cannot be overridden by the AI
@@ -82,7 +83,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 | ID | Requirement |
 |---|---|
-| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD |
+| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD |
 | FR-02 | The system MUST receive real-time price data from the Kraken public WebSocket feed (`wss://ws.kraken.com/v2`) |
 | FR-03 | The system MUST back-fill historical OHLCV candles from the Kraken public REST API on startup |
 | FR-04 | The system MUST maintain a rolling buffer of **300 fifteen-minute candles** (75 hours of history) per pair |
@@ -178,7 +179,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 |---|---|
 | FR-49 | The agent MUST run a decision cycle every **15 minutes** |
 | FR-50 | The agent MUST wait for at least **220 candles** per pair before running the first cycle (configurable via `indicators.min_candles_to_start`); a timeout (default 300 s) allows the agent to proceed if the buffer does not fill in time |
-| FR-51 | One LLM call MUST be made per pair per cycle (9 calls per cycle total across all pairs) |
+| FR-51 | One LLM call MUST be made per pair per cycle (10 calls per cycle total across all pairs) |
 | FR-52 | Any exception in a single pair's cycle MUST be logged and the agent MUST continue processing the remaining pairs |
 | FR-73 | The system MUST log execution time for every significant method in the decision flow using a `@timed` decorator; each log entry MUST include: cycle ID, class name, method name, key parameters, and elapsed milliseconds |
 | FR-74 | All timestamps throughout the system (database writes, log entries, cycle prompts) MUST use **Singapore Standard Time (SGT, UTC+8)** |
@@ -262,6 +263,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 | DOGE/USD | 20% | 5% | Meme-driven asset; can swing 20–30% in hours; high TP justified |
 | ADA/USD | 12% | 5% | Moderate volatility, comparable to ETH |
 | LTC/USD | 12% | 5% | Follows BTC moves with roughly 1.5–2× amplification |
+| RAILS/USD | 20% | 5% | High-volatility asset; meme-driven swings of 20–30% achievable |
 
 ---
 

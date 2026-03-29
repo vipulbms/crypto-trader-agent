@@ -20,15 +20,16 @@ logger = logging.getLogger(__name__)
 
 # Kraken uses XBT internally; map display names to Kraken WS pair names
 PAIR_MAP = {
-    "BTC/USD": "XBT/USD",
-    "ETH/USD": "ETH/USD",
-    "BNB/USD": "BNB/USD",
-    "SOL/USD": "SOL/USD",
-    "XRP/USD": "XRP/USD",
-    "TRX/USD": "TRX/USD",
-    "DOGE/USD": "DOGE/USD",
-    "ADA/USD": "ADA/USD",
-    "LTC/USD": "LTC/USD",
+    "BTC/USD":   "XBT/USD",
+    "ETH/USD":   "ETH/USD",
+    "BNB/USD":   "BNB/USD",
+    "SOL/USD":   "SOL/USD",
+    "XRP/USD":   "XRP/USD",
+    "TRX/USD":   "TRX/USD",
+    "DOGE/USD":  "DOGE/USD",
+    "ADA/USD":   "ADA/USD",
+    "LTC/USD":   "LTC/USD",
+    "RAILS/USD": "RAILS/USD",
 }
 
 # Kraken REST public OHLC pair names (different format from WS)
@@ -42,6 +43,7 @@ REST_PAIR_MAP = {
     "DOGE/USD": "XDGUSD",
     "ADA/USD": "ADAUSD",
     "LTC/USD": "LTCUSD",
+    "RAILS/USD": "RAILSUSD",
 }
 
 KRAKEN_WS_URL = "wss://ws.kraken.com/v2"

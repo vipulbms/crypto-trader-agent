@@ -47,7 +47,7 @@ Available intents:
 
 Parameters you can extract:
 - mode: "paper" or "live"  (default: "paper")
-- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD  (or null)
+- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD  (or null)
 - days: integer number of days  (default: 7 for decisions, 30 for trades)
 - count: integer number of records to show
 - date: ISO date string YYYY-MM-DD  (or null)

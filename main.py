@@ -230,6 +230,7 @@ async def run_cycle(
     """Execute one decision cycle: collect data → build signals → run LLM → execute."""
     from src.analysis.indicators import compute_indicators
     from src.analysis.signals import generate_signal
+    from src.utils.timing import set_cycle_id
 
     cycle_start_ms = int(time.time() * 1000)
     ind_cfg = config.get("indicators", {})
@@ -262,6 +263,7 @@ async def run_cycle(
         daily_pnl_usd=daily_pnl["pnl_usd"],
         daily_pnl_pct=daily_pnl["pnl_pct"],
     )
+    set_cycle_id(cycle_id)  # propagate to all @timed calls in this cycle
 
     # Check daily loss limit
     trading_cfg     = config.get("trading", {})

@@ -46,7 +46,7 @@ def print_welcome(mode: str = "paper") -> None:
         Panel(
             f"[bold white]AI-powered crypto trading agent[/bold white]\n"
             f"Mode: [{mode_style}]{mode.upper()}[/{mode_style}]  •  "
-            f"Pairs: BTC/USD  ETH/USD  BNB/USD  SOL/USD  XRP/USD  TRX/USD  DOGE/USD  ADA/USD\n"
+            f"Pairs: BTC/USD  ETH/USD  BNB/USD  SOL/USD  XRP/USD  TRX/USD  DOGE/USD  ADA/USD  LTC/USD  RAILS/USD\n"
             f"[dim]Type a question or command. Try [bold]help[/bold] to see what I can do.[/dim]",
             border_style="cyan",
             title="[bold cyan]Kryptos[/bold cyan]",
@@ -349,16 +349,25 @@ def print_llm_patterns(data: dict) -> None:
     matrix = data.get("pair_matrix", {})
     if matrix:
         tbl = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
-        tbl.add_column("Pair",  style="cyan",   width=10)
-        tbl.add_column("BUY",   style="green",  width=6)
-        tbl.add_column("SELL",  style="red",    width=6)
-        tbl.add_column("HOLD",  style="yellow", width=6)
-        tbl.add_column("Total", style="white",  width=7)
-        for pair, counts in matrix.items():
-            b = counts.get("BUY", 0)
-            s = counts.get("SELL", 0)
-            h = counts.get("HOLD", 0)
-            tbl.add_row(pair, str(b), str(s), str(h), str(b + s + h))
+        tbl.add_column("Pair",          style="cyan",   width=10)
+        tbl.add_column("LLM Buy",       style="green",  width=9)
+        tbl.add_column("LLM Sell",      style="red",    width=9)
+        tbl.add_column("LLM Hold",      style="yellow", width=9)
+        tbl.add_column("Risk ✓",        style="green",  width=8)
+        tbl.add_column("Risk ✗",        style="red",    width=8)
+        tbl.add_column("Executed",      style="green",  width=10)
+        tbl.add_column("Final Hold",    style="yellow", width=11)
+        for pair, c in matrix.items():
+            tbl.add_row(
+                pair,
+                str(c.get("LLM_BUY",  0)),
+                str(c.get("LLM_SELL", 0)),
+                str(c.get("LLM_HOLD", 0)),
+                str(c.get("RISK_APPROVED", 0)),
+                str(c.get("RISK_REJECTED", 0)),
+                str(c.get("FINAL_EXECUTED", 0)),
+                str(c.get("FINAL_HOLD", 0)),
+            )
         console.print(Panel(tbl, title="Decision Breakdown by Pair", border_style="cyan"))
 
     # Models

@@ -52,19 +52,17 @@ class PaperBroker:
         cash = float(row["cash_usd"]) if row else 0.0
 
         positions = conn.execute(
-            "SELECT pair, volume, usd_value FROM paper_positions WHERE status='open'"
+            "SELECT pair, volume FROM paper_positions WHERE status='open'"
         ).fetchall()
         conn.close()
 
         holdings = {"BTC": 0.0, "ETH": 0.0, "BNB": 0.0, "SOL": 0.0}
-        open_pos_value = 0.0
         for pos in positions:
             coin = pos["pair"].split("/")[0]
             holdings[coin] = holdings.get(coin, 0.0) + float(pos["volume"])
-            open_pos_value += float(pos["usd_value"])
 
         return {
-            "total_usd":          round(cash + open_pos_value, 4),  # cash + open positions at entry cost
+            "total_usd":          cash,    # approximate — doesn't mark-to-market
             "available_cash_usd": cash,
             "holdings":           holdings,
         }
@@ -186,7 +184,7 @@ class PaperBroker:
         # Sell at slight slippage below current price
         fill_price  = round(exit_price * (1 - self._slippage), 8)
         gross_out   = round(fill_price * pos["volume"], 4)
-        fee_usd     = round(gross_out * self._maker_fee, 4)
+        fee_usd     = round(gross_out * 0.0026, 4)
         net_out     = round(gross_out - fee_usd, 4)
         pnl_usd     = round(net_out - pos["usd_value"], 4)
         pnl_pct     = round(pnl_usd / pos["usd_value"] * 100, 2) if pos["usd_value"] else 0.0
@@ -302,12 +300,9 @@ class PaperBroker:
         return closed
 
     def get_daily_pnl(self, start_of_day_balance: float) -> dict:
-        """Calculate P&L for today vs a starting balance snapshot.
-        Uses total_usd (cash + open positions at entry cost) so that opening a
-        position does not register as a loss — only fees and realised losses count.
-        """
+        """Calculate P&L for today vs a starting balance snapshot."""
         balance = self.get_balance()
-        pnl_usd = balance["total_usd"] - start_of_day_balance
+        pnl_usd = balance["available_cash_usd"] - start_of_day_balance
         pnl_pct = (pnl_usd / start_of_day_balance * 100) if start_of_day_balance else 0.0
         return {
             "pnl_usd": round(pnl_usd, 2),

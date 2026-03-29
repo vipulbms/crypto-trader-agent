@@ -361,13 +361,42 @@ def get_llm_decision_patterns(mode: str, config: dict, days: int = 14) -> dict:
 
     ac.close()
 
-    # Build per-pair matrix
+    # Risk approvals / rejections per pair per decision type
+    risk_by_pair = ac.execute(
+        """SELECT d.pair, d.decision_type, r.approved, COUNT(*) as cnt
+           FROM audit_risk_checks r
+           JOIN audit_llm_decisions d ON r.llm_decision_id = d.id
+           WHERE d.mode=? AND d.decided_at >= ?
+           GROUP BY d.pair, d.decision_type, r.approved""",
+        (mode, since),
+    ).fetchall()
+
+    ac.close()
+
+    # Build per-pair matrix: LLM proposed, risk approved, risk rejected, final outcome
     pair_matrix: dict = {}
     for row in by_pair:
         p = row["pair"]
         if p not in pair_matrix:
-            pair_matrix[p] = {"BUY": 0, "SELL": 0, "HOLD": 0}
-        pair_matrix[p][row["decision_type"]] = row["cnt"]
+            pair_matrix[p] = {
+                "LLM_BUY": 0, "LLM_SELL": 0, "LLM_HOLD": 0,
+                "RISK_APPROVED": 0, "RISK_REJECTED": 0,
+                "FINAL_EXECUTED": 0, "FINAL_HOLD": 0,
+            }
+        pair_matrix[p][f"LLM_{row['decision_type']}"] = row["cnt"]
+        if row["decision_type"] == "HOLD":
+            pair_matrix[p]["FINAL_HOLD"] += row["cnt"]
+
+    for row in risk_by_pair:
+        p = row["pair"]
+        if p not in pair_matrix:
+            continue
+        if row["approved"]:
+            pair_matrix[p]["RISK_APPROVED"] += row["cnt"]
+            pair_matrix[p]["FINAL_EXECUTED"] += row["cnt"]
+        else:
+            pair_matrix[p]["RISK_REJECTED"] += row["cnt"]
+            pair_matrix[p]["FINAL_HOLD"] += row["cnt"]
 
     return {
         "days": days,

@@ -60,7 +60,7 @@ class TradingTools:
         Stop-loss and take-profit are set automatically.
 
         Args:
-            pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', LTC/USD
+            pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', LTC/USD, 'RAILS/USD'
             usd_amount: Amount in USD to invest (will be capped at 30% of portfolio)
 
         Returns:

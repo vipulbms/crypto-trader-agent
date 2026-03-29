@@ -47,6 +47,9 @@ trading:
     - pair: LTC/USD
       take_profit_pct: 12     # Follows BTC with amplified moves (1.5–2x)
       stop_loss_pct: 5
+    - pair: RAILS/USD
+      take_profit_pct: 20     # Extremely meme-driven, can swing 20-30% in hours
+      stop_loss_pct: 5
 
 # ──────────────────────────────────────────────
 # Paper trading mode
