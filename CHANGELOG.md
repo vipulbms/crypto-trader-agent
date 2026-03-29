@@ -2,6 +2,31 @@
 
 ---
 
+## Session: 2026-03-30
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|---|---|---|
+| Daily loss limit fires immediately after every BUY (30.1% false loss) | `PaperBroker.get_balance()` returned `total_usd = cash` only, not including open position entry values. `get_daily_pnl()` used `available_cash_usd` instead of `total_usd`. After buying BNB for $209.77, cash dropped from $699.22 to $488.90, which looked like a 30.1% loss | `get_balance()` now queries `usd_value` from open positions and adds to cash for `total_usd`. `get_daily_pnl()` now uses `total_usd` |
+| `close_position()` would crash on first real stop-loss or take-profit | `datetime.fromisoformat()` used inside `close_position()` but `datetime` was never imported | Added `from datetime import datetime` |
+
+### Key Insight
+The previous session fixed the same `get_balance()` / `get_daily_pnl()` bug, but the fix was lost between sessions (paper_broker.py was reverted to a version without the fix). The correct state is: `total_usd = cash + sum(usd_value of open positions)`. Buying a position does NOT reduce `total_usd` — it converts cash into a position of equal entry value. Only unrealised losses (price moving against the position) should reduce `total_usd`, and only realised losses (close_position) should permanently reduce it.
+
+### Critical Convention (reinforced)
+- `PaperBroker.get_balance()` must return `total_usd = cash + open_position_entry_values` — never cash-only
+- `get_daily_pnl()` must use `total_usd`, never `available_cash_usd`
+- `from datetime import datetime` must be present in `paper_broker.py`
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/exchange/paper_broker.py` | `get_balance()` now includes open position `usd_value`; `get_daily_pnl()` uses `total_usd`; added `from datetime import datetime` |
+
+---
+
 ## Session: 2026-03-29 (continued — night)
 
 ### Bugs Fixed
