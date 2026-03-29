@@ -25,7 +25,8 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     Returns a flat dict of indicator values for the most recent candle,
     or None if there are insufficient candles.
     """
-    if not candles or len(candles) < 60:  # 60 × 15-min = 15 hours minimum before computing indicators
+    min_candles = config.get("indicators", {}).get("min_candles_to_start", 220)
+    if not candles or len(candles) < min_candles:
         return None
 
     ind_cfg = config.get("indicators", {})

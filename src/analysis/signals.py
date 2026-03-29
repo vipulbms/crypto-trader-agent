@@ -35,8 +35,25 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         - Price above upper Bollinger Band
     """
     ind_cfg = config.get("indicators", {})
-    rsi_oversold   = ind_cfg.get("rsi_oversold", 35)
-    rsi_overbought = ind_cfg.get("rsi_overbought", 65)
+    sig_cfg = config.get("signals", {})
+
+    rsi_oversold   = ind_cfg.get("rsi_oversold", 30)
+    rsi_overbought = ind_cfg.get("rsi_overbought", 60)
+    bb_min_width   = ind_cfg.get("bb_min_width_pct", 0.5)
+    bb_buy_tol     = 1 + ind_cfg.get("bb_buy_tolerance_pct", 1.0) / 100
+    bb_sell_tol    = 1 - ind_cfg.get("bb_sell_tolerance_pct", 1.0) / 100
+
+    w_rsi_oversold  = sig_cfg.get("rsi_oversold_score", 3)
+    w_macd_hist_pos = sig_cfg.get("macd_hist_positive_score", 2)
+    w_macd_cross    = sig_cfg.get("macd_crossover_score", 1)
+    w_bb_lower      = sig_cfg.get("bb_lower_score", 3)
+    w_ema_uptrend   = sig_cfg.get("ema_uptrend_score", 1)
+    w_rsi_overbought= sig_cfg.get("rsi_overbought_score", 3)
+    w_macd_hist_neg = sig_cfg.get("macd_hist_negative_score", 2)
+    w_bb_upper      = sig_cfg.get("bb_upper_score", 2)
+    max_score       = sig_cfg.get("max_score", 10)
+    buy_min_score   = sig_cfg.get("buy_min_score", 4)
+    sell_min_score  = sig_cfg.get("sell_min_score", 3)
 
     rsi        = indicators.get("rsi_14")
     macd_line  = indicators.get("macd_line")
@@ -54,41 +71,44 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
 
     # ── BUY signals ──────────────────────────────────────
     if rsi is not None and rsi < rsi_oversold:
-        buy_score += 3
+        buy_score += w_rsi_oversold
         reasons.append(f"RSI oversold ({rsi:.1f} < {rsi_oversold})")
 
     if macd_hist is not None and macd_hist > 0:
-        buy_score += 2
+        buy_score += w_macd_hist_pos
         reasons.append("MACD histogram positive (bullish momentum)")
 
     if macd_line is not None and macd_sig is not None and macd_line > macd_sig:
-        buy_score += 1
+        buy_score += w_macd_cross
         reasons.append("MACD line above signal (bullish crossover)")
 
-    if bb_lower is not None and price and price <= bb_lower * 1.01:
-        buy_score += 3
+    # Only use BB signals when bands have meaningful width.
+    # Squeezed bands mean upper ≈ lower ≈ price — both touch simultaneously, which is noise.
+    bb_width_pct = ((bb_upper - bb_lower) / price * 100) if (bb_upper and bb_lower and price) else 0
+    bb_wide_enough = bb_width_pct >= bb_min_width
+
+    if bb_wide_enough and bb_lower is not None and price and price <= bb_lower * bb_buy_tol:
+        buy_score += w_bb_lower
         reasons.append(f"Price at/near lower Bollinger Band (${price:.2f} ≤ ${bb_lower:.2f})")
 
     if ema_fast is not None and ema_slow is not None and ema_fast >= ema_slow:
-        buy_score += 1
-        reasons.append("EMA20 ≥ EMA50 (uptrend)")
+        buy_score += w_ema_uptrend
+        reasons.append("EMA fast ≥ EMA slow (uptrend)")
 
     # ── SELL signals ─────────────────────────────────────
     if rsi is not None and rsi > rsi_overbought:
-        sell_score += 3
+        sell_score += w_rsi_overbought
         reasons.append(f"RSI overbought ({rsi:.1f} > {rsi_overbought})")
 
     if macd_hist is not None and macd_hist < 0:
-        sell_score += 2
+        sell_score += w_macd_hist_neg
         reasons.append("MACD histogram negative (bearish momentum)")
 
-    if bb_upper is not None and price and price >= bb_upper * 0.99:
-        sell_score += 2
+    if bb_wide_enough and bb_upper is not None and price and price >= bb_upper * bb_sell_tol:
+        sell_score += w_bb_upper
         reasons.append(f"Price at/near upper Bollinger Band (${price:.2f} ≥ ${bb_upper:.2f})")
 
-    max_score = 10.0
-
-    if buy_score > sell_score and buy_score >= 4:
+    if buy_score > sell_score and buy_score >= buy_min_score:
         strength = min(buy_score / max_score, 1.0)
         return {
             "pair":     pair,
@@ -97,7 +117,7 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
             "reasons":  reasons,
             "price":    price,
         }
-    elif sell_score > buy_score and sell_score >= 3:
+    elif sell_score > buy_score and sell_score >= sell_min_score:
         strength = min(sell_score / max_score, 1.0)
         return {
             "pair":     pair,

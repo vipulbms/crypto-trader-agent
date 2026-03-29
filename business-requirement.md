@@ -3,7 +3,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.1 |
+| Document version | 1.2 |
 | Date | 28 March 2026 |
 | Author | Vipul Sanghrajka |
 | Status | Approved — implementation complete |
@@ -12,6 +12,7 @@
 |---|---|
 | 1.0 | Initial release — trading agent, paper/live mode, audit trail, reporting scripts |
 | 1.1 | Added: Kryptos CLI (NL REPL + direct subcommands), Reports module (9 query functions), NL intent parser with Ollama + keyword fallback, agent process manager, Rich terminal display layer |
+| 1.2 | Changed candle interval from 1-min to 15-min; expanded pair list from 4 to 9 pairs (added XRP, TRX, DOGE, ADA, LTC); updated indicator parameters (BB period 50, EMA slow 200, RSI thresholds 30/60); added BB band-squeeze guard; all parameters externalised to config.yaml; added SGT timezone throughout; added rotating log files (100 MB, 4 backups); added per-method performance timing; expanded config.yaml with `signals:`, `exchange:`, and new `indicators:` keys |
 
 ---
 
@@ -51,7 +52,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 ### 4.1 In Scope
 
-- Automated monitoring and trading of four cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD**
+- Automated monitoring and trading of nine cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD**
 - Technical analysis of market data (RSI, MACD, Bollinger Bands, EMA, ATR)
 - AI-assisted buy, sell, and hold decisions using a locally hosted LLM
 - Deterministic risk management layer that cannot be overridden by the AI
@@ -81,21 +82,22 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 | ID | Requirement |
 |---|---|
-| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, DAD/USD, LTC/USD |
+| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD |
 | FR-02 | The system MUST receive real-time price data from the Kraken public WebSocket feed (`wss://ws.kraken.com/v2`) |
 | FR-03 | The system MUST back-fill historical OHLCV candles from the Kraken public REST API on startup |
-| FR-04 | The system MUST maintain a rolling buffer of at least 200 one-minute candles per pair |
-| FR-05 | The system MUST automatically reconnect to the WebSocket feed if the connection is lost |
+| FR-04 | The system MUST maintain a rolling buffer of **300 fifteen-minute candles** (75 hours of history) per pair |
+| FR-05 | The system MUST automatically reconnect to the WebSocket feed if the connection is lost, using exponential backoff up to a configurable maximum |
 
 ### 5.2 Technical Analysis
 
 | ID | Requirement |
 |---|---|
-| FR-06 | The system MUST compute RSI (period 14), MACD (12/26/9), Bollinger Bands (period 20, std 2), EMA-20, EMA-50, and ATR (period 14) per pair |
-| FR-07 | The system MUST require a minimum of 60 candles before generating any signal |
-| FR-08 | The system MUST classify each pair as BUY, SELL, or HOLD with a signal strength score between 0 and 1 |
-| FR-09 | BUY signals MUST require confluence of oversold RSI (< 35), bullish MACD, and price near the lower Bollinger Band |
-| FR-10 | SELL signals MUST trigger when RSI > 65 or MACD turns bearish |
+| FR-06 | The system MUST compute RSI (period 14), MACD (12/26/9), Bollinger Bands (period 50, std 2), EMA-20, EMA-200, and ATR (period 14) per pair on 15-minute candles |
+| FR-06a | Bollinger Band signals MUST be suppressed when band width is less than 0.5% of the current price (band-squeeze guard) to prevent contradictory simultaneous buy/sell signals |
+| FR-07 | The system MUST require a minimum of **220 candles** per pair before generating any signal, to ensure all indicators (especially EMA-200) have sufficient warm-up data |
+| FR-08 | The system MUST classify each pair as BUY, SELL, or HOLD using a **weighted point scoring system** configurable in `config.yaml` under `signals:` |
+| FR-09 | BUY signals MUST require a configurable minimum score (default 4 pts) from: oversold RSI (< 30, +3 pts), bullish MACD histogram (+2 pts), MACD crossover (+1 pt), price near lower Bollinger Band (+3 pts), EMA uptrend (+1 pt) |
+| FR-10 | SELL signals MUST require a configurable minimum score (default 3 pts) from: overbought RSI (> 60, +3 pts), bearish MACD histogram (+2 pts), price near upper Bollinger Band (+2 pts) |
 
 ### 5.3 AI Decision Making
 
@@ -175,9 +177,12 @@ The agent must operate continuously, make data-driven decisions using a locally-
 | ID | Requirement |
 |---|---|
 | FR-49 | The agent MUST run a decision cycle every **15 minutes** |
-| FR-50 | The agent MUST wait for at least **60 candles** per pair before running the first cycle |
-| FR-51 | One LLM call MUST be made per pair per cycle (4 calls per cycle total) |
+| FR-50 | The agent MUST wait for at least **220 candles** per pair before running the first cycle (configurable via `indicators.min_candles_to_start`); a timeout (default 300 s) allows the agent to proceed if the buffer does not fill in time |
+| FR-51 | One LLM call MUST be made per pair per cycle (9 calls per cycle total across all pairs) |
 | FR-52 | Any exception in a single pair's cycle MUST be logged and the agent MUST continue processing the remaining pairs |
+| FR-73 | The system MUST log execution time for every significant method in the decision flow using a `@timed` decorator; each log entry MUST include: cycle ID, class name, method name, key parameters, and elapsed milliseconds |
+| FR-74 | All timestamps throughout the system (database writes, log entries, cycle prompts) MUST use **Singapore Standard Time (SGT, UTC+8)** |
+| FR-75 | Agent logs MUST be written to `logs/agent.log` using a **rotating file handler**: maximum 100 MB per file, retaining 4 backup copies |
 
 ### 5.11 CLI — Natural Language Interface
 
@@ -221,10 +226,10 @@ The agent must operate continuously, make data-driven decisions using a locally-
 | NFR-04 | **Auditability** — Every decision MUST be traceable from cycle timestamp to final fill via the audit database foreign-key chain |
 | NFR-05 | **Determinism** — Risk rule enforcement is deterministic Python; the same portfolio state and signals MUST always produce the same risk outcome regardless of LLM output |
 | NFR-06 | **Crash resilience (live mode)** — Stop-loss and take-profit orders placed on Kraken servers MUST survive application crashes or network outages |
-| NFR-07 | **Configurability** — All trading parameters (SL%, TP%, cycle interval, pair list, indicator periods) MUST be adjustable via `config.yaml` without code changes |
+| NFR-07 | **Configurability** — All trading parameters (SL%, TP%, cycle interval, pair list, indicator periods, signal scoring weights, BB squeeze threshold, candle buffer size, LLM timeout, WebSocket ping/backoff, log rotation settings) MUST be adjustable via `config.yaml` without code changes; the config is organised into sections: `trading`, `paper`, `indicators`, `signals`, `llm`, `risk`, `exchange`, `storage` |
 | NFR-08 | **Security** — API credentials MUST be stored in `.env` only, never in source code or committed to version control |
-| NFR-09 | **Observability** — The agent MUST write structured logs to both stdout and `agent.log` |
-| NFR-10 | **Performance** — Each decision cycle MUST complete within the 15-minute window; LLM calls have a 60-second timeout |
+| NFR-09 | **Observability** — The agent MUST write structured logs to both stdout and `logs/agent.log`; the log file MUST rotate at 100 MB with 4 backup copies; every method in the decision flow MUST emit a timing log entry |
+| NFR-10 | **Performance** — Each decision cycle MUST complete within the 15-minute window; LLM calls have a 600-second timeout (configurable) |
 | NFR-11 | **CLI usability** — The CLI MUST be operable by a non-technical user through natural language; it MUST work without any knowledge of subcommand syntax; keyword fallback MUST require no additional configuration |
 
 ---
@@ -236,7 +241,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 | BR-01 | The agent MUST NOT trade if the daily loss limit has been reached, even if the LLM proposes a buy |
 | BR-02 | The agent MUST NOT open a position if doing so would reduce available cash below 10% of portfolio |
 | BR-03 | The agent MUST NOT open a 4th position if 3 are already open |
-| BR-04 | The stop-loss percentage is fixed at 5% and MUST NOT be configurable without changing code |
+| BR-04 | The stop-loss percentage defaults to 5% and is configurable only via `config.yaml`; it MUST NOT be overridable by the LLM at runtime |
 | BR-05 | Take-profit values MUST come from the whitelist `[5, 8, 12, 16, 20]`; any other value prevents startup |
 | BR-06 | Proposed trade amounts exceeding 30% of portfolio MUST be silently capped (not rejected) to enable partial execution |
 | BR-07 | Live trading MUST NOT begin without a completed and reviewed two-week paper trading run |
@@ -248,10 +253,15 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 | Pair | Take-Profit | Stop-Loss | Rationale |
 |---|---|---|---|
-| BTC/USD | 8% | 5% | BTC is the most mature asset; large daily swings are less frequent; conservative target is appropriate |
-| ETH/USD | 12% | 5% | ETH exhibits moderate volatility; a 12% target balances realism with profitability |
+| BTC/USD | 8% | 5% | Most mature asset; large swings are less frequent; conservative target is appropriate |
+| ETH/USD | 12% | 5% | Moderate volatility; 12% balances realism with profitability |
 | BNB/USD | 12% | 5% | Similar volatility profile to ETH |
-| SOL/USD | 16% | 5% | SOL is the most volatile pair in the set; larger price swings make a 16% TP achievable |
+| SOL/USD | 16% | 5% | High volatility; larger price swings make a 16% TP achievable |
+| XRP/USD | 12% | 5% | News-driven spikes common; RSI rarely drops below 30 on 15-min candles |
+| TRX/USD | 12% | 5% | Mid-tier altcoin with moderate, ETH-like volatility |
+| DOGE/USD | 20% | 5% | Meme-driven asset; can swing 20–30% in hours; high TP justified |
+| ADA/USD | 12% | 5% | Moderate volatility, comparable to ETH |
+| LTC/USD | 12% | 5% | Follows BTC moves with roughly 1.5–2× amplification |
 
 ---
 

@@ -29,26 +29,31 @@ from datetime import datetime, timezone
 import yaml
 from dotenv import load_dotenv
 
-# ── Logging setup ─────────────────────────────────────────────
-os.makedirs("logs", exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.handlers.RotatingFileHandler(
-            "logs/agent.log",
-            maxBytes=100 * 1024 * 1024,  # 100 MB
-            backupCount=4,               # 1 active + 4 previous
-        ),
-    ],
-)
 logger = logging.getLogger("main")
 
 
 def load_config(path: str = "config.yaml") -> dict:
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+def setup_logging(config: dict) -> None:
+    storage_cfg = config.get("storage", {})
+    max_bytes   = storage_cfg.get("log_max_bytes", 100 * 1024 * 1024)
+    backup_count= storage_cfg.get("log_backup_count", 4)
+    os.makedirs("logs", exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.handlers.RotatingFileHandler(
+                "logs/agent.log",
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+            ),
+        ],
+    )
 
 
 def print_banner(mode: str, balance: float, pairs: list) -> None:
@@ -106,8 +111,9 @@ async def run_agent(config: dict, mode: str) -> None:
         from src.exchange.paper_broker import PaperBroker
         paper_cfg   = config.get("paper", {})
         slippage    = paper_cfg.get("slippage_pct", 0.05)
+        maker_fee   = paper_cfg.get("maker_fee_pct", 0.26)
         paper_db    = storage_cfg.get("paper_db", "paper_trading.db")
-        broker      = PaperBroker(paper_db=paper_db, slippage_pct=slippage)
+        broker      = PaperBroker(paper_db=paper_db, slippage_pct=slippage, maker_fee_pct=maker_fee)
     else:
         from src.exchange.kraken_client import KrakenClient
         api_key    = os.getenv("KRAKEN_API_KEY")
@@ -148,17 +154,21 @@ async def run_agent(config: dict, mode: str) -> None:
     logger.info("Starting WebSocket price feed...")
     await ws_feed.start()
 
-    # Wait for initial candle buffer to fill (at least 60 candles per pair)
-    logger.info("Waiting for candle buffer to fill (min 60 candles per pair)...")
+    ind_cfg_startup  = config.get("indicators", {})
+    min_candles      = ind_cfg_startup.get("min_candles_to_start", 220)
+    buf_timeout      = ind_cfg_startup.get("buffer_fill_timeout_secs", 300)
+    buf_check        = ind_cfg_startup.get("buffer_check_interval_secs", 5)
+
+    logger.info("Waiting for candle buffer to fill (min %d candles per pair)...", min_candles)
     wait_start = time.time()
     while True:
-        ready = all(ws_feed.is_ready(pair, min_candles=60) for pair in pairs)
+        ready = all(ws_feed.is_ready(pair, min_candles=min_candles) for pair in pairs)
         if ready:
             break
-        if time.time() - wait_start > 300:  # 5 minute timeout
-            logger.warning("Buffer not fully filled after 5 min — proceeding anyway")
+        if time.time() - wait_start > buf_timeout:
+            logger.warning("Buffer not fully filled after %ds — proceeding anyway", buf_timeout)
             break
-        await asyncio.sleep(5)
+        await asyncio.sleep(buf_check)
     logger.info("Candle buffers ready. Starting decision cycles.")
 
     # ── Main cycle loop ────────────────────────────────────────
@@ -337,6 +347,7 @@ def main() -> None:
 
     mode   = "paper" if args.paper else "live"
     config = load_config(args.config)
+    setup_logging(config)
 
     asyncio.run(run_agent(config, mode))
 

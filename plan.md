@@ -116,17 +116,23 @@ A separate entry point gives the product owner a natural-language interface to t
 ## 3. Decision Cycle (every 15 minutes)
 
 ```
-1. WebSocket feed delivers latest 1-min candles (buffer: 200 per pair)
-2. compute_indicators()  — RSI, MACD, Bollinger Bands, EMA, ATR via pandas-ta
+1. WebSocket feed delivers latest 15-min candles (buffer: 300 per pair = 75 hours)
+   - Back-fills 300 candles from Kraken REST API on startup
+   - Agent waits for 220 candles before first cycle (covers EMA(200) warmup)
+2. compute_indicators()  — RSI(14), MACD(12/26/9), BB(50,2), EMA(20/200), ATR(14)
+   - Uses `ta` library (pandas-ta replacement for Python 3.11 compatibility)
 3. generate_signal()     — rule-based BUY/SELL/HOLD with strength score
-4. build_cycle_prompt()  — inject portfolio state + all 4 pairs into LLM context
+   - All weights, thresholds, and tolerances read from config.yaml signals: section
+   - BB signals suppressed when band width < bb_min_width_pct (prevents squeeze noise)
+4. build_cycle_prompt()  — inject portfolio state + all pair signals into LLM context
 5. TradingAgent.run_cycle()
      └─ For each pair → Ollama LLM call with tool definitions
           └─ LLM returns tool call: propose_buy | propose_sell | hold
                └─ RiskManager.validate_buy() — approve / cap / reject
                     └─ PaperBroker / KrakenClient — execute order
 6. AuditLogger records EVERY decision (including HOLD) to audit.db
-7. Notifier sends Telegram alert
+7. Notifier sends Telegram alert (async, non-blocking via asyncio.create_task)
+8. [TIMING] log line emitted for every method in the flow (cycle_id, class, method, params, ms)
 ```
 
 ---
@@ -397,32 +403,61 @@ Example: {"intent": "trade_details", "params": {"pair": "BTC/USD", "days": 7}}
 
 ## 7. Technical Indicators
 
-Computed by `compute_indicators()` in [src/analysis/indicators.py](src/analysis/indicators.py) using `pandas-ta`. Requires at least 60 candles in the buffer.
+Computed by `compute_indicators()` in [src/analysis/indicators.py](src/analysis/indicators.py) using the `ta` library. Requires `min_candles_to_start` candles (default 220) to warm up all indicators before the first decision cycle.
 
-| Indicator | Parameters | Used for |
+All periods are in **15-minute candles** — the candle interval was changed from 1-min to 15-min to align with the 15-minute decision cycle. Using 1-min candles caused indicators to reflect 1-minute noise rather than meaningful trends.
+
+| Indicator | Parameters | Time at 15-min | Used for |
+|---|---|---|---|
+| RSI | period=14 | 3.5 hours | Oversold / overbought detection |
+| MACD | fast=12, slow=26, signal=9 | 3 / 6.5 / 2.25 hours | Momentum direction and crossovers |
+| Bollinger Bands | period=50, std=2 | 12.5 hours | Price range extremes (widened from 20 to prevent squeeze noise) |
+| EMA fast | period=20 | 5 hours | Short-term trend |
+| EMA slow | period=200 | ~50 hours / 2 days | Long-term trend (changed from 50 = 12.5 hrs — too short to be meaningful) |
+| ATR | period=14 | 3.5 hours | Volatility context |
+
+### Why 15-min candles?
+
+The decision cycle runs every 15 minutes. With 1-min candles, RSI < 30 could fire on a 90-second dip and recover before the cycle even executes. With 15-min candles, RSI < 30 means the entire 3.5-hour window is genuinely oversold — a real signal, not noise.
+
+### Bollinger Band Squeeze Problem (Fixed)
+
+When bands are tight (band gap < `bb_min_width_pct` = 0.5% of price), both the lower AND upper band can be simultaneously "touched" by the current price. This triggered contradictory buy and sell signals. The fix: BB signals are suppressed entirely when the band is too narrow. The `bb_period` was also widened from 20 to 50 periods to give the bands enough data to reflect real price ranges.
+
+### RSI Thresholds (Data-Backed)
+
+Thresholds were set based on 30 days of real Kraken OHLCV data:
+
+| Threshold | Old | New | Fires this % of 15-min candles |
+|---|---|---|---|
+| rsi_oversold | 35 | **30** | 7–11% (was 13–22% — too frequent for reliable signal) |
+| rsi_overbought | 65 | **60** | 16–19% (most pairs rarely exceed 65) |
+
+### Signal Scoring
+
+`generate_signal()` awards points. **All weights and thresholds are configurable in `config.yaml` under `signals:`.**
+
+**BUY** (requires score ≥ `buy_min_score` = 4, AND buy > sell):
+
+| Condition | Config key | Default pts |
 |---|---|---|
-| RSI | period=14 | Oversold/overbought detection |
-| MACD | 12 / 26 / 9 | Momentum direction and histogram crossovers |
-| Bollinger Bands | period=20, std=2 | Price range extremes |
-| EMA fast | period=20 | Short-term trend |
-| EMA slow | period=50 | Long-term trend |
-| ATR | period=14 | Volatility; informs position sizing |
+| RSI < rsi_oversold | rsi_oversold_score | 3 |
+| MACD histogram > 0 | macd_hist_positive_score | 2 |
+| MACD line crossed above signal | macd_crossover_score | 1 |
+| Price at/near lower BB | bb_lower_score | 3 |
+| EMA fast ≥ EMA slow (uptrend) | ema_uptrend_score | 1 |
 
-### Signal Scoring (BUY)
+**SELL** (requires score ≥ `sell_min_score` = 3, AND sell > buy):
 
-`generate_signal()` awards points out of 10:
+| Condition | Config key | Default pts |
+|---|---|---|
+| RSI > rsi_overbought | rsi_overbought_score | 3 |
+| MACD histogram < 0 | macd_hist_negative_score | 2 |
+| Price at/near upper BB | bb_upper_score | 2 |
 
-| Condition | Points |
-|---|---|
-| RSI < 35 (oversold) | +3 |
-| MACD histogram > 0 | +2 |
-| MACD histogram crossover (neg→pos) | +1 |
-| Price at or below lower Bollinger Band | +3 |
-| EMA20 ≥ EMA50 (uptrend) | +1 |
-
-- **BUY** requires score ≥ 4 AND buy score > sell score
-- **SELL** requires sell score ≥ 3
 - Otherwise: **HOLD**
+
+**The signal layer recommends; the LLM makes the final call.** The LLM can override a BUY signal with HOLD if it judges the confluence insufficient (e.g. RSI oversold but MACD still bearish — conflicting signals).
 
 **Source:** [src/analysis/signals.py](src/analysis/signals.py)
 
@@ -575,47 +610,88 @@ When started with `python kryptos.py start`, the agent runs as a separate proces
 
 ## 12. Configuration Reference (`config.yaml`)
 
+**All parameters are in `config.yaml`. No numeric constants are hardcoded in any source file.**
+
 ```yaml
 trading:
-  stop_loss_pct: 5                         # Fixed — do not change
+  stop_loss_pct: 5
   take_profit_pct: 8                       # Global fallback (must be in allowed list)
   allowed_take_profit_pcts: [5, 8, 12, 16, 20]
-  max_position_pct: 30                     # Max % of portfolio per trade
-  max_open_positions: 3                    # Across all pairs
+  max_position_pct: 30
+  max_open_positions: 3
   cycle_interval_minutes: 15
 
   pairs:
-    - pair: BTC/USD;  take_profit_pct: 8   # Conservative — BTC moves slowly
-    - pair: ETH/USD;  take_profit_pct: 12
-    - pair: BNB/USD;  take_profit_pct: 12
-    - pair: SOL/USD;  take_profit_pct: 16  # Volatile — can reach larger moves
+    - pair: BTC/USD;   take_profit_pct: 8
+    - pair: ETH/USD;   take_profit_pct: 12
+    - pair: BNB/USD;   take_profit_pct: 12
+    - pair: SOL/USD;   take_profit_pct: 16
+    - pair: XRP/USD;   take_profit_pct: 12
+    - pair: TRX/USD;   take_profit_pct: 12
+    - pair: DOGE/USD;  take_profit_pct: 20
+    - pair: ADA/USD;   take_profit_pct: 12
+    - pair: LTC/USD;   take_profit_pct: 12
 
 paper:
   starting_balance_usd: 1000
   slippage_pct: 0.05
-  require_kraken_private_api: false
+  maker_fee_pct: 0.26                      # Kraken maker fee applied to every paper fill
 
 indicators:
-  rsi_period: 14;  rsi_oversold: 35;  rsi_overbought: 65
-  macd_fast: 12;   macd_slow: 26;     macd_signal: 9
-  bb_period: 20;   bb_std: 2
-  ema_fast: 20;    ema_slow: 50;      atr_period: 14
-  candle_buffer_size: 200             # 1-min candles kept per pair
+  rsi_period: 14
+  rsi_oversold: 30         # Data-backed (30-day Kraken history): fires 7-11% of candles
+  rsi_overbought: 60       # Most pairs rarely exceed 65; 60 catches more real tops
+  macd_fast: 12            # 12×15-min = 3 hours
+  macd_slow: 26            # 26×15-min = 6.5 hours
+  macd_signal: 9
+  bb_period: 50            # 50×15-min = 12.5 hrs; prevents band-squeeze false signals
+  bb_std: 2
+  bb_min_width_pct: 0.5    # Suppress BB signals when band gap < 0.5% (squeezed = noise)
+  bb_buy_tolerance_pct: 1.0
+  bb_sell_tolerance_pct: 1.0
+  ema_fast: 20             # 20×15-min = 5 hrs
+  ema_slow: 200            # 200×15-min = 50 hrs (~2 days) — genuine long-term trend
+  atr_period: 14
+  candle_buffer_size: 300  # 300×15-min = 75 hours
+  candle_interval: 15      # MUST match cycle_interval_minutes
+  min_candles_to_start: 220        # Covers EMA(200) warmup before first cycle
+  buffer_fill_timeout_secs: 300
+  buffer_check_interval_secs: 5
+
+signals:                   # All signal weights and thresholds — tune without code changes
+  rsi_oversold_score: 3
+  macd_hist_positive_score: 2
+  macd_crossover_score: 1
+  bb_lower_score: 3
+  ema_uptrend_score: 1
+  max_score: 10
+  rsi_overbought_score: 3
+  macd_hist_negative_score: 2
+  bb_upper_score: 2
+  buy_min_score: 4         # Minimum buy score to emit BUY
+  sell_min_score: 3        # Minimum sell score to emit SELL
 
 llm:
-  model: qwen2.5:7b
+  model: qwen2.5:14b
   fallback_model: llama3.1:8b
   base_url: http://localhost:11434
-  timeout_seconds: 60
+  timeout_seconds: 600
+  max_reasoning_chars: 1000
 
 risk:
-  daily_loss_limit_pct: 10            # Halt all buys if exceeded
-  min_cash_reserve_pct: 10            # Always keep 10% as cash
+  daily_loss_limit_pct: 10
+  min_cash_reserve_pct: 10
+
+exchange:
+  ws_ping_interval_secs: 20    # WebSocket keepalive frequency
+  ws_max_backoff_secs: 60      # Max reconnect delay
 
 storage:
   paper_db: paper_trading.db
   live_db: live_trading.db
   audit_db: audit.db
+  log_max_bytes: 104857600     # 100 MB per log file
+  log_backup_count: 4          # 1 active + 4 previous copies
 ```
 
 ---

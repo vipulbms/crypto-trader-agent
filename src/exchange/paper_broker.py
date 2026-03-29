@@ -29,9 +29,10 @@ class PaperBroker:
     Reads/writes paper_trading.db exclusively.
     """
 
-    def __init__(self, paper_db: str, slippage_pct: float = 0.05):
+    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.26):
         self._db = paper_db
-        self._slippage = slippage_pct / 100  # e.g. 0.0005
+        self._slippage  = slippage_pct / 100
+        self._maker_fee = maker_fee_pct / 100
 
     # ──────────────────────────────────────────────
     # Account queries (same interface as KrakenClient)
@@ -107,7 +108,7 @@ class PaperBroker:
         fill_price  = round(current_price * (1 + self._slippage), 8)
         volume      = round(usd_amount / fill_price, 8)
         actual_cost = round(fill_price * volume, 4)
-        fee_usd     = round(actual_cost * 0.0026, 4)  # Kraken maker fee ~0.26%
+        fee_usd     = round(actual_cost * self._maker_fee, 4)
 
         sl_price = round(fill_price * (1 - stop_loss_pct / 100), 8)
         tp_price = round(fill_price * (1 + take_profit_pct / 100), 8)
@@ -183,7 +184,7 @@ class PaperBroker:
         # Sell at slight slippage below current price
         fill_price  = round(exit_price * (1 - self._slippage), 8)
         gross_out   = round(fill_price * pos["volume"], 4)
-        fee_usd     = round(gross_out * 0.0026, 4)
+        fee_usd     = round(gross_out * self._maker_fee, 4)
         net_out     = round(gross_out - fee_usd, 4)
         pnl_usd     = round(net_out - pos["usd_value"], 4)
         pnl_pct     = round(pnl_usd / pos["usd_value"] * 100, 2) if pos["usd_value"] else 0.0

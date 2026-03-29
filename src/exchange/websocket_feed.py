@@ -72,8 +72,11 @@ class WebSocketFeed:
 
     def __init__(self, config: dict):
         ind_cfg = config.get("indicators", {})
-        self._buffer_size: int = ind_cfg.get("candle_buffer_size", 200)
-        self._interval: int = ind_cfg.get("candle_interval", 1)
+        exc_cfg = config.get("exchange", {})
+        self._buffer_size: int  = ind_cfg.get("candle_buffer_size", 200)
+        self._interval: int     = ind_cfg.get("candle_interval", 1)
+        self._ws_ping: int      = exc_cfg.get("ws_ping_interval_secs", 20)
+        self._ws_max_backoff: int = exc_cfg.get("ws_max_backoff_secs", 60)
         pairs_cfg = config.get("trading", {}).get("pairs", [])
         self._pairs: list = [p["pair"] for p in pairs_cfg]
         self._buffers: Dict[str, CandleBuffer] = {
@@ -181,7 +184,7 @@ class WebSocketFeed:
         backoff = 2
         while self._running:
             try:
-                async with websockets.connect(KRAKEN_WS_URL, ping_interval=20) as ws:
+                async with websockets.connect(KRAKEN_WS_URL, ping_interval=self._ws_ping) as ws:
                     await ws.send(json.dumps(self._build_subscribe_msg()))
                     logger.info("Subscribed to Kraken OHLC feed")
                     backoff = 2
@@ -194,11 +197,11 @@ class WebSocketFeed:
                     break
                 logger.warning("WebSocket disconnected (%s) — reconnecting in %ds", e, backoff)
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)
+                backoff = min(backoff * 2, self._ws_max_backoff)
             except Exception as e:
                 logger.error("WebSocket error: %s", e)
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)
+                backoff = min(backoff * 2, self._ws_max_backoff)
 
     def _handle_message(self, raw: str) -> None:
         try:

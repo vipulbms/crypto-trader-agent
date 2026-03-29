@@ -32,15 +32,9 @@ trading:
     - pair: SOL/USD
       take_profit_pct: 16     # SOL is volatile — can reach larger moves
       stop_loss_pct: 5
- #   - pair: USDT/USD
- #     take_profit_pct: 5     # Stablecoin — should barely move. Use 5 as a trip-wire or just remove it
- #     stop_loss_pct: 5
     - pair: XRP/USD
       take_profit_pct: 12     # High volatility, news-driven spikes
       stop_loss_pct: 5
-#    - pair: USDC/USD
-#      take_profit_pct: 5     # Stablecoin — should barely move. Use 5 as a trip-wire or just remove it
-#      stop_loss_pct: 5
     - pair: TRX/USD
       take_profit_pct: 12     # TRX is volatile — can reach larger moves
       stop_loss_pct: 5
@@ -51,7 +45,7 @@ trading:
       take_profit_pct: 12     # Moderate volatility, similar to ETH
       stop_loss_pct: 5
     - pair: LTC/USD
-      take_profit_pct: 12     #  Tends to follow BTC with amplified moves (1.5–2x). 12 fits well
+      take_profit_pct: 12     # Follows BTC with amplified moves (1.5–2x)
       stop_loss_pct: 5
 
 # ──────────────────────────────────────────────
@@ -60,7 +54,8 @@ trading:
 paper:
   starting_balance_usd: 1000
   slippage_pct: 0.05          # Simulated fill slippage (%)
-  require_kraken_private_api: false  # No API keys needed in paper mode
+  maker_fee_pct: 0.26         # Kraken maker fee — applied to every paper fill
+  require_kraken_private_api: false
 
 # ──────────────────────────────────────────────
 # Technical analysis — indicator settings
@@ -68,35 +63,63 @@ paper:
 indicators:
   rsi_period: 14
   rsi_oversold: 30        # Data-backed: fires 7-11% of candles (was 35 = 13-22%, too loose)
-  rsi_overbought: 60      # Data-backed: BTC/XRP/DOGE/ADA/BNB rarely exceed 65 (ETH/SOL pairs still fine)
+  rsi_overbought: 60      # Data-backed: BTC/XRP/DOGE/ADA/BNB rarely exceed 65
   macd_fast: 12
   macd_slow: 26
   macd_signal: 9
-  bb_period: 20
+  bb_period: 50           # 50×15-min = 12.5 hrs; prevents band-squeeze false signals (was 20)
   bb_std: 2
+  bb_min_width_pct: 0.5   # Ignore BB signals when band gap < 0.5% of price (squeezed bands = noise)
+  bb_buy_tolerance_pct: 1.0   # Price may be up to 1% above lower BB and still count as a touch
+  bb_sell_tolerance_pct: 1.0  # Price may be up to 1% below upper BB and still count as a touch
   ema_fast: 20
-  ema_slow: 50
+  ema_slow: 200           # 200×15-min = 50 hrs (~2 days) — genuine slow trend for EMA crossover
   atr_period: 14
-  candle_buffer_size: 300     # 300 × 15-min = 75 hours of context; gives EMA(50) clean stable window
+  candle_buffer_size: 300     # 300×15-min = 75 hrs; covers ema_slow(200) warmup + headroom
   candle_interval: 15         # 15-min candles — aligned with cycle_interval_minutes
+  min_candles_to_start: 220   # Minimum candles before first decision cycle (covers ema_slow warmup)
+  buffer_fill_timeout_secs: 300   # Max wait for candle buffer to fill at startup (seconds)
+  buffer_check_interval_secs: 5   # How often to poll buffer readiness at startup (seconds)
+
+# ──────────────────────────────────────────────
+# Signal scoring — weights and thresholds
+# (controls buy/sell sensitivity — tune with care)
+# ──────────────────────────────────────────────
+signals:
+  # BUY score weights (out of max_score)
+  rsi_oversold_score: 3       # RSI below rsi_oversold threshold
+  macd_hist_positive_score: 2 # MACD histogram > 0 (bullish momentum)
+  macd_crossover_score: 1     # MACD line crossed above signal line
+  bb_lower_score: 3           # Price at/near lower Bollinger Band
+  ema_uptrend_score: 1        # EMA fast >= EMA slow (uptrend)
+  max_score: 10               # Denominator for strength normalisation
+
+  # SELL score weights
+  rsi_overbought_score: 3     # RSI above rsi_overbought threshold
+  macd_hist_negative_score: 2 # MACD histogram < 0 (bearish momentum)
+  bb_upper_score: 2           # Price at/near upper Bollinger Band
+
+  # Decision thresholds
+  buy_min_score: 4            # Minimum buy score to emit BUY signal
+  sell_min_score: 3           # Minimum sell score to emit SELL signal
 
 # ──────────────────────────────────────────────
 # LLM settings
 # ──────────────────────────────────────────────
 llm:
-  model: qwen2.5:14b            # Primary model — best tool-calling at 7B
-  fallback_model: llama3.1:8b  # Used if primary fails
+  model: qwen2.5:14b
+  fallback_model: llama3.1:8b
   base_url: http://localhost:11434
-  timeout_seconds: 180
-  max_reasoning_chars: 1000     # Max chars stored in audit reasoning_summary
+  timeout_seconds: 600
+  max_reasoning_chars: 1000   # Max chars stored in audit reasoning_summary
 
 # ──────────────────────────────────────────────
 # Notifications
 # ──────────────────────────────────────────────
 notifications:
   telegram_enabled: true
-  approval_timeout_seconds: 300   # 5 min to approve/reject in hybrid mode
-  daily_report_hour_utc: 23       # Send daily summary at 11pm UTC
+  approval_timeout_seconds: 300
+  daily_report_hour_utc: 23
 
 # ──────────────────────────────────────────────
 # Risk limits
@@ -106,9 +129,18 @@ risk:
   min_cash_reserve_pct: 10    # Always keep at least 10% as cash
 
 # ──────────────────────────────────────────────
-# Storage
+# Exchange / WebSocket
+# ──────────────────────────────────────────────
+exchange:
+  ws_ping_interval_secs: 20   # WebSocket keepalive ping frequency
+  ws_max_backoff_secs: 60     # Max reconnect delay after disconnection
+
+# ──────────────────────────────────────────────
+# Storage & logging
 # ──────────────────────────────────────────────
 storage:
   paper_db: paper_trading.db
   live_db: live_trading.db
   audit_db: audit.db
+  log_max_bytes: 104857600    # 100 MB per log file before rotation
+  log_backup_count: 4         # Keep 1 active + 4 previous log files
