@@ -2,6 +2,30 @@
 
 ---
 
+## Session: 2026-03-29 (continued — evening)
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|---|---|---|
+| `Cannot operate on a closed database` in Decision Breakdown report | `risk_by_pair` query placed after `ac.close()` in `get_llm_decision_patterns()` | Moved `ac.close()` to after all queries; also removed duplicate `ac.close()` |
+| BB tolerance overlap — most pairs showing both upper and lower BB signals simultaneously | `bb_buy_tolerance_pct` and `bb_sell_tolerance_pct` both 1.0% caused overlap when band width was only ~0.88%; `bb_min_width_pct` of 0.5% was too low to catch it | Raised `bb_min_width_pct` to 1.5%, reduced tolerances to 0.5% |
+| LLM overriding valid BUY signals (e.g. XRP score 6/10) with HOLD | System prompt hardcoded `RSI < 35` as mandatory BUY condition; LLM ignored MACD+BB confluence when RSI was neutral | Updated `prompts.py` to tell LLM to trust the signal scorer; RSI < 30 is a bonus not a requirement |
+| No BUY executions despite XRP generating BUY signal every cycle | Combination of above two bugs — BB false signals on other pairs + LLM RSI fixation | Both fixed above |
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/reports/trade_report.py` | Moved `ac.close()` after `risk_by_pair` query; removed duplicate close |
+| `src/agent/prompts.py` | Removed hardcoded `RSI < 35` mandatory BUY rule; LLM now trusts signal scorer |
+| `config.yaml` | `bb_min_width_pct` 0.5→1.5; `bb_buy_tolerance_pct` and `bb_sell_tolerance_pct` 1.0→0.5 |
+
+### Key Insight
+The signal scorer and the LLM prompt were misaligned. The scorer awards points for MACD+BB confluence without requiring RSI oversold — but the prompt told the LLM RSI < 35 was mandatory. Always keep the prompt aligned with the scoring system.
+
+---
+
 ## Session: 2026-03-29
 
 ### Bugs Fixed

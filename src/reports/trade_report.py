@@ -359,8 +359,6 @@ def get_llm_decision_patterns(mode: str, config: dict, days: int = 14) -> dict:
         (mode, since),
     ).fetchone()[0]
 
-    ac.close()
-
     # Risk approvals / rejections per pair per decision type
     risk_by_pair = ac.execute(
         """SELECT d.pair, d.decision_type, r.approved, COUNT(*) as cnt
