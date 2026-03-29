@@ -138,6 +138,22 @@ class KrakenClient:
             "take_profit_order_id": tp_order["id"],
         }
 
+    def get_open_positions_count(self) -> int:
+        return len(self._exchange.fetch_open_orders())
+
+    def get_daily_pnl(self, start_of_day_balance: float) -> dict:
+        """Calculate P&L for today vs a starting balance snapshot.
+        Uses Kraken's total balance (cash + all holdings at current market value).
+        """
+        balance = self.get_balance()
+        pnl_usd = balance["total_usd"] - start_of_day_balance
+        pnl_pct = (pnl_usd / start_of_day_balance * 100) if start_of_day_balance else 0.0
+        return {
+            "pnl_usd": round(pnl_usd, 2),
+            "pnl_pct": round(pnl_pct, 2),
+            "current_cash": balance["available_cash_usd"],
+        }
+
     def cancel_order(self, order_id: str, pair: str) -> bool:
         """Cancel an open order. Returns True if successful."""
         try:
