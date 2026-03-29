@@ -121,6 +121,32 @@ python kryptos.py log --lines 50
 
 ---
 
+## Claude Code Skills
+
+Kryptos ships with project-level Claude Code skills in `.claude/skills/`. These are invoked directly inside a Claude Code session.
+
+### `/add-pair`
+
+Adds a new trading pair end-to-end in one command. Updates all required files automatically.
+
+```
+/add-pair PEPE/USD 20
+/add-pair LINK/USD 12
+```
+
+What it does:
+1. Adds the pair and take-profit % to `config.yaml`
+2. Adds the Kraken WebSocket and REST name mappings to `websocket_feed.py`
+3. Adds the ccxt pair name to `kraken_client.py`
+4. Updates the welcome screen in `display.py`
+5. Updates README, `plan.md`, and `business-requirement.md`
+
+Take-profit must be one of: `5`, `8`, `12`, `16`, `20`. Stop-loss is always fixed at `5%`.
+
+Restart the agent after adding a pair for it to take effect.
+
+---
+
 ## How the Agent Decides
 
 Every 15 minutes:
@@ -264,6 +290,10 @@ crypto-trader-agent/
 ├── config.yaml                  ALL tunable parameters — no hardcoded values in code
 ├── requirements.txt
 ├── .env                         API keys — never committed
+├── .claude/
+│   └── skills/
+│       └── add-pair/
+│           └── SKILL.md         /add-pair Claude Code skill (onboard new pairs)
 ├── logs/                        Created at runtime
 │   └── agent.log                Rotating log (100 MB max, 4 backups)
 ├── data/                        Created at runtime
@@ -371,3 +401,4 @@ storage:
 |---|---|
 | [plan.md](plan.md) | Architecture, decision cycle, LLM prompts, indicator scoring, CLI architecture, database design, full config reference |
 | [business-requirement.md](business-requirement.md) | Full BRD — functional requirements, NFRs, business rules, acceptance criteria, risks, glossary |
+| [.claude/skills/add-pair/SKILL.md](.claude/skills/add-pair/SKILL.md) | `/add-pair` Claude Code skill — onboards a new trading pair across all required files in one command |

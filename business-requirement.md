@@ -184,6 +184,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 | FR-73 | The system MUST log execution time for every significant method in the decision flow using a `@timed` decorator; each log entry MUST include: cycle ID, class name, method name, key parameters, and elapsed milliseconds |
 | FR-74 | All timestamps throughout the system (database writes, log entries, cycle prompts) MUST use **Singapore Standard Time (SGT, UTC+8)** |
 | FR-75 | Agent logs MUST be written to `logs/agent.log` using a **rotating file handler**: maximum 100 MB per file, retaining 4 backup copies |
+| FR-76 | The project MUST ship a **`/add-pair` Claude Code skill** (`.claude/skills/add-pair/SKILL.md`) that guides the developer through all file changes required to onboard a new trading pair: `config.yaml`, `websocket_feed.py` (PAIR_MAP + REST_PAIR_MAP), `kraken_client.py`, `display.py`, and all three documentation files |
 
 ### 5.11 CLI — Natural Language Interface
 
