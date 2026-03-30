@@ -10,6 +10,7 @@ Fallback strategy: keyword matching (used when Ollama is unavailable).
 import json
 import logging
 import re
+import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,8 @@ class NLParser:
             if client is None:
                 return None
 
+            logger.info("[LLM] Initiating intent parse — model=%s", self._model)
+            _start = time.time()
             resp = client.chat(
                 model=self._model,
                 options={"temperature": 0.0},
@@ -155,6 +158,7 @@ class NLParser:
                     {"role": "user",   "content": text},
                 ],
             )
+            logger.info("[LLM] Intent parse completed — model=%s latency=%dms", self._model, int((time.time() - _start) * 1000))
             raw = resp.message.content.strip()
 
             # Strip markdown code fences if present

@@ -670,6 +670,8 @@ def generate_post_trade_analysis(
     )
 
     try:
+        logger.info("[LLM] Initiating post-trade analysis — pair=%s model=%s", pair, model)
+        _start = time.time()
         response = llm_client.chat(
             model=model,
             messages=[
@@ -678,6 +680,7 @@ def generate_post_trade_analysis(
             ],
             options={"temperature": 0.3},
         )
+        logger.info("[LLM] Post-trade analysis completed — pair=%s model=%s latency=%dms", pair, model, int((time.time() - _start) * 1000))
         analysis = (response.message.content or "").strip()
         return analysis[:max_chars] if len(analysis) > max_chars else analysis
     except Exception as e:

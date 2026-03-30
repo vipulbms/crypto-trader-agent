@@ -186,6 +186,8 @@ class TradingAgent:
             pair, SYSTEM_PROMPT, pair_prompt,
         )
 
+        logger.info("[LLM] Initiating call — pair=%s model=%s", pair, self._model)
+
         for attempt in [self._model, self._fallback]:
             try:
                 logger.debug("[LLM REQUEST] model=%s pair=%s", attempt, pair)
@@ -226,6 +228,7 @@ class TradingAgent:
                     raw_output = f"LLM error: {e}"
 
         latency_ms = int((time.time() - start) * 1000)
+        logger.info("[LLM] Completed — pair=%s model=%s decision=%s latency=%dms", pair, model, decision_type, latency_ms)
 
         # Audit LLM decision (BUY, SELL, or HOLD — all logged)
         hold_reason = tool_args.get("reason") if tool_called == "hold" else None
