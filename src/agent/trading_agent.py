@@ -39,7 +39,7 @@ class TradingAgent:
         self._mode        = mode
         self._audit       = audit_logger
         llm_cfg           = config.get("llm", {})
-        self._model       = llm_cfg.get("model", "qwen3.5:27b")
+        self._model       = llm_cfg.get("model", "qwen2.5:14b")
         self._fallback    = llm_cfg.get("fallback_model", "llama3.1:8b")
         self._timeout     = llm_cfg.get("timeout_seconds", 120)
         self._max_rsn     = llm_cfg.get("max_reasoning_chars", 500)

@@ -309,7 +309,7 @@ class TradingTools:
         try:
             from src.analysis.features import generate_post_trade_analysis
             llm_cfg = self._config.get("llm", {})
-            model   = llm_cfg.get("model", "qwen3.5:27b")
+            model   = llm_cfg.get("model", "qwen2.5:14b")
             analysis = generate_post_trade_analysis(
                 trade=trade,
                 signals_at_entry=None,

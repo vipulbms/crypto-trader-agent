@@ -85,7 +85,7 @@ class NLParser:
     Uses Ollama when available; falls back to keyword matching otherwise.
     """
 
-    def __init__(self, model: str = "qwen3.5:27b", base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "qwen2.5:14b", base_url: str = "http://localhost:11434"):
         self._model    = model
         self._base_url = base_url
         self._client   = None
