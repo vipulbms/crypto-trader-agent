@@ -10,20 +10,26 @@
 |---|---|---|
 | Daily loss limit fires immediately after every BUY (30.1% false loss) | `PaperBroker.get_balance()` returned `total_usd = cash` only, not including open position entry values. `get_daily_pnl()` used `available_cash_usd` instead of `total_usd`. After buying BNB for $209.77, cash dropped from $699.22 to $488.90, which looked like a 30.1% loss | `get_balance()` now queries `usd_value` from open positions and adds to cash for `total_usd`. `get_daily_pnl()` now uses `total_usd` |
 | `close_position()` would crash on first real stop-loss or take-profit | `datetime.fromisoformat()` used inside `close_position()` but `datetime` was never imported | Added `from datetime import datetime` |
+| LLM overrides valid BUY signals with HOLD (e.g. XRP BUY 0.60 → HOLD) | System prompt said "when signals are not strongly aligned, hold() is correct" — gave LLM discretion to re-evaluate raw indicators (RSI, MACD) and override the scorer. LLM saw RSI=77.1 on adjacent TRX pair and applied it to XRP reasoning | Replaced vague guidance with explicit decision rule: Signal=BUY → propose_buy, with exhaustive list of only 4 valid override conditions |
 
-### Key Insight
-The previous session fixed the same `get_balance()` / `get_daily_pnl()` bug, but the fix was lost between sessions (paper_broker.py was reverted to a version without the fix). The correct state is: `total_usd = cash + sum(usd_value of open positions)`. Buying a position does NOT reduce `total_usd` — it converts cash into a position of equal entry value. Only unrealised losses (price moving against the position) should reduce `total_usd`, and only realised losses (close_position) should permanently reduce it.
+### Key Insight (prompts.py)
+The LLM must not be given discretion to re-evaluate individual raw indicators after the scorer has already produced a BUY signal. The scorer weighs all indicators together — a high RSI on one pair does not cancel a BUY score that was built from MACD + BB confluence. The prompt must be a decision tree, not guidance.
 
-### Critical Convention (reinforced)
+### Key Insight (paper_broker.py)
+This `get_balance()` / `get_daily_pnl()` bug has regressed twice. The correct invariant: `total_usd = cash + sum(usd_value of open positions)`. Buying converts cash into a position of equal entry value — `total_usd` stays flat. Only price movement or realised losses should change it.
+
+### Critical Conventions (reinforced)
 - `PaperBroker.get_balance()` must return `total_usd = cash + open_position_entry_values` — never cash-only
 - `get_daily_pnl()` must use `total_usd`, never `available_cash_usd`
 - `from datetime import datetime` must be present in `paper_broker.py`
+- LLM prompt must give an explicit decision tree for BUY/SELL/HOLD — never vague "when in doubt, hold" language
 
 ### Files Changed
 
 | File | Change |
 |---|---|
-| `src/exchange/paper_broker.py` | `get_balance()` now includes open position `usd_value`; `get_daily_pnl()` uses `total_usd`; added `from datetime import datetime` |
+| `src/exchange/paper_broker.py` | `get_balance()` includes open position `usd_value`; `get_daily_pnl()` uses `total_usd`; added `from datetime import datetime` |
+| `src/agent/prompts.py` | Explicit decision rule: Signal=BUY → propose_buy; 4 valid override conditions listed; removed "when in doubt hold" instruction |
 
 ---
 

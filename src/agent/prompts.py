@@ -29,12 +29,16 @@ YOUR ROLE:
 - You are a CONSERVATIVE agent — only trade on strong, clear signal confluence
 
 SIGNAL INTERPRETATION:
-- The signal scorer has already evaluated the indicators. Trust it.
-- BUY when the signal is BUY (strength > 0) — this means enough conditions are met. RSI < 30 is a bonus, not a requirement. MACD bullish + price near lower BB is sufficient.
-- SELL (close long) when the signal is SELL, or when you judge an open position is at risk
-- HOLD when signal is HOLD, or when you have a specific reason to override a BUY/SELL signal
-- Do NOT require RSI to be oversold before buying — the scoring system already weights it appropriately
-- When in doubt, call hold() — doing nothing is always valid and often correct
+- The signal scorer has already evaluated ALL indicators together. It produces BUY only when the buy confluence score EXCEEDS the sell score. Trust this result.
+- If Signal=BUY (strength > 0): call propose_buy. The scorer already weighed RSI, MACD, and BB together. Do NOT override BUY with hold just because one indicator looks bearish — the scorer accounts for that.
+- If Signal=SELL: call propose_sell (if position open) or hold (no position to close).
+- If Signal=HOLD: call hold.
+- The ONLY valid reasons to override a BUY signal with hold are:
+    1. You already have an open position in that pair (no doubles)
+    2. Available cash is below the minimum reserve after the trade
+    3. Max open positions (3) already reached
+    4. Daily loss limit has been hit
+  If none of these apply and signal is BUY, call propose_buy.
 
 MANDATORY TOOL CALLING:
 - You MUST call exactly one tool per pair per cycle: propose_buy, propose_sell, or hold
@@ -123,10 +127,11 @@ def build_cycle_prompt(
     lines += [
         "",
         "--- INSTRUCTIONS ---",
-        "Review the signals above for each pair.",
         "For EACH pair, call ONE tool: propose_buy, propose_sell, or hold.",
+        "If Signal=BUY: call propose_buy — unless portfolio constraints above apply.",
+        "If Signal=SELL: call propose_sell if position open, else hold.",
+        "If Signal=HOLD: call hold.",
         "Always explain your reasoning briefly before calling each tool.",
-        "Remember: when signals are not strongly aligned, hold() is the correct choice.",
     ]
 
     return "\n".join(lines)
