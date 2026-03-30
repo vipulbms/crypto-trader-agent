@@ -80,7 +80,7 @@ def _setup_readline() -> None:
 def _make_nl_parser(config: dict):
     from src.cli.nl_parser import NLParser
     llm_cfg   = config.get("llm", {})
-    model     = llm_cfg.get("model", "qwen2.5:7b")
+    model     = llm_cfg.get("model", "qwen3.5:27b")
     base_url  = llm_cfg.get("base_url", "http://localhost:11434")
     return NLParser(model=model, base_url=base_url)
 

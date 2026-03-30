@@ -613,7 +613,7 @@ def generate_post_trade_analysis(
     signals_at_entry: Optional[dict],
     config: dict,
     llm_client=None,
-    model: str = "qwen2.5:14b",
+    model: str = "qwen3.5:27b",
 ) -> Optional[str]:
     """
     Generate a brief LLM analysis of a just-closed trade.
