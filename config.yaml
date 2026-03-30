@@ -20,35 +20,83 @@ trading:
   cycle_interval_minutes: 15  # How often the agent runs a decision cycle
 
   pairs:
+    # pair:      display name used throughout the agent
+    # ws_name:   Kraken WebSocket v2 symbol (wss://ws.kraken.com/v2)
+    # rest_name: Kraken public REST OHLC symbol (api.kraken.com/0/public/OHLC)
     - pair: BTC/USD
+      ws_name: XBT/USD
+      rest_name: XBTUSD
       take_profit_pct: 8      # BTC moves slowly — conservative target
       stop_loss_pct: 5
     - pair: ETH/USD
+      ws_name: ETH/USD
+      rest_name: ETHUSD
       take_profit_pct: 12
       stop_loss_pct: 5
     - pair: BNB/USD
+      ws_name: BNB/USD
+      rest_name: BNBUSD
       take_profit_pct: 12
       stop_loss_pct: 5
     - pair: SOL/USD
+      ws_name: SOL/USD
+      rest_name: SOLUSD
       take_profit_pct: 16     # SOL is volatile — can reach larger moves
       stop_loss_pct: 5
     - pair: XRP/USD
+      ws_name: XRP/USD
+      rest_name: XRPUSD
       take_profit_pct: 12     # High volatility, news-driven spikes
       stop_loss_pct: 5
     - pair: TRX/USD
+      ws_name: TRX/USD
+      rest_name: TRXUSD
       take_profit_pct: 12     # TRX is volatile — can reach larger moves
       stop_loss_pct: 5
     - pair: DOGE/USD
+      ws_name: DOGE/USD
+      rest_name: XDGUSD
       take_profit_pct: 20     # Extremely meme-driven, can swing 20-30% in hours
       stop_loss_pct: 5
     - pair: ADA/USD
+      ws_name: ADA/USD
+      rest_name: ADAUSD
       take_profit_pct: 12     # Moderate volatility, similar to ETH
       stop_loss_pct: 5
     - pair: LTC/USD
+      ws_name: LTC/USD
+      rest_name: LTCUSD
       take_profit_pct: 12     # Follows BTC with amplified moves (1.5–2x)
       stop_loss_pct: 5
     - pair: RAILS/USD
+      ws_name: RAILS/USD
+      rest_name: RAILSUSD
       take_profit_pct: 20     # Extremely meme-driven, can swing 20-30% in hours
+      stop_loss_pct: 5
+    - pair: AVAX/USD
+      ws_name: AVAX/USD
+      rest_name: AVAXUSD
+      take_profit_pct: 15     # High volatility L1, 15-20% swings common
+      stop_loss_pct: 5
+    - pair: SUI/USD
+      ws_name: SUI/USD
+      rest_name: SUIUSD
+      take_profit_pct: 20     # High beta L1, aggressive swings common
+      stop_loss_pct: 5
+    - pair: HYPE/USD
+      ws_name: HYPE/USD
+      rest_name: HYPEUSD
+      take_profit_pct: 20     # High volatility DeFi token, wide swings expected
+      stop_loss_pct: 5
+    - pair: UNI/USD
+      ws_name: UNI/USD
+      rest_name: UNIUSD
+      take_profit_pct: 15     # DeFi blue chip, moderate-high volatility
+      stop_loss_pct: 5
+    - pair: INJ/USD
+      ws_name: INJ/USD
+      rest_name: INJUSD
+      take_profit_pct: 20     # High volatility DeFi/L1 hybrid, wide swings common
       stop_loss_pct: 5
 
 # ──────────────────────────────────────────────
@@ -132,6 +180,85 @@ risk:
   min_cash_reserve_pct: 10    # Always keep at least 10% as cash
 
 # ──────────────────────────────────────────────
+# Feature 1: Multi-pair context awareness
+# Position sizing scaled by signal strength and ATR volatility
+# ──────────────────────────────────────────────
+position_sizing:
+  enabled: true
+  base_position_pct: 20         # Base % of portfolio per trade (before scaling)
+  strength_weight: 0.5          # How much signal strength influences size (0=ignore, 1=full)
+  volatility_weight: 0.5        # How much ATR volatility reduces size (0=ignore, 1=full)
+  min_position_pct: 5           # Never allocate less than this % of portfolio
+  max_position_pct: 30          # Hard cap (aligned with risk.max_position_pct)
+
+# ──────────────────────────────────────────────
+# Feature 2: Dynamic take-profit targets
+# TP adjusted based on ATR and Bollinger Band width
+# ──────────────────────────────────────────────
+dynamic_tp:
+  enabled: true
+  atr_multiplier: 2.0           # TP = entry + (ATR × multiplier); compared to configured TP
+  bb_width_scale: true          # Widen TP when BB is wide; narrow it when squeezed
+  min_tp_pct: 5                 # Never set TP below this % (must be in allowed_take_profit_pcts)
+  max_tp_pct: 20                # Never set TP above this %
+  squeeze_threshold_pct: 1.0    # BB width % below which TP is reduced to min_tp_pct
+
+# ──────────────────────────────────────────────
+# Feature 3: Market regime detection
+# Classifies current market as trending / ranging / bearish / volatile
+# ──────────────────────────────────────────────
+regime:
+  enabled: true
+  bearish_pairs_threshold: 6    # If >= N pairs have negative MACD, classify as bearish
+  bullish_pairs_threshold: 6    # If >= N pairs have positive MACD, classify as bullish
+  volatile_atr_multiplier: 1.5  # ATR > avg_atr × multiplier = volatile regime
+  ranging_macd_threshold: 0.001 # |MACD histogram| < this = ranging (no momentum)
+  bearish_caution_factor: 0.5   # Multiply proposed position size by this in bearish regime
+  volatile_caution_factor: 0.7  # Multiply proposed position size by this in volatile regime
+
+# ──────────────────────────────────────────────
+# Feature 4: News & sentiment integration
+# Pulls Fear & Greed Index and injects into LLM context
+# ──────────────────────────────────────────────
+sentiment:
+  enabled: true
+  fear_greed_url: "https://api.alternative.me/fng/?limit=1"
+  fetch_timeout_secs: 5         # HTTP timeout for sentiment fetch
+  cache_minutes: 60             # Re-fetch at most once per hour
+  extreme_fear_threshold: 25    # Index <= this = extreme fear (potential buy zone)
+  extreme_greed_threshold: 75   # Index >= this = extreme greed (caution on buys)
+
+# ──────────────────────────────────────────────
+# Feature 5: Audit trail pattern analysis
+# Queries own trade history to surface win/loss patterns
+# ──────────────────────────────────────────────
+pattern_analysis:
+  enabled: true
+  lookback_days: 30             # How many days of history to analyse
+  min_trades_for_pattern: 3     # Minimum trades per pair before pattern is reported
+  cache_minutes: 60             # Re-compute at most once per hour (expensive query)
+
+# ──────────────────────────────────────────────
+# Feature 6: Exit timing on open positions
+# Agent can close a position before SL/TP if momentum is decaying
+# ──────────────────────────────────────────────
+exit_timing:
+  enabled: true
+  min_hold_minutes: 60          # Never exit early before this many minutes
+  macd_decay_threshold: -0.0005 # MACD histogram below this = momentum decaying
+  rsi_exit_overbought: 70       # Exit long if RSI rises above this
+  sideways_candles: 8           # Exit if price hasn't moved > ATR for this many candles
+
+# ──────────────────────────────────────────────
+# Feature 7: Post-trade analysis
+# LLM writes a brief analysis after each closed position
+# ──────────────────────────────────────────────
+post_trade:
+  enabled: true
+  min_hold_minutes: 15          # Only analyse trades held at least this long
+  max_analysis_chars: 500       # Truncate stored analysis to this length
+
+# ──────────────────────────────────────────────
 # Exchange / WebSocket
 # ──────────────────────────────────────────────
 exchange:
@@ -147,3 +274,4 @@ storage:
   audit_db: audit.db
   log_max_bytes: 104857600    # 100 MB per log file before rotation
   log_backup_count: 4         # Keep 1 active + 4 previous log files
+  llm_debug_logging: false    # Set true to log full LLM prompts + HTTP responses to agent.log

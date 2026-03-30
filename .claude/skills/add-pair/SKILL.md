@@ -1,7 +1,7 @@
 ---
 name: add-pair
 description: Add a new trading pair to Kryptos. Use when the user asks to add, onboard, or enable a new crypto pair.
-argument-hint: PAIR/USD take_profit_pct
+argument-hint: PAIR/USD KRAKENRESTNAME
 ---
 
 # Add New Trading Pair
@@ -9,78 +9,89 @@ argument-hint: PAIR/USD take_profit_pct
 Add **$ARGUMENTS** to the Kryptos trading agent.
 
 ## Current pairs for reference
-!`grep "pair:" config.yaml | grep -v "^#"`
+!`grep -E "pair:|ws_name:|rest_name:" config.yaml | grep -v "^#"`
 
 ## Steps
 
 ### 1. Parse arguments
 Extract from `$ARGUMENTS`:
-- `PAIR` — the base asset symbol (e.g. `SOL`, `PEPE`)
-- `take_profit_pct` — desired take-profit % (must be one of: 5, 8, 12, 16, 20)
-- Stop-loss is always 5% (fixed)
+- `PAIR/USD` — the display pair name (e.g. `AVAX/USD`)
+- `KRAKENRESTNAME` — the Kraken REST OHLC name (e.g. `AVAXUSD`) — provided by the user
 
-If take_profit_pct is not provided, recommend one based on volatility:
+### 2. Verify the pair exists on Kraken and get its WS name
+Run this to confirm the pair is valid and get the official WS name:
+```bash
+python3.11 -c "
+import requests
+rest = 'KRAKENRESTNAME'
+resp = requests.get('https://api.kraken.com/0/public/AssetPairs', params={'pair': rest}, timeout=10)
+data = resp.json()
+if data.get('error'):
+    print('ERROR:', data['error'])
+else:
+    key = list(data['result'].keys())[0]
+    info = data['result'][key]
+    print(f'WS name: {info.get(\"wsname\")}')
+    print(f'Price: ', end='')
+    r2 = requests.get('https://api.kraken.com/0/public/OHLC', params={'pair': rest, 'interval': 60}, timeout=10)
+    d2 = r2.json()
+    rk = [k for k in d2['result'] if k != 'last'][0]
+    print(d2['result'][rk][-1][4])
+"
+```
+
+### 3. Determine take_profit_pct
+If not provided by the user, recommend based on volatility:
 - Low volatility (BTC-like): 8%
-- Moderate volatility: 12%
-- High volatility: 16%
+- Moderate volatility (ETH-like): 12%
+- High volatility (SOL/AVAX-like): 15-16%
 - Meme/extreme volatility: 20%
+- Must be one of: 5, 8, 12, 15, 16, 20
 
-### 2. Determine Kraken pair names
-Kraken uses different names in the WebSocket API vs REST API vs ccxt. Common mappings:
-- WebSocket: usually `SYMBOL/USD` as-is (except BTC → `XBT/USD`)
-- REST OHLC: usually `SYMBOLUSD` (except BTC → `XBTUSD`, DOGE → `XDGUSD`)
-- ccxt (live): usually `SYMBOL/USD` as-is
+### 4. Make all changes
 
-If unsure about the Kraken-specific name, note it and ask the user to verify against https://api.kraken.com/0/public/AssetPairs before proceeding.
-
-### 3. Make all changes
-
-**a) `config.yaml`** — add to the `trading.pairs` list:
+**a) `config.yaml`** — add to the `trading.pairs` list (this is now the SINGLE source of truth for all pair maps):
 ```yaml
-    - pair: SYMBOL/USD
+    - pair: PAIR/USD
+      ws_name: WS_NAME        # from step 2 (e.g. AVAX/USD; BTC is XBT/USD)
+      rest_name: KRAKENRESTNAME  # e.g. AVAXUSD, XBTUSD, XDGUSD
       take_profit_pct: <value>
       stop_loss_pct: 5
 ```
 
-**b) `src/exchange/websocket_feed.py`** — add to both `PAIR_MAP` and `REST_PAIR_MAP`:
+**b) `src/agent/prompts.py`** — update the pair count and list in `SYSTEM_PROMPT`:
 ```python
-PAIR_MAP = {
-    ...
-    "SYMBOL/USD": "WS_SYMBOL/USD",   # Kraken WS name
-}
-REST_PAIR_MAP = {
-    ...
-    "SYMBOL/USD": "SYMBOLUSD",       # Kraken REST OHLC name
-}
+- You monitor N pairs: ..., PAIR/USD
 ```
 
-**c) `src/exchange/kraken_client.py`** — add to `KRAKEN_PAIR_MAP`:
-```python
-KRAKEN_PAIR_MAP = {
-    ...
-    "SYMBOL/USD": "SYMBOL/USD",      # ccxt name
-}
-```
+**c) `src/agent/tools.py`** — add `'PAIR/USD'` to the `propose_buy` docstring pair list.
 
 **d) `src/cli/display.py`** — update the pairs list in `print_welcome()`.
 
-**e) `README.md`** — add a row to the Trading Pairs & Targets table.
+**e) `src/cli/nl_parser.py`** — add `'PAIR/USD'` and `'SYMBOL'` to the `PAIRS` list, and add to the LLM system prompt pair hint.
 
-**f) `business-requirement.md`** — update FR-01 pair list, Section 8 Per-Pair Configuration table, revision history, and pair count in FR-51 and scope section.
+**f) `rsi_verifier.py`** — no change needed (reads pairs from config.yaml automatically).
 
-**g) `plan.md`** — update the pairs line in the LLM system prompt section and the pairs table.
+**g) `src/exchange/websocket_feed.py`** — no change needed (builds maps from config.yaml automatically).
 
-### 4. Verify consistency
+**h) `src/exchange/kraken_client.py`** — no change needed (builds maps from config.yaml automatically).
+
+**i) `random_execution_kraken.py`** — add to `PAIRS` dict:
+```python
+'PAIR/USD': 'KRAKENRESTNAME',
+```
+
+### 5. Verify consistency
 After making changes, confirm:
-- [ ] `config.yaml` has the new pair
-- [ ] `PAIR_MAP` and `REST_PAIR_MAP` both updated in `websocket_feed.py`
-- [ ] `KRAKEN_PAIR_MAP` updated in `kraken_client.py`
-- [ ] `print_welcome()` updated in `display.py`
-- [ ] All three docs updated (README, plan, requirement)
+- [ ] `config.yaml` has `pair`, `ws_name`, `rest_name`, `take_profit_pct`, `stop_loss_pct`
+- [ ] `src/agent/prompts.py` pair count and list updated
+- [ ] `src/agent/tools.py` docstring updated
+- [ ] `src/cli/display.py` welcome banner updated
+- [ ] `src/cli/nl_parser.py` PAIRS list and LLM prompt updated
+- [ ] `random_execution_kraken.py` PAIRS dict updated
 
-### 5. Report
+### 6. Report
 Tell the user:
-- What was added and where
-- The Kraken WS/REST names used (flag if uncertain)
-- The take-profit rationale
-- That the agent needs to be restarted to pick up the new pair
+- Pair added, WS name, REST name, take-profit rationale
+- Agent needs a restart to pick up the new pair
+- No code changes needed in websocket_feed.py or kraken_client.py (config-driven)

@@ -117,6 +117,7 @@ class TradingAgent:
         cycle_id: int,
         portfolio: dict,
         signals: list,
+        ai_context: dict = None,
     ) -> list:
         """
         Run one full decision cycle across all pairs.
@@ -132,6 +133,7 @@ class TradingAgent:
             signals=signals,
             mode=self._mode,
             pair_tp_config=self._pair_tp,
+            ai_context=ai_context,
         )
 
         results = []
@@ -178,8 +180,15 @@ class TradingAgent:
         prompt_tokens = None
         completion_tokens = None
 
+        # Log outgoing prompt
+        logger.debug(
+            "[LLM PROMPT] pair=%s\n--- SYSTEM ---\n%s\n--- USER ---\n%s",
+            pair, SYSTEM_PROMPT, pair_prompt,
+        )
+
         for attempt in [self._model, self._fallback]:
             try:
+                logger.debug("[LLM REQUEST] model=%s pair=%s", attempt, pair)
                 response = self._client.chat(
                     model=attempt,
                     messages=messages,
@@ -201,6 +210,12 @@ class TradingAgent:
                         "SELL" if tool_called == "propose_sell" else
                         "HOLD"
                     )
+
+                logger.debug(
+                    "[LLM RESPONSE] model=%s pair=%s tool=%s args=%s tokens(prompt=%s,completion=%s)\ncontent: %s",
+                    model, pair, tool_called, tool_args,
+                    prompt_tokens, completion_tokens, raw_output,
+                )
                 break
             except Exception as e:
                 logger.warning("LLM attempt with %s failed: %s", attempt, e)

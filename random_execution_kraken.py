@@ -1,4 +1,4 @@
-/Users/vipulsanghrajka/.pyenv/versions/3.11.15/bin/python3 << 'PYEOF'
+
 import urllib.request
 import json
 import time
@@ -14,13 +14,20 @@ except ImportError:
     print("WARNING: ta library not found, will compute indicators manually")
 
 PAIRS = {
-    'BTC/USD': 'XBTUSD',
-    'ETH/USD': 'ETHUSD',
-    'SOL/USD': 'SOLUSD',
-    'XRP/USD': 'XRPUSD',
+    'BTC/USD':  'XBTUSD',
+    'ETH/USD':  'ETHUSD',
+    'BNB/USD':  'BNBUSD',
+    'SOL/USD':  'SOLUSD',
+    'XRP/USD':  'XRPUSD',
+    'TRX/USD':  'TRXUSD',
     'DOGE/USD': 'XDGUSD',
-    'ADA/USD': 'ADAUSD',
-    'BNB/USD': 'BNBUSD',
+    'ADA/USD':  'ADAUSD',
+    'LTC/USD':  'LTCUSD',
+    'AVAX/USD': 'AVAXUSD',
+    'SUI/USD':  'SUIUSD',
+    'HYPE/USD': 'HYPEUSD',
+    'UNI/USD':  'UNIUSD',
+    'INJ/USD':  'INJUSD',
 }
 
 def fetch_ohlcv(kraken_pair, interval=60):
@@ -265,5 +272,3 @@ The scoring thresholds are ASYMMETRIC:
 - MACD positive (+2) is frequent but weak alone (only 2pts, needs another signal)
 - Combined rare events make BUY signals infrequent but meaningful
 """)
-
-PYEOF

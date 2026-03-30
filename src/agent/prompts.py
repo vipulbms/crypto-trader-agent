@@ -23,7 +23,7 @@ RULES (non-negotiable — enforced by the risk manager, not you):
 
 YOUR ROLE:
 - You receive a market summary and portfolio state every 15 minutes
-- You monitor 10 pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD
+- You monitor 15 pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD
 - You have 3 tools: propose_buy, propose_sell, hold
 - Your goal is capital PRESERVATION first, gains second
 - You are a CONSERVATIVE agent — only trade on strong, clear signal confluence
@@ -40,6 +40,12 @@ SIGNAL INTERPRETATION:
     4. Daily loss limit has been hit
   If none of these apply and signal is BUY, call propose_buy.
 
+EXIT MANAGEMENT:
+- Open positions are managed by stop-loss (-5%) and take-profit (configured per pair). Trust these hard limits.
+- Do NOT call propose_sell on a stalled or sideways position — let SL/TP handle the exit.
+- Only call propose_sell on an open position if Signal=SELL AND there is a clear momentum reversal (e.g. MACD crossed negative, price broke below key support).
+- Exit timing alerts in the context are INFORMATIONAL only — they do not require action.
+
 MANDATORY TOOL CALLING:
 - You MUST call exactly one tool per pair per cycle: propose_buy, propose_sell, or hold
 - Calling hold() requires a reason string — e.g. hold("RSI neutral at 52, signals mixed")
@@ -54,6 +60,7 @@ def build_cycle_prompt(
     signals: list,
     mode: str = "paper",
     pair_tp_config: dict = None,
+    ai_context: dict = None,
 ) -> str:
     """
     Build the per-cycle user message injected into the LLM context.
@@ -69,9 +76,11 @@ def build_cycle_prompt(
     }
     signals: list of signal dicts (one per pair)
     pair_tp_config: {"BTC/USD": 8, "ETH/USD": 12, ...}
+    ai_context: dict of context blocks from features.build_ai_context()
     """
     mode_label = "[PAPER TRADING — virtual money]" if mode == "paper" else "[LIVE TRADING — real money]"
     pair_tp = pair_tp_config or {}
+    ctx = ai_context or {}
 
     lines = [
         f"=== CYCLE: {cycle_time} SGT {mode_label} ===",
@@ -93,6 +102,13 @@ def build_cycle_prompt(
                 f"SL: ${pos.get('stop_loss_price',0):.2f} | "
                 f"TP: ${pos.get('take_profit_price',0):.2f}"
             )
+
+    # ── AI Context blocks (features 1–6) ──────────────────────────
+    for block_key in ("regime", "sentiment", "patterns", "exit_timing",
+                      "position_sizing", "dynamic_tp"):
+        block = ctx.get(block_key, "")
+        if block:
+            lines += ["", block]
 
     lines += ["", "--- TAKE-PROFIT TARGETS ---"]
     for pair, tp_pct in pair_tp.items():

@@ -28,6 +28,7 @@ class TradingTools:
         mode: str,
         config: dict,
         start_of_day_balance: float,
+        llm_client=None,
     ):
         self._broker       = broker
         self._risk         = risk_manager
@@ -37,6 +38,7 @@ class TradingTools:
         self._mode          = mode
         self._config        = config
         self._sod_balance   = start_of_day_balance
+        self._llm_client    = llm_client  # for post-trade analysis (Feature 7)
 
         # Current cycle context — set before each cycle by the agent
         self._current_cycle_id: Optional[int] = None
@@ -60,7 +62,7 @@ class TradingTools:
         Stop-loss and take-profit are set automatically.
 
         Args:
-            pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', LTC/USD, 'RAILS/USD'
+            pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', 'LTC/USD', 'RAILS/USD', 'AVAX/USD', 'SUI/USD', 'HYPE/USD', 'UNI/USD', 'INJ/USD'
             usd_amount: Amount in USD to invest (will be capped at 30% of portfolio)
 
         Returns:
@@ -263,6 +265,8 @@ class TradingTools:
                 results.append(
                     f"${trade['pnl_usd']:+.2f} ({trade['pnl_pct']:+.2f}%)"
                 )
+                # Feature 7: Post-trade analysis
+                self._run_post_trade_analysis(trade)
 
         return f"SELL EXECUTED: {pair} | P&L: {', '.join(results)}"
 
@@ -295,3 +299,29 @@ class TradingTools:
         )
 
         return f"HOLD: {pair} — {reason}"
+
+    # ──────────────────────────────────────────────
+    # Internal: post-trade analysis (Feature 7)
+    # ──────────────────────────────────────────────
+
+    def _run_post_trade_analysis(self, trade: dict) -> None:
+        """Fire-and-forget post-trade LLM analysis. Logs result; never raises."""
+        try:
+            from src.analysis.features import generate_post_trade_analysis
+            llm_cfg = self._config.get("llm", {})
+            model   = llm_cfg.get("model", "qwen2.5:14b")
+            analysis = generate_post_trade_analysis(
+                trade=trade,
+                signals_at_entry=None,
+                config=self._config,
+                llm_client=self._llm_client,
+                model=model,
+            )
+            if analysis:
+                logger.info(
+                    "[POST-TRADE] %s %s P&L %.2f%% — %s",
+                    trade.get("pair"), trade.get("exit_reason"),
+                    trade.get("pnl_pct", 0), analysis,
+                )
+        except Exception as e:
+            logger.warning("Post-trade analysis error: %s", e)

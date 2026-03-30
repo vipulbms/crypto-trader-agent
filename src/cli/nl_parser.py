@@ -35,8 +35,12 @@ INTENTS = {
     "exit":             "Exit the Kryptos CLI",
 }
 
-PAIRS = ["BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD", "TRX/USD", "DOGE/USD", "ADA/USD", "LTC/USD",
-         "BTC", "ETH", "BNB", "SOL", "XRP", "TRX", "XDG", "ADA", "LTC"]
+PAIRS = [
+    "BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD", "TRX/USD", "DOGE/USD",
+    "ADA/USD", "LTC/USD", "RAILS/USD", "AVAX/USD", "SUI/USD", "HYPE/USD", "UNI/USD", "INJ/USD",
+    "BTC", "ETH", "BNB", "SOL", "XRP", "TRX", "DOGE", "XDG", "ADA", "LTC", "RAILS",
+    "AVAX", "SUI", "HYPE", "UNI", "INJ",
+]
 
 _SYSTEM_PROMPT = """You are an intent-classification assistant for a crypto trading CLI called Kryptos.
 
@@ -47,7 +51,7 @@ Available intents:
 
 Parameters you can extract:
 - mode: "paper" or "live"  (default: "paper")
-- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD  (or null)
+- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD  (or null)
 - days: integer number of days  (default: 7 for decisions, 30 for trades)
 - count: integer number of records to show
 - date: ISO date string YYYY-MM-DD  (or null)

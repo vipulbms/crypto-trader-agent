@@ -18,33 +18,18 @@ import websockets
 
 logger = logging.getLogger(__name__)
 
-# Kraken uses XBT internally; map display names to Kraken WS pair names
-PAIR_MAP = {
-    "BTC/USD":   "XBT/USD",
-    "ETH/USD":   "ETH/USD",
-    "BNB/USD":   "BNB/USD",
-    "SOL/USD":   "SOL/USD",
-    "XRP/USD":   "XRP/USD",
-    "TRX/USD":   "TRX/USD",
-    "DOGE/USD":  "DOGE/USD",
-    "ADA/USD":   "ADA/USD",
-    "LTC/USD":   "LTC/USD",
-    "RAILS/USD": "RAILS/USD",
-}
-
-# Kraken REST public OHLC pair names (different format from WS)
-REST_PAIR_MAP = {
-    "BTC/USD": "XBTUSD",
-    "ETH/USD": "ETHUSD",
-    "BNB/USD": "BNBUSD",
-    "SOL/USD": "SOLUSD",
-    "XRP/USD": "XRPUSD",
-    "TRX/USD": "TRXUSD",
-    "DOGE/USD": "XDGUSD",
-    "ADA/USD": "ADAUSD",
-    "LTC/USD": "LTCUSD",
-    "RAILS/USD": "RAILSUSD",
-}
+def _build_pair_maps(config: dict) -> tuple:
+    """
+    Build PAIR_MAP (display→ws_name) and REST_PAIR_MAP (display→rest_name)
+    from config.yaml pairs list. Falls back to the display name if not set.
+    """
+    pair_map = {}
+    rest_map = {}
+    for p in config.get("trading", {}).get("pairs", []):
+        name = p["pair"]
+        pair_map[name] = p.get("ws_name", name)
+        rest_map[name] = p.get("rest_name", name.replace("/", ""))
+    return pair_map, rest_map
 
 KRAKEN_WS_URL = "wss://ws.kraken.com/v2"
 KRAKEN_REST_OHLC = "https://api.kraken.com/0/public/OHLC"
@@ -81,6 +66,8 @@ class WebSocketFeed:
         self._ws_max_backoff: int = exc_cfg.get("ws_max_backoff_secs", 60)
         pairs_cfg = config.get("trading", {}).get("pairs", [])
         self._pairs: list = [p["pair"] for p in pairs_cfg]
+        # Build pair maps from config — no hardcoding
+        self._pair_map, self._rest_pair_map = _build_pair_maps(config)
         self._buffers: Dict[str, CandleBuffer] = {
             pair: CandleBuffer(self._buffer_size) for pair in self._pairs
         }
@@ -134,7 +121,7 @@ class WebSocketFeed:
 
     @timed("pair")
     def _backfill_pair(self, pair: str) -> None:
-        rest_pair = REST_PAIR_MAP.get(pair)
+        rest_pair = self._rest_pair_map.get(pair)
         if not rest_pair:
             logger.warning("No REST pair mapping for %s — skipping back-fill", pair)
             return
@@ -149,7 +136,10 @@ class WebSocketFeed:
                 logger.warning("Kraken REST error for %s: %s", pair, data["error"])
                 return
             result = data.get("result", {})
-            candles_raw = result.get(rest_pair) or result.get(next(iter(result), ""), [])
+            # Kraken returns the data under its internal pair key (e.g. XXBTZUSD for BTC,
+            # XDGZUSD for DOGE) — not the rest_name we sent. Always use the first non-"last" key.
+            result_key = next((k for k in result if k != "last"), None)
+            candles_raw = result.get(result_key, []) if result_key else []
             buf = self._buffers[pair]
             # Kraken OHLC format: [time, open, high, low, close, vwap, volume, count]
             for c in candles_raw[-self._buffer_size:]:
@@ -172,7 +162,7 @@ class WebSocketFeed:
     # ──────────────────────────────────────────────
 
     def _build_subscribe_msg(self) -> dict:
-        ws_pairs = [PAIR_MAP.get(p, p) for p in self._pairs]
+        ws_pairs = [self._pair_map.get(p, p) for p in self._pairs]
         return {
             "method": "subscribe",
             "params": {
@@ -244,5 +234,5 @@ class WebSocketFeed:
             logger.debug("Error handling WS message: %s", e)
 
     def _ws_symbol_to_pair(self, ws_symbol: str) -> Optional[str]:
-        reverse = {v: k for k, v in PAIR_MAP.items()}
+        reverse = {v: k for k, v in self._pair_map.items()}
         return reverse.get(ws_symbol)

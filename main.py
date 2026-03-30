@@ -38,22 +38,30 @@ def load_config(path: str = "config.yaml") -> dict:
 
 
 def setup_logging(config: dict) -> None:
-    storage_cfg = config.get("storage", {})
-    max_bytes   = storage_cfg.get("log_max_bytes", 100 * 1024 * 1024)
-    backup_count= storage_cfg.get("log_backup_count", 4)
+    storage_cfg  = config.get("storage", {})
+    max_bytes    = storage_cfg.get("log_max_bytes", 100 * 1024 * 1024)
+    backup_count = storage_cfg.get("log_backup_count", 4)
+    llm_debug    = storage_cfg.get("llm_debug_logging", False)
     os.makedirs("logs", exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.handlers.RotatingFileHandler(
-                "logs/agent.log",
-                maxBytes=max_bytes,
-                backupCount=backup_count,
-            ),
-        ],
+
+    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+    # File handler — DEBUG when llm_debug_logging enabled, else INFO
+    file_handler = logging.handlers.RotatingFileHandler(
+        "logs/agent.log", maxBytes=max_bytes, backupCount=backup_count,
     )
+    file_handler.setLevel(logging.DEBUG if llm_debug else logging.INFO)
+    file_handler.setFormatter(logging.Formatter(fmt))
+
+    # Console handler — always INFO (avoid flooding terminal with prompts)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter(fmt))
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if llm_debug else logging.INFO)
+    root.addHandler(file_handler)
+    root.addHandler(console_handler)
 
 
 def print_banner(mode: str, balance: float, pairs: list) -> None:
@@ -121,7 +129,7 @@ async def run_agent(config: dict, mode: str) -> None:
         if not api_key or not api_secret:
             logger.error("KRAKEN_API_KEY and KRAKEN_API_SECRET required for live mode")
             sys.exit(1)
-        broker = KrakenClient(api_key=api_key, api_secret=api_secret)
+        broker = KrakenClient(api_key=api_key, api_secret=api_secret, config=config)
 
     # ── Get starting balance ───────────────────────────────────
     balance_data       = broker.get_balance()
@@ -129,6 +137,10 @@ async def run_agent(config: dict, mode: str) -> None:
 
     # ── Print startup banner ───────────────────────────────────
     print_banner(mode, start_of_day_bal, pairs)
+
+    import ollama as _ollama
+    _llm_cfg    = config.get("llm", {})
+    _llm_client = _ollama.Client(host=_llm_cfg.get("base_url", "http://localhost:11434"))
 
     tools = TradingTools(
         broker=broker,
@@ -139,6 +151,7 @@ async def run_agent(config: dict, mode: str) -> None:
         mode=mode,
         config=config,
         start_of_day_balance=start_of_day_bal,
+        llm_client=_llm_client,
     )
 
     agent = TradingAgent(
@@ -172,6 +185,7 @@ async def run_agent(config: dict, mode: str) -> None:
     logger.info("Candle buffers ready. Starting decision cycles.")
 
     # ── Main cycle loop ────────────────────────────────────────
+    loop_state = {"daily_loss_notified_date": None}  # mutable shared state across cycles
     try:
         while True:
             cycle_start = time.time()
@@ -188,6 +202,7 @@ async def run_agent(config: dict, mode: str) -> None:
                     pairs=pairs,
                     mode=mode,
                     start_of_day_balance=start_of_day_bal,
+                    loop_state=loop_state,
                 )
             except Exception as e:
                 tb = traceback.format_exc()
@@ -204,6 +219,7 @@ async def run_agent(config: dict, mode: str) -> None:
                         closed = broker.check_stops_and_tp(pair, current_price, audit)
                         for trade in closed:
                             notifier.send_trade_executed(trade, mode)
+                            tools._run_post_trade_analysis(trade)
 
             elapsed   = time.time() - cycle_start
             sleep_for = max(0, interval_s - elapsed)
@@ -225,7 +241,7 @@ async def run_agent(config: dict, mode: str) -> None:
 
 async def run_cycle(
     broker, agent, ws_feed, audit, notifier, risk, config,
-    pairs, mode, start_of_day_balance
+    pairs, mode, start_of_day_balance, loop_state=None
 ) -> None:
     """Execute one decision cycle: collect data → build signals → run LLM → execute."""
     from src.analysis.indicators import compute_indicators
@@ -272,9 +288,12 @@ async def run_cycle(
     if (daily_pnl["pnl_usd"] < 0 and start_of_day_balance > 0 and
             abs(daily_pnl["pnl_usd"]) / start_of_day_balance * 100 >= daily_limit_pct):
         logger.warning("Daily loss limit reached. Skipping trade decisions this cycle.")
-        notifier.send_daily_loss_limit_reached(
-            abs(daily_pnl["pnl_usd"]) / start_of_day_balance * 100
-        )
+        today = datetime.now(timezone.utc).date()
+        if loop_state is not None and loop_state.get("daily_loss_notified_date") != today:
+            notifier.send_daily_loss_limit_reached(
+                abs(daily_pnl["pnl_usd"]) / start_of_day_balance * 100
+            )
+            loop_state["daily_loss_notified_date"] = today
         return
 
     # Compute indicators and signals for each pair
@@ -314,11 +333,21 @@ async def run_cycle(
         logger.warning("No signals computed this cycle")
         return
 
+    # Build AI context (regime, sentiment, patterns, exit timing, sizing, dynamic TP)
+    from src.analysis.features import build_ai_context
+    ai_context = build_ai_context(
+        signals=signals,
+        portfolio=portfolio,
+        open_positions=open_positions,
+        config=config,
+    )
+
     # Run LLM agent
     results = agent.run_cycle(
         cycle_id=cycle_id,
         portfolio=portfolio,
         signals=signals,
+        ai_context=ai_context,
     )
 
     for r in results:

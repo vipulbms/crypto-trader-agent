@@ -10,30 +10,25 @@ import ccxt
 
 logger = logging.getLogger(__name__)
 
-# ccxt uses BTC/USD; Kraken internally uses XBT but ccxt handles the mapping
-KRAKEN_PAIR_MAP = {
-    "BTC/USD": "BTC/USD",
-    "ETH/USD": "ETH/USD",
-    "BNB/USD": "BNB/USD",
-    "SOL/USD": "SOL/USD",
-    "XRP/USD": "XRP/USD",
-    "TRX/USD": "TRX/USD",
-    "DOGE/USD": "DOGE/USD",
-    "ADA/USD": "ADA/USD",
-    "LTC/USD": "LTC/USD",
-    "RAILS/USD": "RAILS/USD",
-}
+def _build_ccxt_pair_map(config: dict) -> dict:
+    """
+    Build display→ccxt pair map from config.yaml pairs list.
+    ccxt uses the display name (BTC/USD) directly; Kraken XBT mapping is handled by ccxt internally.
+    Falls back to the display name if ws_name not set.
+    """
+    return {p["pair"]: p["pair"] for p in config.get("trading", {}).get("pairs", [])}
 
 
 class KrakenClient:
     """Live trading client. Requires KRAKEN_API_KEY and KRAKEN_API_SECRET."""
 
-    def __init__(self, api_key: str, api_secret: str):
+    def __init__(self, api_key: str, api_secret: str, config: dict = None):
         self._exchange = ccxt.kraken({
             "apiKey":  api_key,
             "secret":  api_secret,
             "enableRateLimit": True,
         })
+        self._pair_map = _build_ccxt_pair_map(config or {})
         logger.info("KrakenClient initialised (live mode)")
 
     # ──────────────────────────────────────────────
@@ -54,7 +49,8 @@ class KrakenClient:
         usd_free  = raw.get("free", {}).get("USD", 0.0)
         holdings  = {
             coin: raw["total"].get(coin, 0.0)
-            for coin in ["BTC", "ETH", "BNB", "SOL"]
+            for coin in ["BTC", "ETH", "BNB", "SOL", "XRP", "TRX", "DOGE", "ADA", "LTC",
+                         "AVAX", "SUI", "HYPE", "UNI", "INJ"]
         }
         return {
             "total_usd":          float(usd_total),
@@ -99,7 +95,7 @@ class KrakenClient:
 
         Returns dict with order IDs and calculated prices.
         """
-        ccxt_pair = KRAKEN_PAIR_MAP.get(pair, pair)
+        ccxt_pair = self._pair_map.get(pair, pair)
         volume = round(usd_amount / current_price, 8)
 
         # Entry order
@@ -158,7 +154,7 @@ class KrakenClient:
     def cancel_order(self, order_id: str, pair: str) -> bool:
         """Cancel an open order. Returns True if successful."""
         try:
-            ccxt_pair = KRAKEN_PAIR_MAP.get(pair, pair)
+            ccxt_pair = self._pair_map.get(pair, pair)
             self._exchange.cancel_order(order_id, ccxt_pair)
             logger.info("Cancelled order %s for %s", order_id, pair)
             return True
@@ -171,7 +167,7 @@ class KrakenClient:
         Validate an order without placing it (Kraken validate flag).
         Useful for testing order construction.
         """
-        ccxt_pair = KRAKEN_PAIR_MAP.get(pair, pair)
+        ccxt_pair = self._pair_map.get(pair, pair)
         return self._exchange.create_order(
             ccxt_pair, "limit", side, volume, price,
             {"validate": True}
