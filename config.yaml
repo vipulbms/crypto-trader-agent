@@ -158,7 +158,7 @@ signals:
 # LLM settings
 # ──────────────────────────────────────────────
 llm:
-  model: qwen2.5:14b
+  model: qwen3.5:27b
   fallback_model: llama3.1:8b
   base_url: http://localhost:11434
   timeout_seconds: 600
