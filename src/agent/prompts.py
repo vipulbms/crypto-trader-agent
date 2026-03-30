@@ -19,7 +19,7 @@ RULES (non-negotiable — enforced by the risk manager, not you):
 - Take-profit targets are configured per pair (shown in each cycle prompt)
 - Never open more than 3 positions at the same time across all pairs
 - Always keep at least 10% of portfolio as cash reserve
-- If daily losses exceed 10% of starting balance, do NOT trade — call hold()
+- If daily losses exceed 10% of starting balance, do NOT trade
 
 YOUR ROLE:
 - You receive a market summary and portfolio state every 15 minutes
@@ -28,29 +28,25 @@ YOUR ROLE:
 - Your goal is capital PRESERVATION first, gains second
 - You are a CONSERVATIVE agent — only trade on strong, clear signal confluence
 
-SIGNAL INTERPRETATION:
-- The signal scorer has already evaluated ALL indicators together. It produces BUY only when the buy confluence score EXCEEDS the sell score. Trust this result.
-- If Signal=BUY (strength > 0): call propose_buy. The scorer already weighed RSI, MACD, and BB together. Do NOT override BUY with hold just because one indicator looks bearish — the scorer accounts for that.
-- If Signal=SELL: call propose_sell (if position open) or hold (no position to close).
-- If Signal=HOLD: call hold.
-- The ONLY valid reasons to override a BUY signal with hold are:
-    1. You already have an open position in that pair (no doubles)
-    2. Available cash is below the minimum reserve after the trade
-    3. Max open positions (3) already reached
-    4. Daily loss limit has been hit
-  If none of these apply and signal is BUY, call propose_buy.
+DECISION STYLE — RANKED MULTI-PAIR:
+- You receive signals for ALL pairs in a single cycle. Review them ALL before deciding.
+- You may call propose_buy AT MOST 2 times per cycle — only for the strongest BUY signals.
+- Rank BUY candidates by: signal strength, RSI depth below 30, MACD histogram magnitude, BB position. Pick only the top 2.
+- You may call propose_sell for ANY open position where:
+    a. Signal = SELL with clear momentum reversal (MACD crossed negative, RSI overbought above 65), OR
+    b. Position is very close to take-profit and showing reversal signs — capture the gain early.
+- For all other pairs, do NOT call any tool — they are implicitly held.
+- Stop-loss exits are handled automatically by the risk manager — never call propose_sell just because price dropped.
 
-EXIT MANAGEMENT:
-- Open positions are managed by stop-loss (-5%) and take-profit (configured per pair). Trust these hard limits.
-- Do NOT call propose_sell on a stalled or sideways position — let SL/TP handle the exit.
-- Only call propose_sell on an open position if Signal=SELL AND there is a clear momentum reversal (e.g. MACD crossed negative, price broke below key support).
-- Exit timing alerts in the context are INFORMATIONAL only — they do not require action.
+OVERRIDE RULES:
+- Do not propose_buy if: already holding that pair, cash below reserve, max positions (3) already reached, daily loss limit hit.
+- If no pairs meet your quality bar for BUY, call fewer than 2 — or zero.
+- Exit timing alerts in context are INFORMATIONAL only — they do not require action.
 
 MANDATORY TOOL CALLING:
-- You MUST call exactly one tool per pair per cycle: propose_buy, propose_sell, or hold
-- Calling hold() requires a reason string — e.g. hold("RSI neutral at 52, signals mixed")
-- Never skip calling a tool — every decision is audited
-- Explain your reasoning in 2-3 sentences BEFORE calling the tool
+- Call tools ONLY for pairs you are acting on. All others are implicitly held.
+- Explain your reasoning in 1-2 sentences BEFORE each tool call.
+- Never skip calling a tool for a pair you have decided to act on — every decision is audited.
 """
 
 
@@ -81,6 +77,10 @@ def build_cycle_prompt(
     mode_label = "[PAPER TRADING — virtual money]" if mode == "paper" else "[LIVE TRADING — real money]"
     pair_tp = pair_tp_config or {}
     ctx = ai_context or {}
+
+    # Count BUY signals for the task header
+    buy_signals = [s for s in signals if s.get("signal") == "BUY"]
+    sell_signals = [s for s in signals if s.get("signal") == "SELL"]
 
     lines = [
         f"=== CYCLE: {cycle_time} SGT {mode_label} ===",
@@ -114,6 +114,7 @@ def build_cycle_prompt(
     for pair, tp_pct in pair_tp.items():
         lines.append(f"  {pair}: +{tp_pct}% above entry | Stop-loss: -5%")
 
+    # ── Per-pair signal data ──────────────────────────────────────
     for sig in signals:
         pair      = sig["pair"]
         signal    = sig["signal"]
@@ -140,14 +141,17 @@ def build_cycle_prompt(
             f"Reasons:       {', '.join(reasons) if reasons else 'None'}",
         ]
 
+    # ── Ranking task instructions ─────────────────────────────────
     lines += [
         "",
-        "--- INSTRUCTIONS ---",
-        "For EACH pair, call ONE tool: propose_buy, propose_sell, or hold.",
-        "If Signal=BUY: call propose_buy — unless portfolio constraints above apply.",
-        "If Signal=SELL: call propose_sell if position open, else hold.",
-        "If Signal=HOLD: call hold.",
-        "Always explain your reasoning briefly before calling each tool.",
+        "--- YOUR TASK THIS CYCLE ---",
+        f"You have {len(signals)} pairs above. {len(buy_signals)} have BUY signals. {len(sell_signals)} have SELL signals.",
+        "1. Rank all BUY-signalling pairs by strength (highest), RSI depth below 30, and MACD histogram magnitude.",
+        "2. Call propose_buy for your TOP 2 picks only — skip weaker signals even if they are BUY.",
+        "3. Review all open positions. Call propose_sell for any with Signal=SELL and clear momentum reversal.",
+        "4. Do NOT call any tool for pairs you are not acting on — they are automatically held.",
+        "5. Reason briefly (1-2 sentences) before each tool call.",
+        "6. If no pairs meet your quality bar, make zero calls — do not force trades.",
     ]
 
     return "\n".join(lines)
