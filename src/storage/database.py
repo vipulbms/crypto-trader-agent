@@ -21,10 +21,17 @@ def _get_db_path(db_filename: str) -> str:
 def get_connection(db_filename: str) -> sqlite3.Connection:
     """Open and return a SQLite connection with foreign keys enabled."""
     path = _get_db_path(db_filename)
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        if "locked" in str(e).lower():
+            logger.error("Database timeout — %s is locked after 10s: %s", db_filename, e)
+        else:
+            logger.error("Database connection error for %s: %s", db_filename, e)
+        raise
 
 
 # ──────────────────────────────────────────────────────────────

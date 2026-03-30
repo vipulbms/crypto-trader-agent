@@ -20,6 +20,7 @@ from typing import Optional
 from ..utils.tz import now_sgt
 from ..utils.timing import timed, set_cycle_id
 
+import httpx
 import ollama
 
 from .prompts import SYSTEM_PROMPT, build_cycle_prompt
@@ -52,7 +53,8 @@ class TradingAgent:
         self._max_rsn     = llm_cfg.get("max_reasoning_chars", 500)
         self._max_buys    = config.get("trading", {}).get("max_buys_per_cycle", 2)
         self._client      = ollama.Client(
-            host=llm_cfg.get("base_url", "http://localhost:11434")
+            host=llm_cfg.get("base_url", "http://localhost:11434"),
+            timeout=self._timeout,
         )
 
         # Build pair → TP % map for prompt
@@ -205,6 +207,17 @@ class TradingAgent:
                              model_used, len(tool_calls_made),
                              prompt_tokens, completion_tokens, raw_output)
                 break
+            except httpx.TimeoutException as e:
+                logger.error(
+                    "[LLM] Timeout after %ds — model=%s: %s",
+                    self._timeout, attempt, e,
+                )
+                self._audit.log_error(
+                    "llm", "LLMTimeout",
+                    f"Timeout after {self._timeout}s — model={attempt}: {e}",
+                )
+                if attempt == self._fallback:
+                    raw_output = f"LLM timeout after {self._timeout}s"
             except Exception as e:
                 logger.warning("LLM attempt with %s failed: %s", attempt, e)
                 if attempt == self._fallback:

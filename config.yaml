@@ -162,7 +162,7 @@ llm:
   model: qwen2.5:14b
   fallback_model: llama3.1:8b
   base_url: http://localhost:11434
-  timeout_seconds: 600
+  timeout_seconds: 900
   max_reasoning_chars: 1000   # Max chars stored in audit reasoning_summary
 
 # ──────────────────────────────────────────────

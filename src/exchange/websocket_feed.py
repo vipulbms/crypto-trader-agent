@@ -154,6 +154,8 @@ class WebSocketFeed:
             if len(buf) > 0:
                 self._latest_price[pair] = buf.to_list()[-1]["close"]
             logger.info("Back-filled %d candles for %s", len(buf), pair)
+        except requests.exceptions.Timeout:
+            logger.error("Back-fill REST timeout for %s — no response after 10s", pair)
         except Exception as e:
             logger.error("Back-fill failed for %s: %s", pair, e)
 
@@ -176,7 +178,11 @@ class WebSocketFeed:
         backoff = 2
         while self._running:
             try:
-                async with websockets.connect(KRAKEN_WS_URL, ping_interval=self._ws_ping) as ws:
+                async with websockets.connect(
+                    KRAKEN_WS_URL,
+                    ping_interval=self._ws_ping,
+                    open_timeout=10,
+                ) as ws:
                     await ws.send(json.dumps(self._build_subscribe_msg()))
                     logger.info("Subscribed to Kraken OHLC feed")
                     backoff = 2
@@ -184,6 +190,13 @@ class WebSocketFeed:
                         if not self._running:
                             break
                         self._handle_message(raw)
+            except asyncio.TimeoutError:
+                logger.error(
+                    "WebSocket connection timeout to %s — reconnecting in %ds",
+                    KRAKEN_WS_URL, backoff,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, self._ws_max_backoff)
             except (websockets.ConnectionClosed, OSError) as e:
                 if not self._running:
                     break
