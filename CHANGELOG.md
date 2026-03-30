@@ -2,6 +2,132 @@
 
 ---
 
+## Session: 2026-03-30 (Part B) — AI Features, New Pairs, Config Refactor
+
+### AI Features Added (src/analysis/features.py)
+
+All 7 features are config-driven — no literals hardcoded in Python. All controlled via `config.yaml`.
+
+| # | Feature | Description | Config Key |
+|---|---|---|---|
+| 1 | **Position Sizing** | Scale trade size by signal strength × ATR volatility. Weak signals get smaller size; high ATR reduces size to control risk | `position_sizing` |
+| 2 | **Dynamic Take-Profit** | ATR-based TP: `ATR × multiplier / entry_price × 100`. Reduced to `min_tp_pct` when Bollinger Bands squeeze (low volatility) | `dynamic_tp` |
+| 3 | **Market Regime Detection** | Count pairs with negative/positive MACD histogram. Classify as bearish/bullish/volatile/ranging. Inject `caution_factor` into LLM context | `regime` |
+| 4 | **Fear & Greed Sentiment** | Fetch Alternative.me Fear & Greed Index (0–100). Cached for `cache_minutes`. Extreme Fear → LLM warned to be conservative | `sentiment` |
+| 5 | **Pattern Analysis** | Query closed paper trades for per-pair win rate, avg P&L, most common exit reason. Injected as LLM advisory context | `pattern_analysis` |
+| 6 | **Exit Timing** | Detect open position momentum decay: MACD histogram decay, RSI overbought, price stalled vs ATR. Returns advisory reason string | `exit_timing` |
+| 7 | **Post-Trade LLM Analysis** | After each closed trade (agent sell, SL, or TP), LLM writes 2–3 sentences on why the trade succeeded or failed | `post_trade` |
+
+### AI Feature Wiring
+
+| File | Change |
+|---|---|
+| `src/analysis/features.py` | New file — all 7 features implemented |
+| `main.py` | `build_ai_context()` called before each LLM cycle; `llm_client` passed to `TradingTools`; post-trade analysis triggered on SL/TP close |
+| `src/agent/trading_agent.py` | `run_cycle()` accepts `ai_context` param; passed to `build_cycle_prompt()` |
+| `src/agent/tools.py` | `llm_client` stored; `_run_post_trade_analysis()` added; called from `propose_sell` and SL/TP loop |
+| `src/agent/prompts.py` | `build_cycle_prompt()` injects all 6 AI context blocks (regime, sentiment, patterns, exit_timing, position_sizing, dynamic_tp) |
+| `config.yaml` | 7 new sections added with full literal configuration |
+
+### Exit Timing Prompt Fix
+
+- **Bug**: LLM treated Feature 6 exit timing alerts as commands — sold BNB at -0.14% when SL was at -5% and TP was +12%
+- **Fix**: Added `EXIT MANAGEMENT` section to `SYSTEM_PROMPT`:
+  - SL/TP owns all exits — LLM must not call `propose_sell` on stalled positions
+  - Exit timing alerts are INFORMATIONAL only
+  - `propose_sell` on open position only if Signal=SELL AND clear momentum reversal confirmed
+
+### New Trading Pairs (15 total)
+
+| Pair | WS Name | REST Name | TP% | Rationale |
+|---|---|---|---|---|
+| AVAX/USD | AVAX/USD | AVAXUSD | 15% | High volatility L1 |
+| SUI/USD | SUI/USD | SUIUSD | 20% | High-beta L1 |
+| HYPE/USD | HYPE/USD | HYPEUSD | 20% | High volatility DeFi |
+| UNI/USD | UNI/USD | UNIUSD | 15% | DeFi blue chip |
+| INJ/USD | INJ/USD | INJUSD | 20% | DeFi/L1 hybrid |
+
+### Config-Driven Pair Maps (Architecture Refactor)
+
+**Before**: `PAIR_MAP`, `REST_PAIR_MAP`, `KRAKEN_PAIR_MAP` hardcoded in Python files — adding a pair required editing 7+ files.
+
+**After**: `config.yaml` is the single source of truth:
+```yaml
+- pair: BTC/USD
+  ws_name: XBT/USD      # Kraken WebSocket v2 symbol
+  rest_name: XBTUSD     # Kraken public REST OHLC symbol
+  take_profit_pct: 8
+  stop_loss_pct: 5
+```
+Adding a new pair now only requires editing `config.yaml` (plus prompts/display for the pair list text).
+
+### Backfill Key Bug Fix
+
+- **Bug**: `_backfill_pair()` called `result.get(rest_pair)` but Kraken REST returns data under its internal key (`XXBTZUSD` for BTC, `XDGZUSD` for DOGE) — not the name we sent
+- **Fix** (`websocket_feed.py`):
+  ```python
+  result_key = next((k for k in result if k != "last"), None)
+  candles_raw = result.get(result_key, []) if result_key else []
+  ```
+
+### Daily Loss Limit Notification Spam Fix
+
+- **Bug**: `send_daily_loss_limit_reached()` called every 15-minute cycle after limit hit — hundreds of alerts per day
+- **Fix** (`main.py`): `loop_state = {"daily_loss_notified_date": None}` shared across cycles; notification sent only once per calendar date; resets at midnight
+
+### LLM Debug Logging
+
+- **New**: Full LLM prompt + HTTP response logged at DEBUG level in `logs/agent.log`
+- **Config**: `storage.llm_debug_logging: false` — set `true` to enable
+- Console stays at INFO; file log receives DEBUG (prompts, requests, responses, token counts)
+- Log tags: `[LLM PROMPT]`, `[LLM REQUEST]`, `[LLM RESPONSE]`
+
+### New Tool: rsi_verifier.py
+
+- Fetches live RSI from Kraken public REST API for all monitored pairs
+- Reads pairs from `config.yaml` — no hardcoded list
+- Args: `--interval` (candle minutes), `--window` (RSI period), `--threshold` (overbought level)
+
+### Updated: add-pair Skill
+
+- Old skill referenced now-removed `PAIR_MAP`/`REST_PAIR_MAP`/`KRAKEN_PAIR_MAP`
+- New skill: only update `config.yaml` (with `ws_name`+`rest_name`) + prompts/display/nl_parser/random_execution_kraken
+- Includes live Kraken API verification step
+
+### Bugs Fixed This Session
+
+| Bug | Root Cause | Fix |
+|---|---|---|
+| LLM closes open positions on stall signal | Feature 6 exit timing alert injected into prompt; LLM treated it as action command | Added EXIT MANAGEMENT rules to SYSTEM_PROMPT |
+| Daily loss limit notification spam | No deduplication — fired every cycle after limit hit | `loop_state` date tracking; notify once per day |
+| REST backfill fetching wrong candles | Kraken response key differs from request name (e.g. `XXBTZUSD` ≠ `XBTUSD`) | Use `next(k for k in result if k != "last")` |
+
+### Files Changed This Session
+
+| File | Change |
+|---|---|
+| `src/analysis/features.py` | NEW — all 7 AI features |
+| `config.yaml` | `ws_name`/`rest_name` on all pairs; 5 new pairs; 7 AI feature sections; `llm_debug_logging` |
+| `src/agent/prompts.py` | EXIT MANAGEMENT section; AI context blocks injected |
+| `src/agent/trading_agent.py` | `ai_context` param; LLM prompt/response debug logging |
+| `src/agent/tools.py` | `llm_client`; `_run_post_trade_analysis()`; all 15 pairs in docstring |
+| `src/exchange/websocket_feed.py` | Config-driven pair maps; backfill key bug fix |
+| `src/exchange/kraken_client.py` | Config-driven pair map; `config` param in `__init__` |
+| `src/cli/display.py` | Welcome banner updated to 15 pairs |
+| `src/cli/nl_parser.py` | PAIRS list and LLM prompt updated for 15 pairs |
+| `main.py` | Daily loss spam fix; `build_ai_context` wired; `config` to KrakenClient; DEBUG logging |
+| `rsi_verifier.py` | NEW — live RSI verifier |
+| `random_execution_kraken.py` | PAIRS updated to 14 pairs |
+| `.claude/skills/add-pair/SKILL.md` | Updated to config-driven architecture |
+| `docs/sessions/session_2026_03_30b.md` | Session notes |
+
+### Commit
+| Hash | Message |
+|---|---|
+| `4b08e80` | feat: 5 new pairs, config-driven pair maps, AI features 1-7, LLM debug logging |
+
+---
+
 ## Session: 2026-03-30
 
 ### Bugs Fixed
