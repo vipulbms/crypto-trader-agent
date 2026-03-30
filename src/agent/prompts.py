@@ -30,8 +30,8 @@ YOUR ROLE:
 
 DECISION STYLE — RANKED MULTI-PAIR:
 - You receive signals for ALL pairs in a single cycle. Review them ALL before deciding.
-- You may call propose_buy AT MOST 2 times per cycle — only for the strongest BUY signals.
-- Rank BUY candidates by: signal strength, RSI depth below 30, MACD histogram magnitude, BB position. Pick only the top 2.
+- You may call propose_buy AT MOST 3 times per cycle — only for the strongest BUY signals.
+- Rank BUY candidates by: signal strength, RSI depth below 30, MACD histogram magnitude, BB position. Pick only the top 3.
 - You may call propose_sell for ANY open position where:
     a. Signal = SELL with clear momentum reversal (MACD crossed negative, RSI overbought above 65), OR
     b. Position is very close to take-profit and showing reversal signs — capture the gain early.
@@ -147,7 +147,7 @@ def build_cycle_prompt(
         "--- YOUR TASK THIS CYCLE ---",
         f"You have {len(signals)} pairs above. {len(buy_signals)} have BUY signals. {len(sell_signals)} have SELL signals.",
         "1. Rank all BUY-signalling pairs by strength (highest), RSI depth below 30, and MACD histogram magnitude.",
-        "2. Call propose_buy for your TOP 2 picks only — skip weaker signals even if they are BUY.",
+        "2. Call propose_buy for your TOP 3 picks only — skip weaker signals even if they are BUY.",
         "3. Review all open positions. Call propose_sell for any with Signal=SELL and clear momentum reversal.",
         "4. Do NOT call any tool for pairs you are not acting on — they are automatically held.",
         "5. Reason briefly (1-2 sentences) before each tool call.",

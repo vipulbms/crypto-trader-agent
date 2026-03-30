@@ -17,8 +17,8 @@ trading:
 
   max_position_pct: 30        # Max % of portfolio per single trade
   max_open_positions: 3       # Max concurrent open positions (across all pairs)
-  max_buys_per_cycle: 2       # LLM may propose at most this many buys per cycle
-  cycle_interval_minutes: 15  # How often the agent runs a decision cycle
+  max_buys_per_cycle: 3       # LLM may propose at most this many buys per cycle
+  cycle_interval_minutes: 30  # How often the agent runs a decision cycle
 
   pairs:
     # pair:      display name used throughout the agent

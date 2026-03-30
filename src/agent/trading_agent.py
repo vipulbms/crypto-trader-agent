@@ -215,6 +215,22 @@ class TradingAgent:
         logger.info("[LLM] Cycle decision completed — model=%s tool_calls=%d latency=%dms",
                     model_used, len(tool_calls_made), latency_ms)
 
+        # Safety net 1: zero tool calls = entire cycle silently held — warn loudly
+        if not tool_calls_made:
+            buy_count_in_signals = sum(1 for s in signals if s.get("signal") == "BUY")
+            logger.warning(
+                "[AGENT] LLM returned ZERO tool calls — all %d pairs will be held this cycle "
+                "(%d BUY signals present). Model may have failed to use tools.",
+                len(signals), buy_count_in_signals,
+            )
+            self._audit.log_error(
+                "agent", "ZeroToolCalls",
+                f"LLM returned no tool calls — {len(signals)} pairs held, {buy_count_in_signals} BUY signals missed",
+            )
+
+        # Build signal lookup for safety net 2
+        signal_by_pair = {s["pair"]: s.get("signal", "HOLD") for s in signals}
+
         # ── Process tool calls from LLM ───────────────────────────
         actioned_pairs: set = set()
         buy_count = 0
@@ -243,6 +259,17 @@ class TradingAgent:
                     tool_called, llm_pair,
                 )
                 continue
+
+            # Safety net 2: signal mismatch — LLM proposed BUY on a non-BUY signal pair
+            if tool_called == "propose_buy":
+                actual_signal = signal_by_pair.get(matched_pair, "HOLD")
+                if actual_signal != "BUY":
+                    logger.warning(
+                        "[AGENT] LLM proposed BUY for %s but signal is %s — skipping",
+                        matched_pair, actual_signal,
+                    )
+                    buy_count -= 1  # undo the increment
+                    continue
 
             actioned_pairs.add(matched_pair)
 
