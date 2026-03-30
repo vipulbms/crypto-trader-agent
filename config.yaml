@@ -76,7 +76,7 @@ trading:
     - pair: AVAX/USD
       ws_name: AVAX/USD
       rest_name: AVAXUSD
-      take_profit_pct: 15     # High volatility L1, 15-20% swings common
+      take_profit_pct: 16     # High volatility L1, 15-20% swings common
       stop_loss_pct: 5
     - pair: SUI/USD
       ws_name: SUI/USD
@@ -91,7 +91,7 @@ trading:
     - pair: UNI/USD
       ws_name: UNI/USD
       rest_name: UNIUSD
-      take_profit_pct: 15     # DeFi blue chip, moderate-high volatility
+      take_profit_pct: 12     # DeFi blue chip, moderate-high volatility
       stop_loss_pct: 5
     - pair: INJ/USD
       ws_name: INJ/USD
