@@ -190,6 +190,17 @@ async def run_agent(config: dict, mode: str) -> None:
         while True:
             cycle_start = time.time()
 
+            # Stop-loss / take-profit checks run FIRST — highest priority, before LLM decisions
+            if mode == "paper":
+                from src.exchange.paper_broker import PaperBroker
+                for pair in pairs:
+                    current_price = ws_feed.get_latest_price(pair)
+                    if current_price:
+                        closed = broker.check_stops_and_tp(pair, current_price, audit)
+                        for trade in closed:
+                            notifier.send_trade_executed(trade, mode)
+                            tools._run_post_trade_analysis(trade)
+
             try:
                 await run_cycle(
                     broker=broker,
@@ -209,17 +220,6 @@ async def run_agent(config: dict, mode: str) -> None:
                 logger.error("Cycle error: %s\n%s", e, tb)
                 audit.log_error("main_loop", type(e).__name__, str(e), tb, recovered=True)
                 notifier.send_error_alert("main_loop", str(e)[:200])
-
-            # Also check stop/TP on each pair after cycle (paper mode)
-            if mode == "paper":
-                from src.exchange.paper_broker import PaperBroker
-                for pair in pairs:
-                    current_price = ws_feed.get_latest_price(pair)
-                    if current_price:
-                        closed = broker.check_stops_and_tp(pair, current_price, audit)
-                        for trade in closed:
-                            notifier.send_trade_executed(trade, mode)
-                            tools._run_post_trade_analysis(trade)
 
             elapsed   = time.time() - cycle_start
             sleep_for = max(0, interval_s - elapsed)
@@ -353,11 +353,12 @@ async def run_cycle(
     for r in results:
         logger.info("Agent result [%s]: %s", r["pair"], r["result"])
 
-    # Audit balance snapshot
+    # Audit balance snapshot — re-fetch to capture any trades that executed this cycle
+    post_balance = broker.get_balance()
     audit.log_balance_snapshot(
-        total_usd=total_usd,
-        cash_usd=cash_usd,
-        holdings=balance_data.get("holdings", {}),
+        total_usd=post_balance["total_usd"],
+        cash_usd=post_balance["available_cash_usd"],
+        holdings=post_balance.get("holdings", {}),
         unrealised_pnl_usd=0.0,
     )
 

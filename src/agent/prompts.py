@@ -33,13 +33,15 @@ DECISION STYLE — RANKED MULTI-PAIR:
 - You may call propose_buy AT MOST 3 times per cycle — only for the strongest BUY signals.
 - Rank BUY candidates by: signal strength, RSI depth below 30, MACD histogram magnitude, BB position. Pick only the top 3.
 - You may call propose_sell for ANY open position where:
-    a. Signal = SELL with clear momentum reversal (MACD crossed negative, RSI overbought above 65), OR
-    b. Position is very close to take-profit and showing reversal signs — capture the gain early.
+    a. Signal = SELL with clear momentum reversal (MACD crossed negative, RSI overbought above 65), AND the position P&L is above +2% (do not exit a position at a small gain just because of a SELL signal — let stop-loss handle losses), OR
+    b. Position has already reached at least 80% of its take-profit target (e.g. TP=20% → exit only if current P&L ≥ 16%) AND is showing a confirmed reversal (MACD histogram turned negative, RSI crossed below 65 from above).
 - For all other pairs, do NOT call any tool — they are implicitly held.
 - Stop-loss exits are handled automatically by the risk manager — never call propose_sell just because price dropped.
 
 OVERRIDE RULES:
 - Do not propose_buy if: already holding that pair, cash below reserve, max positions (3) already reached, daily loss limit hit.
+- Do NOT propose_sell on a position with P&L below +2% for any reason — let the stop-loss handle it. Early exits at tiny gains destroy the risk/reward ratio.
+- Do NOT propose_sell just because a SELL signal appeared — only sell if the position already has meaningful profit AND shows confirmed reversal (see rule above).
 - If no pairs meet your quality bar for BUY, call fewer than 2 — or zero.
 - Exit timing alerts in context are INFORMATIONAL only — they do not require action.
 
@@ -98,6 +100,7 @@ def build_cycle_prompt(
         for pos in portfolio["open_positions"]:
             lines.append(
                 f"  {pos.get('pair','?')}: {pos.get('volume',0):.6f} | "
+                f"USD: ${pos.get('usd_value',0):.2f} | "
                 f"Entry: ${pos.get('entry_price',0):.2f} | "
                 f"SL: ${pos.get('stop_loss_price',0):.2f} | "
                 f"TP: ${pos.get('take_profit_price',0):.2f}"

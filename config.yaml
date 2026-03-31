@@ -16,7 +16,7 @@ trading:
   allowed_take_profit_pcts: [5, 8, 12, 16, 20]
 
   max_position_pct: 30        # Max % of portfolio per single trade
-  max_open_positions: 3       # Max concurrent open positions (across all pairs)
+  max_open_positions: 5       # Max concurrent open positions (across all pairs)
   max_buys_per_cycle: 3       # LLM may propose at most this many buys per cycle
   cycle_interval_minutes: 30  # How often the agent runs a decision cycle
 

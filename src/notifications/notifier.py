@@ -86,6 +86,7 @@ class Notifier:
         tp         = trade.get("take_profit_price")
         reason     = trade.get("exit_reason", "")
         usd_invested = trade.get("usd_invested")
+        fee_usd      = trade.get("fee_usd")
 
         if pnl_usd is not None:
             # Closing trade
@@ -97,7 +98,11 @@ class Notifier:
             )
         else:
             # Opening trade
-            invested_str = f" | Invested: ${usd_invested:.2f}" if usd_invested is not None else ""
+            if usd_invested is not None:
+                fee_str = f" fee: ${fee_usd:.2f}" if fee_usd else ""
+                invested_str = f" | Invested: ${usd_invested:.2f}{fee_str}"
+            else:
+                invested_str = ""
             msg = (
                 f"{self._prefix}🟡 <b>{side}</b>: {pair}\n"
                 f"Fill: ${price:.2f} | Vol: {volume:.6f}{invested_str}\n"
