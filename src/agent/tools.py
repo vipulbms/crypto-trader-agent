@@ -43,12 +43,16 @@ class TradingTools:
         # Current cycle context — set before each cycle by the agent
         self._current_cycle_id: Optional[int] = None
         self._current_llm_decision_id: Optional[int] = None
+        self._dynamic_tp_values: dict = {}
 
     def set_cycle_context(self, cycle_id: int) -> None:
         self._current_cycle_id = cycle_id
 
     def set_llm_decision_id(self, decision_id: int) -> None:
         self._current_llm_decision_id = decision_id
+
+    def set_dynamic_tp_values(self, values: dict) -> None:
+        self._dynamic_tp_values = values or {}
 
     # ──────────────────────────────────────────────
     # Tool: propose_buy
@@ -109,7 +113,9 @@ class TradingTools:
             return f"FAILED: {msg}"
 
         sl_pct = self._risk.get_stop_loss_pct(pair)
-        tp_pct = self._risk.get_take_profit_pct(pair)
+        tp_pct = self._dynamic_tp_values.get(pair) or self._risk.get_take_profit_pct(pair)
+        if pair in self._dynamic_tp_values:
+            logger.info("[DYNAMIC_TP] %s using dynamic TP=%.1f%%", pair, tp_pct)
 
         # Audit entry order
         entry_order_id = self._audit.log_order(

@@ -24,12 +24,17 @@
 | ETH/USD | 12% | 5% | Moderate volatility |
 | BNB/USD | 12% | 5% | Similar profile to ETH |
 | SOL/USD | 16% | 5% | High volatility — larger swings achievable |
-| XRP/USD | 12% | 5% | News-driven spikes; data shows RSI rarely < 30 |
+| XRP/USD | 12% | 5% | News-driven spikes |
 | TRX/USD | 12% | 5% | Mid-tier altcoin |
 | DOGE/USD | 20% | 5% | Meme-driven; can swing 20–30% in hours |
 | ADA/USD | 12% | 5% | Moderate volatility, similar to ETH |
-| LTC/USD | 12% | 5% | Follows BTC with 1.5–2× amplification |
-| RAILS/USD | 20% | 5% | Meme-driven; can swing 20–30% in hours  |
+| LTC/USD | 8% | 5% | Follows BTC with 1.5–2× amplification |
+| RAILS/USD | 20% | 5% | High volatility |
+| AVAX/USD | 12% | 5% | High volatility L1 |
+| SUI/USD | 20% | 5% | High-beta L1, aggressive swings |
+| HYPE/USD | 20% | 5% | High volatility DeFi token |
+| UNI/USD | 12% | 5% | DeFi blue chip |
+| INJ/USD | 20% | 5% | DeFi/L1 hybrid, wide swings |
 
 ---
 

@@ -160,6 +160,30 @@ def compute_dynamic_tp(
     return float(max(min_tp, min(max_tp, round(atr_tp_pct, 1))))
 
 
+def compute_dynamic_tp_values(signals: list, config: dict) -> dict:
+    """
+    Returns {pair: tp_pct} for all pairs using dynamic TP calculation.
+    Used by TradingTools to override static TP at order placement time.
+    Returns empty dict if dynamic_tp is disabled.
+    """
+    dtp_cfg = config.get("dynamic_tp", {})
+    if not dtp_cfg.get("enabled", True):
+        return {}
+    result = {}
+    for sig in signals:
+        ind = sig.get("indicators", {})
+        price = ind.get("close", 0)
+        result[sig["pair"]] = compute_dynamic_tp(
+            pair=sig["pair"],
+            entry_price=price,
+            atr=ind.get("atr_14"),
+            bb_upper=ind.get("bb_upper"),
+            bb_lower=ind.get("bb_lower"),
+            config=config,
+        )
+    return result
+
+
 def build_dynamic_tp_context(signals: list, config: dict) -> str:
     """
     Build a text block showing dynamic TP suggestions for BUY signals.
@@ -732,6 +756,7 @@ def build_ai_context(
         "position_sizing": build_position_sizing_context(
             signals, portfolio.get("total_usd", 1000), config
         ),
-        "dynamic_tp":      build_dynamic_tp_context(signals, config),
+        "dynamic_tp":        build_dynamic_tp_context(signals, config),
+        "dynamic_tp_values": compute_dynamic_tp_values(signals, config),
         "exit_timing":     build_exit_timing_context(open_positions, signals, config),
     }

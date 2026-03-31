@@ -53,7 +53,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 ### 4.1 In Scope
 
-- Automated monitoring and trading of ten cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD**
+- Automated monitoring and trading of fifteen cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD**
 - Technical analysis of market data (RSI, MACD, Bollinger Bands, EMA, ATR)
 - AI-assisted buy, sell, and hold decisions using a locally hosted LLM
 - Deterministic risk management layer that cannot be overridden by the AI
@@ -83,7 +83,7 @@ The agent must operate continuously, make data-driven decisions using a locally-
 
 | ID | Requirement |
 |---|---|
-| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD |
+| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD |
 | FR-02 | The system MUST receive real-time price data from the Kraken public WebSocket feed (`wss://ws.kraken.com/v2`) |
 | FR-03 | The system MUST back-fill historical OHLCV candles from the Kraken public REST API on startup |
 | FR-04 | The system MUST maintain a rolling buffer of **300 fifteen-minute candles** (75 hours of history) per pair |

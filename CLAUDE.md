@@ -151,6 +151,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_03_31f | Timeout handling across LLM/DB/WebSocket |
 | session_2026_03_31g | Telegram notification: add invested USD amount |
 | session_2026_03_31h | Balance mismatch fix (fee visibility, stale snapshot); SL priority; early-sell guardrails |
+| session_2026_04_01a | caution_factor code-enforced; dynamic TP wired to place_order(); 18 tests added; commit skill extended |
 
 ---
 
@@ -160,3 +161,5 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **`usd_value` ≠ cash deducted**: `usd_value` in DB = entry cost only; actual cash deducted = entry cost + entry fee. The fee is shown in Telegram notifications but not in `paper_positions.usd_value`.
 - **`agent_sell` vs `take_profit`**: `exit_reason` in DB distinguishes LLM-initiated sells from automatic TP hits. If you see small-gain exits, check if `exit_reason = agent_sell` — means the LLM sold early.
 - **Cycle interval**: 30 minutes. SL/TP checks happen every cycle start, not on every price tick. Price can blow past SL between cycles without firing.
+- **caution_factor is code-enforced**: In bearish regime, `portfolio["max_per_trade"]` is scaled by 0.5 in `main.py` before the LLM cycle. The LLM cannot exceed this cap even if it ignores the prompt warning.
+- **Dynamic TP is now order-level**: `TradingTools.propose_buy()` uses ATR/BB-adjusted TP from `ai_context["dynamic_tp_values"]` instead of static config. Falls back to static if `dynamic_tp.enabled: false` or pair not in values. Logged as `[DYNAMIC_TP]`.

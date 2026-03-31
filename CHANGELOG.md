@@ -2,6 +2,45 @@
 
 ---
 
+## Session: 2026-04-01 (Part A) — Regime caution factor + dynamic TP code-enforced; tests added
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|---|---|---|
+| `caution_factor` computed but never applied | `detect_market_regime()` returned `caution_factor` (0.5/0.7) in `ai_context["regime_data"]` but nothing in `main.py` consumed it — position size was never actually reduced in bearish/volatile markets | After `build_ai_context()`, `portfolio["max_per_trade"]` is now scaled by `caution_factor` before the LLM cycle |
+| Dynamic TP advisory only — not used at order placement | `compute_dynamic_tp()` computed ATR/BB-adjusted TP and injected text into LLM prompt, but `propose_buy()` always called `self._risk.get_take_profit_pct(pair)` (static config) — actual TP stored in `paper_positions` was always the static value | Added `compute_dynamic_tp_values()` to `features.py`; wired through `build_ai_context()` → `trading_agent.run_cycle()` → `TradingTools.set_dynamic_tp_values()` → `propose_buy()` |
+
+### Features Added
+
+| Feature | Files | Notes |
+|---|---|---|
+| `compute_dynamic_tp_values()` | `src/analysis/features.py` | Returns `{pair: tp_pct}` for all pairs; included in `build_ai_context()` output as `"dynamic_tp_values"` |
+| `set_dynamic_tp_values()` on `TradingTools` | `src/agent/tools.py` | Called once per cycle by `TradingAgent`; values used in `propose_buy()` |
+| Regime caution scaling | `main.py` | Logs `[REGIME]` when caution applied |
+| 18 unit tests | `tests/test_regime_and_dynamic_tp.py` | Covers dynamic TP clamping, `build_ai_context` keys, `propose_buy` TP override, caution factor scaling and regime detection |
+
+### Docs Updated
+
+- `CLAUDE.md` — session notes table updated; two new gotchas added
+- `README.md` — pairs table updated to 15 pairs
+- `plan.md` — pairs list updated (10→15); cycle interval corrected (15→30 min); decision cycle step updated for single-LLM-call architecture and AI context
+- `business-requirement.md` — FR-01 and scope updated to 15 pairs
+- `.claude/skills/commit/SKILL.md` — steps 2–4 added (session notes, CLAUDE.md, docs review)
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `main.py` | Apply `caution_factor` to `portfolio["max_per_trade"]` after `build_ai_context()` |
+| `src/analysis/features.py` | `compute_dynamic_tp_values()` added; `build_ai_context()` returns `"dynamic_tp_values"` |
+| `src/agent/tools.py` | `_dynamic_tp_values` field; `set_dynamic_tp_values()`; `propose_buy()` uses dynamic TP |
+| `src/agent/trading_agent.py` | `set_dynamic_tp_values()` called in `run_cycle()` |
+| `tests/test_regime_and_dynamic_tp.py` | NEW — 18 unit tests |
+| `.claude/skills/commit/SKILL.md` | Extended pre-commit steps |
+
+---
+
 ## Session: 2026-03-30 (Part B) — AI Features, New Pairs, Config Refactor
 
 ### AI Features Added (src/analysis/features.py)

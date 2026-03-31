@@ -342,6 +342,17 @@ async def run_cycle(
         config=config,
     )
 
+    # Apply regime caution factor to max_per_trade
+    caution_factor = ai_context.get("regime_data", {}).get("caution_factor", 1.0)
+    if caution_factor < 1.0:
+        original_max = portfolio["max_per_trade"]
+        portfolio["max_per_trade"] = round(original_max * caution_factor, 2)
+        logger.info(
+            "[REGIME] %s regime — caution_factor=%.2f, max_per_trade scaled $%.2f → $%.2f",
+            ai_context["regime_data"]["regime"], caution_factor,
+            original_max, portfolio["max_per_trade"],
+        )
+
     # Run LLM agent
     results = agent.run_cycle(
         cycle_id=cycle_id,

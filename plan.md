@@ -13,8 +13,8 @@ Build a local AI agent that autonomously trades cryptocurrency on Kraken, with t
 | Max open positions | 3 across all pairs |
 | Daily loss limit | 10% of starting balance |
 | Minimum cash reserve | 10% of portfolio |
-| Pairs | BTC/USD · ETH/USD · BNB/USD · SOL/USD · ADA/USD · XRP/USD · TRX/USD · DOGE/USD · LTC/USD · RAILS/USD    |
-| Decision cycle | Every 15 minutes |
+| Pairs | BTC/USD · ETH/USD · BNB/USD · SOL/USD · ADA/USD · XRP/USD · TRX/USD · DOGE/USD · LTC/USD · RAILS/USD · AVAX/USD · SUI/USD · HYPE/USD · UNI/USD · INJ/USD |
+| Decision cycle | Every 30 minutes |
 | Paper mode balance | $1,000 virtual USD |
 
 Capital preservation is the primary objective. The agent must HOLD more than it trades.
@@ -113,7 +113,7 @@ A separate entry point gives the product owner a natural-language interface to t
 
 ---
 
-## 3. Decision Cycle (every 15 minutes)
+## 3. Decision Cycle (every 30 minutes)
 
 ```
 1. WebSocket feed delivers latest 15-min candles (buffer: 300 per pair = 75 hours)
@@ -124,15 +124,18 @@ A separate entry point gives the product owner a natural-language interface to t
 3. generate_signal()     — rule-based BUY/SELL/HOLD with strength score
    - All weights, thresholds, and tolerances read from config.yaml signals: section
    - BB signals suppressed when band width < bb_min_width_pct (prevents squeeze noise)
-4. build_cycle_prompt()  — inject portfolio state + all pair signals into LLM context
-5. TradingAgent.run_cycle()
-     └─ For each pair → Ollama LLM call with tool definitions
-          └─ LLM returns tool call: propose_buy | propose_sell | hold
+4. build_ai_context()    — regime detection, sentiment, patterns, exit timing, position sizing, dynamic TP
+   - caution_factor applied to portfolio["max_per_trade"] (bearish=0.5×, volatile=0.7×)
+   - dynamic_tp_values passed to TradingTools for use at order placement
+5. build_cycle_prompt()  — inject portfolio state + all pair signals + AI context into LLM context
+6. TradingAgent.run_cycle() — SINGLE LLM call for ALL pairs
+     └─ LLM ranks all BUY signals, selects top ≤3, returns multiple tool calls
+          └─ propose_buy / propose_sell / hold (implicit hold for unactioned pairs)
                └─ RiskManager.validate_buy() — approve / cap / reject
                     └─ PaperBroker / KrakenClient — execute order
-6. AuditLogger records EVERY decision (including HOLD) to audit.db
-7. Notifier sends Telegram alert (async, non-blocking via asyncio.create_task)
-8. [TIMING] log line emitted for every method in the flow (cycle_id, class, method, params, ms)
+7. AuditLogger records EVERY decision (including HOLD) to audit.db
+8. Notifier sends Telegram alert (async, non-blocking via asyncio.create_task)
+9. [TIMING] log line emitted for every method in the flow (cycle_id, class, method, params, ms)
 ```
 
 ---
