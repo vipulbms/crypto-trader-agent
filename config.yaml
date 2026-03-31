@@ -159,10 +159,10 @@ signals:
 # LLM settings
 # ──────────────────────────────────────────────
 llm:
-  model: qwen2.5:14b
-  fallback_model: llama3.1:8b
+  model: deepseek-r1:7b
+  fallback_model: deepseek-r1:7b
   base_url: http://localhost:11434
-  timeout_seconds: 900
+  timeout_seconds: 600
   max_reasoning_chars: 1000   # Max chars stored in audit reasoning_summary
 
 # ──────────────────────────────────────────────

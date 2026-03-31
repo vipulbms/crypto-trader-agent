@@ -2,6 +2,28 @@
 
 ---
 
+## Session: 2026-04-01 (Part B) — LLM model switch + live broker parity
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|---|---|---|
+| LLM timeout every cycle since midnight | `qwen2.5:14b` runs on CPU (no GPU) — 700–900 s per inference, consuming full 900 s timeout. Fallback `llama3.1:8b` was never installed, producing 404 with no recovery | Switched to `deepseek-r1:7b` (half size, ~2× faster); fallback to `deepseek-r1:7b`; timeout reduced to 600 s |
+| Prompts.py said "every 15 minutes" | Stale copy from before cycle interval was doubled to 30 min | Updated SYSTEM_PROMPT to say "every 30 minutes" |
+| Live mode non-functional | `KrakenClient.get_balance()` used market value; `get_open_positions()` called `fetch_open_orders()` (wrong); `close_position()` and `check_stops_and_tp()` missing | Complete `KrakenClient` rewrite — all methods now mirror `PaperBroker` interface, positions tracked in `live_trading.db` |
+| SL/TP loop only ran in paper mode | `if mode == "paper":` guard in `main.py` prevented live SL/TP checks | Removed guard — SL/TP loop now runs for both paper and live |
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `config.yaml` | `model` → `deepseek-r1:7b`; `fallback_model` → `deepseek-r1:7b`; `timeout_seconds` 900 → 600 |
+| `src/agent/prompts.py` | Cycle interval doc fix: 15 min → 30 min |
+| `src/exchange/kraken_client.py` | Full rewrite — `live_db` param; `get_balance()` mirrors PaperBroker; `get_open_positions()` from DB; `close_position()` new; `check_stops_and_tp()` new |
+| `main.py` | Wire `live_db` to `KrakenClient`; remove `if mode == "paper":` guard from SL/TP loop |
+
+---
+
 ## Session: 2026-04-01 (Part A) — Regime caution factor + dynamic TP code-enforced; tests added
 
 ### Bugs Fixed

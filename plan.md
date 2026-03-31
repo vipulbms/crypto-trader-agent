@@ -47,7 +47,7 @@ Capital preservation is the primary objective. The agent must HOLD more than it 
 │                                    ┌────────▼─────────┐     │
 │                                    │  TradingAgent    │     │
 │                                    │  (Ollama LLM)    │     │
-│                                    │  qwen2.5:7b      │     │
+│                                    │  deepseek-r1:7b  │     │
 │                                    └────────┬─────────┘     │
 │                                             │               │
 │                           ┌────────────────▼────────────┐  │

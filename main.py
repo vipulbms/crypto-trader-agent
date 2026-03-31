@@ -129,7 +129,8 @@ async def run_agent(config: dict, mode: str) -> None:
         if not api_key or not api_secret:
             logger.error("KRAKEN_API_KEY and KRAKEN_API_SECRET required for live mode")
             sys.exit(1)
-        broker = KrakenClient(api_key=api_key, api_secret=api_secret, config=config)
+        live_db = storage_cfg.get("live_db", "live_trading.db")
+        broker = KrakenClient(api_key=api_key, api_secret=api_secret, config=config, live_db=live_db)
 
     # ── Get starting balance ───────────────────────────────────
     balance_data       = broker.get_balance()
@@ -191,15 +192,13 @@ async def run_agent(config: dict, mode: str) -> None:
             cycle_start = time.time()
 
             # Stop-loss / take-profit checks run FIRST — highest priority, before LLM decisions
-            if mode == "paper":
-                from src.exchange.paper_broker import PaperBroker
-                for pair in pairs:
-                    current_price = ws_feed.get_latest_price(pair)
-                    if current_price:
-                        closed = broker.check_stops_and_tp(pair, current_price, audit)
-                        for trade in closed:
-                            notifier.send_trade_executed(trade, mode)
-                            tools._run_post_trade_analysis(trade)
+            for pair in pairs:
+                current_price = ws_feed.get_latest_price(pair)
+                if current_price:
+                    closed = broker.check_stops_and_tp(pair, current_price, audit)
+                    for trade in closed:
+                        notifier.send_trade_executed(trade, mode)
+                        tools._run_post_trade_analysis(trade)
 
             try:
                 await run_cycle(

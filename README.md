@@ -6,7 +6,7 @@
 
 ## Features
 
-- **AI-powered decisions** — local `qwen2.5:14b` via Ollama; no cloud API calls, no external data sharing
+- **AI-powered decisions** — local `deepseek-r1:7b` via Ollama; no cloud API calls, no external data sharing
 - **Capital-first risk rules** — 5% stop-loss, configurable take-profit (5/8/12/16/20%), max 30% per trade, enforced by deterministic Python (not the LLM)
 - **Full audit trail** — every BUY, SELL, and HOLD logged to SQLite with LLM reasoning and risk check results
 - **Natural-language CLI** — ask `show last 5 BTC trades with reasoning` or `why did it hold ETH?` in plain English

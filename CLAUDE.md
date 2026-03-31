@@ -152,6 +152,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_03_31g | Telegram notification: add invested USD amount |
 | session_2026_03_31h | Balance mismatch fix (fee visibility, stale snapshot); SL priority; early-sell guardrails |
 | session_2026_04_01a | caution_factor code-enforced; dynamic TP wired to place_order(); 18 tests added; commit skill extended |
+| session_2026_04_01b | LLM switched to deepseek-r1:7b; KrakenClient full live broker parity rewrite |
 
 ---
 
@@ -163,3 +164,5 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Cycle interval**: 30 minutes. SL/TP checks happen every cycle start, not on every price tick. Price can blow past SL between cycles without firing.
 - **caution_factor is code-enforced**: In bearish regime, `portfolio["max_per_trade"]` is scaled by 0.5 in `main.py` before the LLM cycle. The LLM cannot exceed this cap even if it ignores the prompt warning.
 - **Dynamic TP is now order-level**: `TradingTools.propose_buy()` uses ATR/BB-adjusted TP from `ai_context["dynamic_tp_values"]` instead of static config. Falls back to static if `dynamic_tp.enabled: false` or pair not in values. Logged as `[DYNAMIC_TP]`.
+- **deepseek-r1 `<think>` blocks**: deepseek-r1 emits chain-of-thought `<think>…</think>` before its response. Ollama strips these before populating `msg.tool_calls`, so tool dispatch is unaffected. If you see verbose `content` in debug logs, that's the reasoning block.
+- **Live broker parity**: `KrakenClient` now has the same interface as `PaperBroker` — `get_balance()`, `get_open_positions()`, `close_position()`, `check_stops_and_tp()` all implemented. Positions are tracked in `live_trading.db` (same SQLite pattern as paper mode).
