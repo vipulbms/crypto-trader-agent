@@ -77,14 +77,15 @@ class Notifier:
 
     def send_trade_executed(self, trade: dict, mode: str) -> None:
         """Sent after every executed trade (paper or live)."""
-        pair    = trade.get("pair", "?")
-        side    = trade.get("side", "?").upper()
-        price   = trade.get("fill_price") or trade.get("exit_price", 0)
-        pnl_usd = trade.get("pnl_usd")
-        volume  = trade.get("volume", 0)
-        sl      = trade.get("stop_loss_price")
-        tp      = trade.get("take_profit_price")
-        reason  = trade.get("exit_reason", "")
+        pair       = trade.get("pair", "?")
+        side       = trade.get("side", "?").upper()
+        price      = trade.get("fill_price") or trade.get("exit_price", 0)
+        pnl_usd    = trade.get("pnl_usd")
+        volume     = trade.get("volume", 0)
+        sl         = trade.get("stop_loss_price")
+        tp         = trade.get("take_profit_price")
+        reason     = trade.get("exit_reason", "")
+        usd_invested = trade.get("usd_invested")
 
         if pnl_usd is not None:
             # Closing trade
@@ -96,9 +97,10 @@ class Notifier:
             )
         else:
             # Opening trade
+            invested_str = f" | Invested: ${usd_invested:.2f}" if usd_invested is not None else ""
             msg = (
                 f"{self._prefix}🟡 <b>{side}</b>: {pair}\n"
-                f"Fill: ${price:.2f} | Vol: {volume:.6f}\n"
+                f"Fill: ${price:.2f} | Vol: {volume:.6f}{invested_str}\n"
                 f"SL: ${sl:.2f} | TP: ${tp:.2f}"
             )
         self._send(msg)
