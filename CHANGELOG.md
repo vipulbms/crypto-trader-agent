@@ -2,6 +2,45 @@
 
 ---
 
+## Session: 2026-04-01 (Part C) — Backtesting pipeline
+
+### Features Added
+
+| Feature | Files | Notes |
+|---|---|---|
+| Candle data loader | `tests/backtest/loader.py` | Maps 15 pairs to history JSON files; normalises Kraken tick arrays |
+| In-memory BacktestBroker | `tests/backtest/broker.py` | PaperBroker equivalent; intra-candle SL/TP using high/low |
+| Backtest runner | `tests/backtest/runner.py` | Slides candle window; deterministic signal-following agent |
+| Report generator | `tests/backtest/report.py` | P&L, per-pair stats, trade log, Sharpe ratio, balance history |
+| Backtest entry point | `tests/test_backtest.py` | `python tests/test_backtest.py`; prints report + bug list |
+
+### Bugs Fixed (in backtest code)
+
+| Bug | Fix |
+|---|---|
+| `hold_candles` was epoch-seconds delta not candle count | Divide by `15 * 60` to convert to candle count |
+
+### Bugs Identified (production + data)
+
+| # | Bug | Severity |
+|---|---|---|
+| BUG-1 | `AVAXSD_candle.json` filename missing 'U' | Low |
+| BUG-2 | `indicators.py` returns `ema_50` key even when `ema_slow=200` | Low |
+| BUG-3 | Kraken OHLC API 720-candle cap — only 7.5 days returned, not 12 months | High |
+| BUG-4 | CLAUDE.md INJ/USD TP listed as 16%, config says 20% | Low |
+| BUG-5 | SL/TP checked once per 30-min cycle — flash crash risk | Medium |
+
+### Backtest Results (7.5-day window, March 24–April 1, 2026)
+
+| Metric | Value |
+|---|---|
+| P&L | -$18.33 (-1.83%) |
+| Win rate | 63.6% |
+| Win/Loss ratio | 0.67x |
+| TP hits / SL hits | 0 / 4 |
+
+---
+
 ## Session: 2026-04-01 (Part B) — LLM model switch + live broker parity
 
 ### Bugs Fixed
