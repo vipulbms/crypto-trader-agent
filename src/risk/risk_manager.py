@@ -50,6 +50,7 @@ class RiskManager:
         risk    = config.get("risk", {})
         self._stop_loss_pct       = trading.get("stop_loss_pct", 5)
         self._global_tp_pct       = trading.get("take_profit_pct", 10)
+        self._min_profit_floor_pct= trading.get("min_profit_floor_pct", 1.0)
         self._max_position_pct    = trading.get("max_position_pct", 30)
         self._max_open_positions  = trading.get("max_open_positions", 3)
         self._daily_loss_limit_pct= risk.get("daily_loss_limit_pct", 10)
@@ -137,9 +138,27 @@ class RiskManager:
     def validate_sell(
         self,
         pair: str,
-        open_positions_count: int,
+        open_positions: list[dict],
+        current_price: float,
     ) -> tuple:
-        """Validate a proposed sell/close of an open position."""
-        if open_positions_count == 0:
+        """Validate a proposed sell/close of an open position against the profit floor."""
+        if not open_positions:
             return (False, "No open positions to sell", 0.0)
+
+        for pos in open_positions:
+            entry_price = pos.get("entry_price")
+            if not entry_price:
+                continue
+
+            est_pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            
+            # BLOCK trades that don't satisfy the minimum floor
+            if est_pnl_pct < self._min_profit_floor_pct:
+                return (
+                    False, 
+                    f"Minimum Profit Floor Guardrail: Projected PNL is {est_pnl_pct:+.2f}%, "
+                    f"which is below the {self._min_profit_floor_pct}% required to cover exchange fees.", 
+                    0.0
+                )
+
         return (True, "Approved", 0.0)

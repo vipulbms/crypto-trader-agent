@@ -7,12 +7,13 @@ Build a local AI agent that autonomously trades cryptocurrency on Kraken, with t
 
 | Constraint | Value |
 |---|---|
-| Stop-loss (fixed) | 5% below entry |
-| Take-profit (configurable) | 5 / 8 / 12 / 16 / 20% per pair |
-| Max allocation per trade | 30% of portfolio |
+| Stop-loss | Dynamic based on Volatility (Multiplier * ATR), max 5% |
+| Take-profit | Mathematically set as EntryPrice + (k * ATR) |
+| Max allocation per trade | Volatility-adjusted (ATR-proportional) |
 | Max open positions | 3 across all pairs |
 | Daily loss limit | 10% of starting balance |
 | Minimum cash reserve | 10% of portfolio |
+| Minimum Profit Floor | Prevent manually closing for micro-profits, 1.0% |
 | Pairs | BTC/USD · ETH/USD · BNB/USD · SOL/USD · ADA/USD · XRP/USD · TRX/USD · DOGE/USD · LTC/USD · RAILS/USD · AVAX/USD · SUI/USD · HYPE/USD · UNI/USD · INJ/USD |
 | Decision cycle | Every 30 minutes |
 | Paper mode balance | $1,000 virtual USD |

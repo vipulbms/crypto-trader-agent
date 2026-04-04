@@ -231,9 +231,15 @@ class TradingTools:
         positions = self._broker.get_open_positions()
         pair_positions = [p for p in positions if p.get("pair") == pair]
 
+        current_price = self._ws.get_latest_price(pair)
+        if not current_price:
+            return f"FAILED: No price data for {pair}"
+
+        # Feed actual position details and live price to the risk manager
         approved, check_reason, _ = self._risk.validate_sell(
             pair=pair,
-            open_positions_count=len(pair_positions),
+            open_positions=pair_positions,
+            current_price=current_price
         )
 
         risk_check_id = self._audit.log_risk_check(
@@ -246,10 +252,6 @@ class TradingTools:
 
         if not approved:
             return f"REJECTED: {check_reason}"
-
-        current_price = self._ws.get_latest_price(pair)
-        if not current_price:
-            return f"FAILED: No price data for {pair}"
 
         results = []
         for pos in pair_positions:

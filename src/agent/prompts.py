@@ -4,6 +4,7 @@ The system prompt is static; the cycle prompt is built dynamically
 each cycle with real market data and portfolio state.
 """
 
+import os
 from datetime import datetime, timezone
 
 
@@ -11,42 +12,22 @@ from datetime import datetime, timezone
 # System prompt — injected once at agent creation
 # ──────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are Kryptos, a quantitative AI crypto trading agent managing a real investment portfolio on Kraken exchange.
+# Dynamically load the trading rules from the SKILL.md file to avoid duplication
+SKILL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+    ".claude", "skills", "trading-rules", "SKILL.md"
+)
 
-RULES (non-negotiable — enforced by the risk manager):
-- Position Sizes are volatility-adjusted (ATR-proportional) to keep Dollar Risk constant
-- Stop-loss is dynamically set based on Volatility (Multiplier * ATR) but strictly capped at 5% maximum
-- Take-profit targets are mathematically set as EntryPrice + (k * ATR) based on the asset's current volatility regime
-- All orders must be LIMIT orders placed at the Bid price
-- Trades are completely BLOCKED if Order Book Imbalance (OBI) is negative or if Price is below EMA 50
-- Never open more than 3 positions at the same time across all pairs
-- Always keep at least 10% of portfolio as cash reserve
-- If daily losses exceed 10% of starting balance, do NOT trade
+try:
+    with open(SKILL_PATH, "r", encoding="utf-8") as f:
+        TRADING_RULES = f.read().strip()
+except FileNotFoundError:
+    TRADING_RULES = "[WARNING: .claude/skills/trading-rules/SKILL.md file not found.]"
 
-YOUR ROLE:
-- You receive a market summary and portfolio state every 15 minutes
-- You monitor 15 pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD
-- You have 3 tools: propose_buy, propose_sell, hold
-- Your goal is capital PRESERVATION first, gains second. You are a CONSERVATIVE agent.
+SYSTEM_PROMPT = f"""You are Kryptos, a quantitative AI crypto trading agent managing a real investment portfolio on Kraken exchange.
 
-DECISION STYLE — RANKED MULTI-PAIR:
-- Review all signals. You may call propose_buy AT MOST 3 times per cycle — only for the strongest BUY signals that have positive OBI.
-- Rank BUY candidates by: signal strength, OBI positivity, momentum (EMA 9 > 21), and MACD histogram magnitude.
-- You may call propose_sell for ANY open position where:
-    a. Signal = SELL with clear momentum reversal (MACD crossed negative, RSI overbought above 65), AND the position P&L is above +2%, OR
-    b. Position has already reached at least 80% of its dynamic ATR take-profit target AND is showing a confirmed reversal.
-- Stop-loss exits are handled automatically by the risk manager — never call propose_sell just because price dropped.
-
-OVERRIDE RULES:
-- Do not propose_buy if: already holding, cash below reserve, max positions reached, or OBI is negative.
-- Do NOT propose_sell on a position with P&L below +2% for any reason — let the dynamic stop-loss handle it.
-- If no pairs meet your quality bar for BUY, make zero calls.
-
-MANDATORY TOOL CALLING:
-- Call tools ONLY for pairs you are acting on. All others are implicitly held.
-- Explain your reasoning in 1-2 sentences BEFORE each tool call.
+{TRADING_RULES}
 """
-
 
 def build_cycle_prompt(
     cycle_time: str,

@@ -379,3 +379,11 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 | Unified Backtesting     | `tests/test_backtest.py`                                   | Full production backtest rig overriding legacy determinism script. |
 
 ---
+
+## Session: 2026-04-05 (Part A) — Minimum Profit Floor and Trading Rules SKILL
+
+### Features Added
+- **Minimum Profit Floor**: Added a 1.0% minimum profit floor to prevent the agent from closing trades for micro-profits that would map to net losses after Kraken Maker/Taker fees.
+- **Configurable Profit Floor**: Added `min_profit_floor_pct` to `config.yaml`.
+- **Trading Rules SKILL**: Moved hardcoded trading rules from the agent prompt into `.claude/skills/trading-rules/SKILL.md` to be dynamically loaded, deduplicating logic.
+- **Strict PNL Validation**: Updated `src/risk/risk_manager.py` to strictly reject sell requests that do not meet the minimum profit floor. The live execution price from the WebSocket is now used to calculate the estimated PNL during `propose_sell`.
