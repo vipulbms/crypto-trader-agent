@@ -44,6 +44,7 @@ class TradingTools:
         self._current_cycle_id: Optional[int] = None
         self._current_llm_decision_id: Optional[int] = None
         self._dynamic_tp_values: dict = {}
+        self._dynamic_sl_values: dict = {}
 
     def set_cycle_context(self, cycle_id: int) -> None:
         self._current_cycle_id = cycle_id
@@ -53,6 +54,9 @@ class TradingTools:
 
     def set_dynamic_tp_values(self, values: dict) -> None:
         self._dynamic_tp_values = values or {}
+
+    def set_dynamic_sl_values(self, values: dict) -> None:
+        self._dynamic_sl_values = values or {}
 
     # ──────────────────────────────────────────────
     # Tool: propose_buy
@@ -112,8 +116,11 @@ class TradingTools:
             logger.error(msg)
             return f"FAILED: {msg}"
 
-        sl_pct = self._risk.get_stop_loss_pct(pair)
+        sl_pct = self._dynamic_sl_values.get(pair) or self._risk.get_stop_loss_pct(pair)
         tp_pct = self._dynamic_tp_values.get(pair) or self._risk.get_take_profit_pct(pair)
+        
+        if pair in self._dynamic_sl_values:
+            logger.info("[DYNAMIC_SL] %s using dynamic SL=%.1f%%", pair, sl_pct)
         if pair in self._dynamic_tp_values:
             logger.info("[DYNAMIC_TP] %s using dynamic TP=%.1f%%", pair, tp_pct)
 
@@ -162,7 +169,7 @@ class TradingTools:
             order_type="stop-loss",
             role="stop_loss",
             status="simulated" if self._mode == "paper" else "submitted",
-            requested_price=self._risk.calculate_stop_loss_price(result["fill_price"], pair),
+            requested_price=self._risk.calculate_stop_loss_price(result["fill_price"], pair, sl_pct),
             exchange_order_id=result.get("stop_loss_order_id"),
             configured_stop_loss_pct=sl_pct,
             configured_take_profit_pct=tp_pct,
@@ -176,7 +183,7 @@ class TradingTools:
             order_type="take-profit",
             role="take_profit",
             status="simulated" if self._mode == "paper" else "submitted",
-            requested_price=self._risk.calculate_take_profit_price(result["fill_price"], pair),
+            requested_price=self._risk.calculate_take_profit_price(result["fill_price"], pair, tp_pct),
             exchange_order_id=result.get("take_profit_order_id"),
             configured_stop_loss_pct=sl_pct,
             configured_take_profit_pct=tp_pct,

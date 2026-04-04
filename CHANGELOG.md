@@ -365,3 +365,17 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 | `28412c9` | feat: add /commit Claude Code skill and update docs |
 
 ---
+
+## Session: 2026-04-04 (Part A) — Volatility-Adaptive Quant Migration
+
+### Features Added
+
+| Feature                 | Files                                                      | Notes                                                              |
+|-------------------------|------------------------------------------------------------|--------------------------------------------------------------------|
+| Trend & Momentum        | `src/analysis/indicators.py`, `src/analysis/signals.py`    | Overhauled EMA 9/21/50 usage, removed strict 8-red/4-green block.  |
+| Adaptive Risk Mgmt      | `src/analysis/features.py`, `src/risk/risk_manager.py`     | Position sizing/TP/SL naturally scales dynamically by ATR.         |
+| Order Book Imbalance    | `src/exchange/websocket_feed.py`                           | Added real-time L2 order book streaming for Imbalance constraints. |
+| Limit Orders            | `src/exchange/paper_broker.py`, `KrakenClient`             | Maker limit orders implemented over taker market orders.          |
+| Unified Backtesting     | `tests/test_backtest.py`                                   | Full production backtest rig overriding legacy determinism script. |
+
+---

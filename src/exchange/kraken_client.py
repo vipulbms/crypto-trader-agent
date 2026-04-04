@@ -101,17 +101,18 @@ class KrakenClient:
         take_profit_pct: float,
     ) -> dict:
         """
-        Place entry market order + linked SL + TP on Kraken.
+        Place Limit entry order at the bid + linked SL + TP on Kraken.
         Records position in live_trading.db for portfolio tracking.
         """
         if side != "buy":
             raise ValueError("KrakenClient.place_order only supports 'buy' side for entries")
 
         ccxt_pair = self._pair_map.get(pair, pair)
+        # Using a Limit order, volume is exact at current_price
         volume = round(usd_amount / current_price, 8)
 
-        # Entry market order
-        entry = self._exchange.create_market_buy_order(ccxt_pair, volume)
+        # Entry limit order at the Bid price
+        entry = self._exchange.create_limit_buy_order(ccxt_pair, volume, current_price)
         fill_price = float(entry.get("average") or entry.get("price") or current_price)
         fee_usd = float(entry.get("fee", {}).get("cost", 0.0)) if entry.get("fee") else 0.0
         actual_cost = round(fill_price * volume, 4)

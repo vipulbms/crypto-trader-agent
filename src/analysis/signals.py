@@ -55,51 +55,87 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     buy_min_score   = sig_cfg.get("buy_min_score", 4)
     sell_min_score  = sig_cfg.get("sell_min_score", 3)
 
+    # Reversal detector thresholds (from config, with data-backed defaults)
+    min_red_before_buy   = sig_cfg.get("reversal_min_red_candles", 8)   # min prior down candles
+    min_green_confirm    = sig_cfg.get("reversal_min_green_candles", 4)  # min confirmation candles
+
     rsi        = indicators.get("rsi_14")
     macd_line  = indicators.get("macd_line")
     macd_sig   = indicators.get("macd_signal_line")
     macd_hist  = indicators.get("macd_histogram")
+    ema_9      = indicators.get("ema_9")
+    ema_21     = indicators.get("ema_21")
     ema_fast   = indicators.get("ema_20")
-    ema_slow   = indicators.get("ema_50")
+    ema_slow   = indicators.get("ema_50")   # EMA200 when ema_slow=200 in config
     bb_upper   = indicators.get("bb_upper")
     bb_lower   = indicators.get("bb_lower")
     price      = indicators.get("close", 0.0)
+    cons_red   = indicators.get("consecutive_red", 0)
+    cons_green = indicators.get("consecutive_green", 0)
+    prev_red   = indicators.get("prev_consecutive_red", 0)
 
     buy_score  = 0
     sell_score = 0
     reasons    = []
 
-    # ── BUY signals ──────────────────────────────────────
-    if rsi is not None and rsi < rsi_oversold:
-        buy_score += w_rsi_oversold
-        reasons.append(f"RSI oversold ({rsi:.1f} < {rsi_oversold})")
-
-    if macd_hist is not None and macd_hist > 0:
-        buy_score += w_macd_hist_pos
-        reasons.append("MACD histogram positive (bullish momentum)")
-
-    if macd_line is not None and macd_sig is not None and macd_line > macd_sig:
-        buy_score += w_macd_cross
-        reasons.append("MACD line above signal (bullish crossover)")
-
-    # Only use BB signals when bands have meaningful width.
-    # Squeezed bands mean upper ≈ lower ≈ price — both touch simultaneously, which is noise.
+    # BB variables — initialised here so sell path always has them regardless of gate outcomes
     bb_width_pct = ((bb_upper - bb_lower) / price * 100) if (bb_upper and bb_lower and price) else 0
     bb_wide_enough = bb_width_pct >= bb_min_width
-
-    # Only award lower BB buy point if price is NOT simultaneously near the upper band
-    # (simultaneous touch = squeezed bands; awarding both creates contradictory signals)
     near_lower = bb_wide_enough and bb_lower is not None and price and price <= bb_lower * bb_buy_tol
     near_upper_for_sell = bb_wide_enough and bb_upper is not None and price and price >= bb_upper * bb_sell_tol
-    if near_lower and not near_upper_for_sell:
-        buy_score += w_bb_lower
-        reasons.append(f"Price at/near lower Bollinger Band (${price:.2f} ≤ ${bb_lower:.2f})")
 
-    if ema_fast is not None and ema_slow is not None and ema_fast >= ema_slow:
-        buy_score += w_ema_uptrend
-        reasons.append("EMA fast ≥ EMA slow (uptrend)")
+    # ── Gate 1: EMA200 trend gate ─────────────────────────────────────────
+    # Never buy when price is below EMA200 — long-term downtrend, no entries.
+   #ema200_bullish = ema_slow is not None and price and price > ema_slow
+   # if not ema200_bullish and ema_slow is not None:
+   #     reasons.append(f"BLOCKED: price ${price:.2f} below EMA200 ${ema_slow:.2f} — downtrend")
+    # ── Gate 1: Trend and Momentum Filters ───────────────────────────────
+    # Reject buys if price is not above EMA50, or if RSI is overbought
 
-    # ── SELL signals ─────────────────────────────────────
+    is_bullish_trend = ema_slow is not None and price and price > ema_slow
+    if not is_bullish_trend:
+        reasons.append(f"BLOCKED: Price ${price:.2f} <= EMA50 ${ema_slow:.2f} — downtrend")
+    
+    is_momentum_positive = ema_9 is not None and ema_21 is not None and ema_9 > ema_21
+    if not is_momentum_positive:
+        reasons.append(f"BLOCKED: EMA 9 <= EMA 21 — momentum is not positive")
+        
+    is_rsi_acceptable = rsi is not None and rsi < 70
+    if not is_rsi_acceptable:
+        reasons.append(f"BLOCKED: RSI {rsi:.1f} >= 70 — overbought")
+
+    buy_allowed = is_bullish_trend and is_momentum_positive and is_rsi_acceptable
+
+    # ── BUY signals (only scored if gates are passed) ───────────────
+    if buy_allowed:
+        if rsi is not None and rsi < rsi_oversold:
+            buy_score += w_rsi_oversold
+            reasons.append(f"RSI oversold ({rsi:.1f} < {rsi_oversold})")
+
+        if macd_hist is not None and macd_hist > 0:
+            buy_score += w_macd_hist_pos
+            reasons.append("MACD histogram positive (bullish momentum)")
+
+        if macd_line is not None and macd_sig is not None and macd_line > macd_sig:
+            buy_score += w_macd_cross
+            reasons.append("MACD line above signal (bullish crossover)")
+
+        if near_lower and not near_upper_for_sell:
+            buy_score += w_bb_lower
+            reasons.append(f"Price at/near lower Bollinger Band (${price:.2f} ≤ ${bb_lower:.2f})")
+
+        if ema_fast is not None and ema_slow is not None and ema_fast >= ema_slow:
+            buy_score += w_ema_uptrend
+            reasons.append("EMA fast ≥ EMA slow (uptrend)")
+
+        # Adding a default weight for passing the rigorous momentum gates
+        buy_score += sig_cfg.get("reversal_confirmed_score", 3)
+        reasons.append("Passed Trend (Price > EMA50) and Momentum (EMA 9 > EMA 21) gates")
+    else:
+        # No buy scoring without passing gates
+        pass
+
+    # ── SELL signals ─────────────────────────────────────────────────────
     if rsi is not None and rsi > rsi_overbought:
         sell_score += w_rsi_overbought
         reasons.append(f"RSI overbought ({rsi:.1f} > {rsi_overbought})")

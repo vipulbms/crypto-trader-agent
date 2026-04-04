@@ -72,6 +72,7 @@ class WebSocketFeed:
             pair: CandleBuffer(self._buffer_size) for pair in self._pairs
         }
         self._latest_price: Dict[str, float] = {}
+        self._obi: Dict[str, float] = {}
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -86,6 +87,10 @@ class WebSocketFeed:
 
     def get_latest_price(self, pair: str) -> Optional[float]:
         return self._latest_price.get(pair)
+
+    def get_obi(self, pair: str) -> float:
+        """Returns the current Order Book Imbalance (-1 to 1). positive = bullish"""
+        return self._obi.get(pair, 0.0)
 
     def is_ready(self, pair: str, min_candles: int = 60) -> bool:
         """True once we have enough candles to compute indicators reliably."""
@@ -163,16 +168,25 @@ class WebSocketFeed:
     # WebSocket loop
     # ──────────────────────────────────────────────
 
-    def _build_subscribe_msg(self) -> dict:
+    def _build_subscribe_msgs(self) -> list:
         ws_pairs = [self._pair_map.get(p, p) for p in self._pairs]
-        return {
-            "method": "subscribe",
-            "params": {
-                "channel": "ohlc",
-                "symbol": ws_pairs,
-                "interval": self._interval,
+        return [
+            {
+                "method": "subscribe",
+                "params": {
+                    "channel": "ohlc",
+                    "symbol": ws_pairs,
+                    "interval": self._interval,
+                },
             },
-        }
+            {
+                "method": "subscribe",
+                "params": {
+                    "channel": "ticker",
+                    "symbol": ws_pairs,
+                },
+            }
+        ]
 
     async def _ws_loop(self) -> None:
         backoff = 2
@@ -183,8 +197,9 @@ class WebSocketFeed:
                     ping_interval=self._ws_ping,
                     open_timeout=10,
                 ) as ws:
-                    await ws.send(json.dumps(self._build_subscribe_msg()))
-                    logger.info("Subscribed to Kraken OHLC feed")
+                    for msg in self._build_subscribe_msgs():
+                        await ws.send(json.dumps(msg))
+                    logger.info("Subscribed to Kraken OHLC and Ticker feeds")
                     backoff = 2
                     async for raw in ws:
                         if not self._running:
@@ -211,8 +226,24 @@ class WebSocketFeed:
     def _handle_message(self, raw: str) -> None:
         try:
             msg = json.loads(raw)
-            # Kraken WS v2 OHLC message format
-            if msg.get("channel") != "ohlc":
+            channel = msg.get("channel")
+
+            if channel == "ticker":
+                if msg.get("type") not in ("snapshot", "update"):
+                    return
+                for entry in msg.get("data", []):
+                    ws_symbol = entry.get("symbol", "")
+                    pair = self._ws_symbol_to_pair(ws_symbol)
+                    if not pair:
+                        continue
+                    bid_vol = float(entry.get("bid_qty", 0) or 0)
+                    ask_vol = float(entry.get("ask_qty", 0) or 0)
+                    if bid_vol + ask_vol > 0:
+                        imbalance = (bid_vol - ask_vol) / (bid_vol + ask_vol)
+                        self._obi[pair] = round(imbalance, 4)
+                return
+
+            if channel != "ohlc":
                 return
             if msg.get("type") not in ("snapshot", "update"):
                 return

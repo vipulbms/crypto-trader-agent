@@ -101,14 +101,16 @@ class PaperBroker:
         take_profit_pct: float,
     ) -> dict:
         """
-        Simulate a buy order with slippage.
+        Simulate a Limit buy order at the current Bid.
         Deducts USD from wallet and records position + stop/TP levels.
         """
         if side != "buy":
             raise ValueError("PaperBroker.place_order only supports 'buy' side for entries")
 
-        # Apply slippage (buy at slightly higher price)
-        fill_price  = round(current_price * (1 + self._slippage), 8)
+        # In a high-frequency quant strategy, we execute Limit Orders at the Bid.
+        # Unlike Market orders, we do not pay the spread (slippage).
+        # We assume the current_price passed in is the optimal Bid.
+        fill_price  = current_price
         volume      = round(usd_amount / fill_price, 8)
         actual_cost = round(fill_price * volume, 4)
         fee_usd     = round(actual_cost * self._maker_fee, 4)

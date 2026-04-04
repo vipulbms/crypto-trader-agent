@@ -66,11 +66,12 @@ class RiskManager:
     def get_take_profit_pct(self, pair: str) -> float:
         return self._pair_tp.get(pair, self._global_tp_pct)
 
-    def calculate_stop_loss_price(self, entry_price: float, pair: str) -> float:
-        return round(entry_price * (1 - self._stop_loss_pct / 100), 8)
+    def calculate_stop_loss_price(self, entry_price: float, pair: str, override_pct: Optional[float] = None) -> float:
+        sl_pct = override_pct if override_pct is not None else self._stop_loss_pct
+        return round(entry_price * (1 - sl_pct / 100), 8)
 
-    def calculate_take_profit_price(self, entry_price: float, pair: str) -> float:
-        tp_pct = self.get_take_profit_pct(pair)
+    def calculate_take_profit_price(self, entry_price: float, pair: str, override_pct: Optional[float] = None) -> float:
+        tp_pct = override_pct if override_pct is not None else self.get_take_profit_pct(pair)
         return round(entry_price * (1 + tp_pct / 100), 8)
 
     @timed("pair", "proposed_usd", "open_positions_count")

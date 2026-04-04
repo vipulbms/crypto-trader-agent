@@ -14,6 +14,7 @@ Stop-loss exits are fully autonomous via the risk manager — outside this flow.
 
 import json
 import logging
+import os
 import time
 from typing import Optional
 
@@ -47,15 +48,27 @@ class TradingAgent:
         self._mode        = mode
         self._audit       = audit_logger
         llm_cfg           = config.get("llm", {})
+        self._provider    = llm_cfg.get("provider", "ollama")
         self._model       = llm_cfg.get("model", "qwen2.5:14b")
         self._fallback    = llm_cfg.get("fallback_model", "llama3.1:8b")
         self._timeout     = llm_cfg.get("timeout_seconds", 120)
         self._max_rsn     = llm_cfg.get("max_reasoning_chars", 500)
+        self._request_delay = llm_cfg.get("request_delay_seconds", 0)
         self._max_buys    = config.get("trading", {}).get("max_buys_per_cycle", 2)
-        self._client      = ollama.Client(
-            host=llm_cfg.get("base_url", "http://localhost:11434"),
-            timeout=self._timeout,
-        )
+
+        if self._provider == "openai_compat":
+            from openai import OpenAI
+            api_key = os.environ.get(llm_cfg.get("api_key_env", "OPENAI_API_KEY"), "")
+            self._client = OpenAI(
+                api_key=api_key,
+                base_url=llm_cfg.get("base_url"),
+                timeout=self._timeout,
+            )
+        else:
+            self._client = ollama.Client(
+                host=llm_cfg.get("base_url", "http://localhost:11434"),
+                timeout=self._timeout,
+            )
 
         # Build pair → TP % map for prompt
         trading = config.get("trading", {})
@@ -188,35 +201,24 @@ class TradingAgent:
 
         for attempt in [self._model, self._fallback]:
             try:
-                logger.debug("[LLM REQUEST] model=%s", attempt)
-                response = self._client.chat(
-                    model=attempt,
-                    messages=messages,
-                    tools=self._TOOL_DEFS,
-                    options={"temperature": 0.1},
-                )
-                model_used        = attempt
-                msg               = response.message
-                raw_output        = msg.content or ""
-                prompt_tokens     = getattr(response, "prompt_eval_count", None)
-                completion_tokens = getattr(response, "eval_count", None)
+                logger.debug("[LLM REQUEST] model=%s provider=%s", attempt, self._provider)
 
-                if msg.tool_calls:
-                    tool_calls_made = msg.tool_calls  # process ALL tool calls
+                if self._provider == "openai_compat":
+                    tool_calls_made, raw_output, prompt_tokens, completion_tokens = \
+                        self._call_openai_compat(attempt, messages)
+                else:
+                    tool_calls_made, raw_output, prompt_tokens, completion_tokens = \
+                        self._call_ollama(attempt, messages)
 
+                model_used = attempt
                 logger.debug("[LLM RESPONSE] model=%s tool_calls=%d tokens(prompt=%s,completion=%s)\ncontent: %s",
                              model_used, len(tool_calls_made),
                              prompt_tokens, completion_tokens, raw_output)
                 break
             except httpx.TimeoutException as e:
-                logger.error(
-                    "[LLM] Timeout after %ds — model=%s: %s",
-                    self._timeout, attempt, e,
-                )
-                self._audit.log_error(
-                    "llm", "LLMTimeout",
-                    f"Timeout after {self._timeout}s — model={attempt}: {e}",
-                )
+                logger.error("[LLM] Timeout after %ds — model=%s: %s", self._timeout, attempt, e)
+                self._audit.log_error("llm", "LLMTimeout",
+                                      f"Timeout after {self._timeout}s — model={attempt}: {e}")
                 if attempt == self._fallback:
                     raw_output = f"LLM timeout after {self._timeout}s"
             except Exception as e:
@@ -228,6 +230,10 @@ class TradingAgent:
         latency_ms = int((time.time() - start) * 1000)
         logger.info("[LLM] Cycle decision completed — model=%s tool_calls=%d latency=%dms",
                     model_used, len(tool_calls_made), latency_ms)
+
+        if self._request_delay > 0:
+            logger.debug("[LLM] Rate limit delay: %.1fs", self._request_delay)
+            time.sleep(self._request_delay)
 
         # Safety net 1: zero tool calls = entire cycle silently held — warn loudly
         if not tool_calls_made:
@@ -357,6 +363,73 @@ class TradingAgent:
             results.append({"pair": pair, "result": result})
 
         return results
+
+    # ──────────────────────────────────────────────
+    # Provider-specific LLM call helpers
+    # ──────────────────────────────────────────────
+
+    def _call_ollama(self, model: str, messages: list) -> tuple:
+        """Call Ollama and return (tool_calls, raw_output, prompt_tokens, completion_tokens)."""
+        response = self._client.chat(
+            model=model,
+            messages=messages,
+            tools=self._TOOL_DEFS,
+            options={"temperature": 0.1},
+        )
+        msg = response.message
+        tool_calls = msg.tool_calls or []
+        return (
+            tool_calls,
+            msg.content or "",
+            getattr(response, "prompt_eval_count", None),
+            getattr(response, "eval_count", None),
+        )
+
+    def _call_openai_compat(self, model: str, messages: list) -> tuple:
+        """
+        Call any OpenAI-compatible endpoint (Gemini, OpenRouter, Groq, etc.)
+        and normalise the response to the same tuple as _call_ollama.
+        Returns (tool_calls, raw_output, prompt_tokens, completion_tokens)
+        where tool_calls is a list of objects with .function.name and .function.arguments.
+        """
+        response = self._client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=self._TOOL_DEFS,
+            tool_choice="required",
+            temperature=0.1,
+        )
+        choice = response.choices[0]
+        msg = choice.message
+        raw_output = msg.content or ""
+        prompt_tokens = getattr(response.usage, "prompt_tokens", None)
+        completion_tokens = getattr(response.usage, "completion_tokens", None)
+
+        # Normalise OpenAI tool_calls to the same duck-typed interface as Ollama
+        tool_calls = []
+        for tc in (msg.tool_calls or []):
+            args = tc.function.arguments
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {}
+
+            class _Fn:
+                pass
+
+            fn = _Fn()
+            fn.name = tc.function.name
+            fn.arguments = args
+
+            class _TC:
+                pass
+
+            wrapped = _TC()
+            wrapped.function = fn
+            tool_calls.append(wrapped)
+
+        return tool_calls, raw_output, prompt_tokens, completion_tokens
 
     # ──────────────────────────────────────────────
     # Helpers

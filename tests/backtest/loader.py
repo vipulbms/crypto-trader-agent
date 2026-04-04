@@ -26,17 +26,17 @@ logger = logging.getLogger(__name__)
 # Maps display pair → (filename, inner_result_key)
 # Built by inspecting every file; inner key is the first non-'last' key in result.
 PAIR_FILE_MAP = {
-    "BTC/USD":   ("XBTUSD_candle.json",   "XXBTZUSD"),
-    "ETH/USD":   ("ETHUSD_candle.json",   "XETHZUSD"),
+    "BTC/USD":   ("XBTUSD_candle.json",   "XBTUSD"),
+    "ETH/USD":   ("ETHUSD_candle.json",   "ETHUSD"),
     "BNB/USD":   ("BNBUSD_candle.json",   "BNBUSD"),
     "SOL/USD":   ("SOLUSD_candle.json",   "SOLUSD"),
-    "XRP/USD":   ("XRPUSD_candle.json",   "XXRPZUSD"),
+    "XRP/USD":   ("XRPUSD_candle.json",   "XRPUSD"),
     "TRX/USD":   ("TRXUSD_candle.json",   "TRXUSD"),
     "DOGE/USD":  ("XDGUSD_candle.json",   "XDGUSD"),
     "ADA/USD":   ("ADAUSD_candle.json",   "ADAUSD"),
-    "LTC/USD":   ("LTCUSD_candle.json",   "XLTCZUSD"),
+    "LTC/USD":   ("LTCUSD_candle.json",   "LTCUSD"),
     "RAILS/USD": ("RAILSUSD_candle.json", "RAILSUSD"),
-    "AVAX/USD":  ("AVAXSD_candle.json",   "AVAXUSD"),   # BUG: filename is AVAXSD not AVAXUSD
+    "AVAX/USD":  ("AVAXUSD_candle.json",  "AVAXUSD"),
     "SUI/USD":   ("SUIUSD_candle.json",   "SUIUSD"),
     "HYPE/USD":  ("HYPEUSD_candle.json",  "HYPEUSD"),
     "UNI/USD":   ("UNIUSD_candle.json",   "UNIUSD"),

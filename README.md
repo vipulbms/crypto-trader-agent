@@ -181,10 +181,41 @@ Every 15 minutes:
 4. `build_cycle_prompt()` — injects portfolio state + all pair signals into LLM context
 5. Ollama LLM (`qwen2.5:14b`) is called once per pair; must call `propose_buy`, `propose_sell`, or `hold`
 6. `RiskManager.validate_buy()` — caps/rejects using hard Python rules
-7. `PaperBroker` (or `KrakenClient`) executes the order
+7. `PaperBroker` (or `KrakenClient`) executes the order limit entry based on OBI logic
 8. `AuditLogger` records everything — cycle, signal, LLM reasoning, risk verdict, fill
 
 **The LLM proposes; Python decides. The risk manager cannot be overridden by prompt.**
+
+---
+
+## Database Storage
+
+The agent uses three local SQLite databases (defaulting to the `data/` directory) to maintain state, history, and a complete audit trail.
+
+### 1. `audit.db` (The Audit Trail)
+This database logs every action, signal, and decision the system makes, regardless of whether it results in a trade.
+- **`audit_cycles`**: Records every agent loop iteration (cycle ID, start/end times).
+- **`audit_signals`**: Stores the raw technical indicators (RSI, MACD, etc.) and generated signal scores for each pair per cycle.
+- **`audit_llm_decisions`**: Logs the exact outputs from the LLM, including its chosen action (BUY/SELL/HOLD) and the full text of its reasoning.
+- **`audit_risk_checks`**: Records the Risk Manager's verdict for proposed trades (approved, reduced, or rejected) and the reason why.
+- **`audit_orders`**: Logs all orders that are actually sent to the broker/exchange.
+- **`audit_fills`**: Records the execution details of those orders, including filled price, fees, and slippage.
+- **`audit_position_events`**: Tracks lifecycle events for open positions, such as automatically hitting a Stop-Loss (SL) or Take-Profit (TP).
+- **`audit_balance_snapshots`**: Captures regular snapshots of the account's total USD value and cash balance to track portfolio growth.
+- **`audit_errors`**: Logs system errors or exceptions for debugging.
+
+### 2. `paper_trading.db` (Virtual Trading State)
+This database acts as the virtual exchange when running `main.py --paper`.
+- **`paper_wallet`**: Tracks the current virtual cash balance (e.g., USD available to trade).
+- **`paper_positions`**: Stores currently open positions, tracking entry price, quantity, and the specific SL/TP levels.
+- **`paper_trades`**: The historical ledger of all completed (closed) paper trades.
+- **`daily_pnl`**: Tracks the realized Daily Profit and Loss. The system uses this to enforce the daily maximum loss risk rule.
+
+### 3. `live_trading.db` (Live Trading State)
+When running in live mode, this database tracks the system's actual real-money exposure to ensure it stays synchronized with Kraken.
+- **`live_positions`**: Stores currently active trades executing on Kraken.
+- **`live_trades`**: The historical ledger of closed live trades.
+- **`daily_pnl`**: Tracks the realized Daily Profit and Loss for the live portfolio.
 
 ---
 

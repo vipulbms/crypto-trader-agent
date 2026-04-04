@@ -809,3 +809,7 @@ All functions are decorated with `@_safe` — they catch all exceptions and retu
 - **Stop:** SIGTERM → poll 1 s intervals up to 10 s → SIGKILL if still alive → clear PID file
 - **Status:** `os.kill(pid, 0)` liveness check + uptime + last audit cycle timestamp
 - **Schedule:** reads `max(timestamp)` from `audit_cycles` → adds `cycle_interval_minutes` → returns `{next_cycle_at, wait_human, is_overdue}`
+
+## Completed (April 4 2026)
+- Upgraded the strategy to a strictly quantitative volatility-adaptive algorithm driven by ATR and Order Book Imbalance (OBI), reducing LLM errors.
+- Shifted all live and paper broker executions to dynamic Limit Orders at the Bid rather than Taker Market Orders.

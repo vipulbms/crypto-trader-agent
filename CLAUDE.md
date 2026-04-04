@@ -154,6 +154,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_01a | caution_factor code-enforced; dynamic TP wired to place_order(); 18 tests added; commit skill extended |
 | session_2026_04_01b | LLM switched to deepseek-r1:7b; KrakenClient full live broker parity rewrite |
 | session_2026_04_01c | Backtesting pipeline added; 5 bugs identified; 7.5-day backtest run and reported |
+| session_2026_04_04a | Volatility-Adaptive Quant Migration; OBI implementation; Limit orders |
 
 ---
 
@@ -167,3 +168,4 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Dynamic TP is now order-level**: `TradingTools.propose_buy()` uses ATR/BB-adjusted TP from `ai_context["dynamic_tp_values"]` instead of static config. Falls back to static if `dynamic_tp.enabled: false` or pair not in values. Logged as `[DYNAMIC_TP]`.
 - **deepseek-r1 `<think>` blocks**: deepseek-r1 emits chain-of-thought `<think>…</think>` before its response. Ollama strips these before populating `msg.tool_calls`, so tool dispatch is unaffected. If you see verbose `content` in debug logs, that's the reasoning block.
 - **Live broker parity**: `KrakenClient` now has the same interface as `PaperBroker` — `get_balance()`, `get_open_positions()`, `close_position()`, `check_stops_and_tp()` all implemented. Positions are tracked in `live_trading.db` (same SQLite pattern as paper mode).
+- **Volatility-Adaptive Limits**: The system no longer uses naive market orders. `KrakenClient` and `PaperBroker` now execute `Limit` orders on the bid to save on spread. These limit entries are gated by positive **Order Book Imbalance (OBI)** monitored in real-time.

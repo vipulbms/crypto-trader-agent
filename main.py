@@ -80,7 +80,12 @@ def print_banner(mode: str, balance: float, pairs: list) -> None:
     print("═" * 60 + "\n")
 
 
-async def run_agent(config: dict, mode: str) -> None:
+async def run_agent(config: dict, mode: str, feed=None) -> None:
+    """
+    feed : optional HistoricalFeed for back-testing.
+           When provided, the live WebSocket is not started and the main loop
+           steps through candles via feed.advance() instead of sleeping.
+    """
     from src.storage.database import init_all_databases
     from src.storage.audit_logger import AuditLogger
     from src.exchange.websocket_feed import WebSocketFeed
@@ -90,6 +95,8 @@ async def run_agent(config: dict, mode: str) -> None:
     from src.notifications.notifier import Notifier
     from src.agent.tools import TradingTools
     from src.agent.trading_agent import TradingAgent
+
+    is_backtest = feed is not None
 
     # ── Validate config ────────────────────────────────────────
     try:
@@ -106,7 +113,7 @@ async def run_agent(config: dict, mode: str) -> None:
     audit_db    = storage_cfg.get("audit_db", "audit.db")
     audit       = AuditLogger(audit_db=audit_db, mode=mode)
 
-    ws_feed     = WebSocketFeed(config)
+    ws_feed     = feed if is_backtest else WebSocketFeed(config)
     risk        = RiskManager(config)
     notifier    = Notifier(config, mode)
 
@@ -139,9 +146,13 @@ async def run_agent(config: dict, mode: str) -> None:
     # ── Print startup banner ───────────────────────────────────
     print_banner(mode, start_of_day_bal, pairs)
 
-    import ollama as _ollama
-    _llm_cfg    = config.get("llm", {})
-    _llm_client = _ollama.Client(host=_llm_cfg.get("base_url", "http://localhost:11434"))
+    _llm_cfg      = config.get("llm", {})
+    _llm_provider = _llm_cfg.get("provider", "ollama")
+    if _llm_provider == "openai_compat":
+        _llm_client = None   # TradingAgent builds the openai client itself
+    else:
+        import ollama as _ollama
+        _llm_client = _ollama.Client(host=_llm_cfg.get("base_url", "http://localhost:11434"))
 
     tools = TradingTools(
         broker=broker,
@@ -164,25 +175,26 @@ async def run_agent(config: dict, mode: str) -> None:
 
     notifier.send_agent_started(start_of_day_bal, pairs, mode)
 
-    # ── Start WebSocket feed ───────────────────────────────────
-    logger.info("Starting WebSocket price feed...")
+    # ── Start feed ────────────────────────────────────────────
     await ws_feed.start()
 
     ind_cfg_startup  = config.get("indicators", {})
     min_candles      = ind_cfg_startup.get("min_candles_to_start", 220)
-    buf_timeout      = ind_cfg_startup.get("buffer_fill_timeout_secs", 300)
-    buf_check        = ind_cfg_startup.get("buffer_check_interval_secs", 5)
 
-    logger.info("Waiting for candle buffer to fill (min %d candles per pair)...", min_candles)
-    wait_start = time.time()
-    while True:
-        ready = all(ws_feed.is_ready(pair, min_candles=min_candles) for pair in pairs)
-        if ready:
-            break
-        if time.time() - wait_start > buf_timeout:
-            logger.warning("Buffer not fully filled after %ds — proceeding anyway", buf_timeout)
-            break
-        await asyncio.sleep(buf_check)
+    if not is_backtest:
+        buf_timeout = ind_cfg_startup.get("buffer_fill_timeout_secs", 300)
+        buf_check   = ind_cfg_startup.get("buffer_check_interval_secs", 5)
+        logger.info("Starting WebSocket price feed. Waiting for candle buffer (min %d)...", min_candles)
+        wait_start = time.time()
+        while True:
+            ready = all(ws_feed.is_ready(pair, min_candles=min_candles) for pair in pairs)
+            if ready:
+                break
+            if time.time() - wait_start > buf_timeout:
+                logger.warning("Buffer not fully filled after %ds — proceeding anyway", buf_timeout)
+                break
+            await asyncio.sleep(buf_check)
+
     logger.info("Candle buffers ready. Starting decision cycles.")
 
     # ── Main cycle loop ────────────────────────────────────────
@@ -220,13 +232,18 @@ async def run_agent(config: dict, mode: str) -> None:
                 audit.log_error("main_loop", type(e).__name__, str(e), tb, recovered=True)
                 notifier.send_error_alert("main_loop", str(e)[:200])
 
-            elapsed   = time.time() - cycle_start
-            sleep_for = max(0, interval_s - elapsed)
-            logger.info(
-                "Cycle complete in %.1fs. Next cycle in %.0fs.",
-                elapsed, sleep_for,
-            )
-            await asyncio.sleep(sleep_for)
+            if is_backtest:
+                if not ws_feed.advance():
+                    logger.info("Backtest complete — history exhausted (%s)", ws_feed.progress)
+                    break
+            else:
+                elapsed   = time.time() - cycle_start
+                sleep_for = max(0, interval_s - elapsed)
+                logger.info(
+                    "Cycle complete in %.1fs. Next cycle in %.0fs.",
+                    elapsed, sleep_for,
+                )
+                await asyncio.sleep(sleep_for)
 
     except asyncio.CancelledError:
         pass

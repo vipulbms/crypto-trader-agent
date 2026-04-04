@@ -18,7 +18,7 @@ trading:
   max_position_pct: 30        # Max % of portfolio per single trade
   max_open_positions: 5       # Max concurrent open positions (across all pairs)
   max_buys_per_cycle: 3       # LLM may propose at most this many buys per cycle
-  cycle_interval_minutes: 30  # How often the agent runs a decision cycle
+  cycle_interval_minutes: 15  # How often the agent runs a decision cycle
 
   pairs:
     # pair:      display name used throughout the agent
@@ -155,15 +155,34 @@ signals:
   buy_min_score: 4            # Minimum buy score to emit BUY signal
   sell_min_score: 3           # Minimum sell score to emit SELL signal
 
+  # Reversal detector — inflection point filter
+  # BUY only fires after N consecutive red candles followed by M consecutive green candles.
+  # Data-backed defaults from Jul-Dec 2025 analysis: avg down streak = 2 days = 8 candles (15-min)
+  reversal_min_red_candles: 8    # Minimum prior red candles (= ~2 hours down)
+  reversal_min_green_candles: 4  # Minimum confirmation green candles (= ~1 hour recovery)
+  reversal_confirmed_score: 3    # Extra buy score weight when reversal is confirmed
+
 # ──────────────────────────────────────────────
 # LLM settings
 # ──────────────────────────────────────────────
+#llm:
+#  provider: ollama              # ollama | openai_compat
+#  model: qwen3.5:9b
+#  fallback_model: qwen3.5:9b
+#  base_url: http://localhost:11434
+#  timeout_seconds: 600
+#  max_reasoning_chars: 1000   # Max chars stored in audit reasoning_summary
+
+# Gemini via OpenAI-compatible endpoint (comment out llm block above and uncomment below)
 llm:
-  model: deepseek-r1:7b
-  fallback_model: deepseek-r1:7b
-  base_url: http://localhost:11434
-  timeout_seconds: 600
-  max_reasoning_chars: 1000   # Max chars stored in audit reasoning_summary
+  provider: openai_compat
+  model: gemini-2.5-flash
+  fallback_model: gemini-2.5-flash
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  api_key_env: GEMINI_API_KEY
+  timeout_seconds: 60
+  max_reasoning_chars: 1000
+  request_delay_seconds: 6     # Rate limit: stay at 10 req/min (safe under 15 req/min free tier)
 
 # ──────────────────────────────────────────────
 # Notifications

@@ -31,6 +31,22 @@ logger = logging.getLogger(__name__)
 # Feature 1: Multi-pair context aware position sizing
 # ──────────────────────────────────────────────────────────────────────────────
 
+def get_volatility_multiplier(atr: float, price: float) -> float:
+    """
+    Returns ATR multiplier (k) based on asset volatility regime.
+    Low volatility (<1% ATR) -> 1.75
+    Standard (1-3% ATR)       -> 2.75
+    High volatility (>3% ATR) -> 4.0
+    """
+    if not atr or not price or price <= 0:
+        return 2.75
+    atr_pct = (atr / price) * 100
+    if atr_pct < 1.0:
+        return 1.75
+    elif atr_pct > 3.0:
+        return 4.0
+    return 2.75
+
 def compute_position_size(
     signal_strength: float,
     atr: Optional[float],
@@ -39,39 +55,32 @@ def compute_position_size(
     config: dict,
 ) -> float:
     """
-    Compute a scaled position size in USD based on signal strength and ATR volatility.
-
-    Higher strength → larger position.
-    Higher ATR (relative to price) → smaller position (more volatile = more risk).
-
-    Returns a USD amount capped between min_position_pct and max_position_pct of portfolio.
+    Compute a scaled position size in USD based on ATR-proportional risk.
+    PositionSize = TotalRiskAmount / (ATR * Multiplier)
     """
-    ps_cfg = config.get("position_sizing", {})
-    if not ps_cfg.get("enabled", True):
-        # Fallback: return 20% of portfolio
+    if not atr or not price or price <= 0:
         return round(portfolio_total_usd * 0.20, 2)
-
-    base_pct        = ps_cfg.get("base_position_pct", 20) / 100
-    strength_weight = ps_cfg.get("strength_weight", 0.5)
-    vol_weight      = ps_cfg.get("volatility_weight", 0.5)
-    min_pct         = ps_cfg.get("min_position_pct", 5) / 100
-    max_pct         = ps_cfg.get("max_position_pct", 30) / 100
-
-    # Strength scaling: 0.4 strength → base × (1 - 0.5×(1-0.4)) = base × 0.70
-    strength_factor = 1.0 - strength_weight * (1.0 - min(signal_strength, 1.0))
-
-    # Volatility scaling: ATR as % of price
-    vol_factor = 1.0
-    if atr and price and price > 0:
-        atr_pct = (atr / price) * 100
-        # ATR > 3% = high volatility: reduce size. ATR < 1% = low: no change.
-        if atr_pct > 1.0:
-            vol_reduction = min((atr_pct - 1.0) / 4.0, 1.0)  # caps at 100% reduction
-            vol_factor = 1.0 - vol_weight * vol_reduction
-
-    scaled_pct = base_pct * strength_factor * vol_factor
-    clamped_pct = max(min_pct, min(max_pct, scaled_pct))
-    return round(portfolio_total_usd * clamped_pct, 2)
+    
+    # Target risking ~1.5% of total portfolio per trade (adjust based on config)
+    risk_pct = config.get("risk", {}).get("risk_per_trade_pct", 1.5) / 100.0
+    risk_amount_usd = portfolio_total_usd * risk_pct
+    
+    multiplier = get_volatility_multiplier(atr, price)
+    
+    # Distance to stop loss
+    sl_dist = multiplier * atr
+    
+    # Cap distance at 5% to respect the hard stop-loss limit
+    max_sl_dist = price * 0.05
+    if sl_dist > max_sl_dist:
+        sl_dist = max_sl_dist
+        
+    coins_to_buy = risk_amount_usd / sl_dist
+    usd_size = coins_to_buy * price
+    
+    # Hard clamp to max 30% of portfolio just to be safe
+    max_usd = portfolio_total_usd * 0.30
+    return round(min(usd_size, max_usd), 2)
 
 
 def build_position_sizing_context(signals: list, portfolio_total_usd: float, config: dict) -> str:
@@ -120,12 +129,8 @@ def compute_dynamic_tp(
     config: dict,
 ) -> float:
     """
-    Compute a dynamic take-profit percentage based on ATR and BB width.
-
-    ATR-based TP = (ATR × multiplier / entry_price) × 100
-    BB-width narrowing = reduce TP proportionally when bands are squeezed.
-
-    Returns TP % clamped to [min_tp_pct, max_tp_pct].
+    Compute a dynamic take-profit percentage: EntryPrice + (k * ATR).
+    k depends on volatility regime.
     """
     dtp_cfg = config.get("dynamic_tp", {})
     if not dtp_cfg.get("enabled", True):
@@ -135,27 +140,15 @@ def compute_dynamic_tp(
                 return p.get("take_profit_pct", config["trading"].get("take_profit_pct", 8))
         return config.get("trading", {}).get("take_profit_pct", 8)
 
-    atr_mult        = dtp_cfg.get("atr_multiplier", 2.0)
-    min_tp          = dtp_cfg.get("min_tp_pct", 5)
-    max_tp          = dtp_cfg.get("max_tp_pct", 20)
-    squeeze_thresh  = dtp_cfg.get("squeeze_threshold_pct", 1.0)
-    bb_width_scale  = dtp_cfg.get("bb_width_scale", True)
+    min_tp = dtp_cfg.get("min_tp_pct", 5)
+    max_tp = dtp_cfg.get("max_tp_pct", 20)
 
-    # ATR-based target
-    if atr and entry_price and entry_price > 0:
-        atr_tp_pct = (atr * atr_mult / entry_price) * 100
-    else:
-        # No ATR — use static configured TP
-        for p in config.get("trading", {}).get("pairs", []):
-            if p["pair"] == pair:
-                return p.get("take_profit_pct", config["trading"].get("take_profit_pct", 8))
-        return config.get("trading", {}).get("take_profit_pct", 8)
-
-    # BB width squeeze reduction
-    if bb_width_scale and bb_upper and bb_lower and entry_price > 0:
-        bb_width_pct = (bb_upper - bb_lower) / entry_price * 100
-        if bb_width_pct < squeeze_thresh:
-            atr_tp_pct = min_tp  # squeezed bands → conservative target
+    if not atr or not entry_price or entry_price <= 0:
+        return 8.0
+        
+    multiplier = get_volatility_multiplier(atr, entry_price)
+    target_dist = multiplier * atr
+    atr_tp_pct = (target_dist / entry_price) * 100
 
     return float(max(min_tp, min(max_tp, round(atr_tp_pct, 1))))
 
@@ -181,6 +174,32 @@ def compute_dynamic_tp_values(signals: list, config: dict) -> dict:
             bb_lower=ind.get("bb_lower"),
             config=config,
         )
+    return result
+
+def compute_dynamic_sl_values(signals: list, config: dict) -> dict:
+    """
+    Returns {pair: sl_pct} for pairs, respecting the 5% maximum limit.
+    SL width is tighter in low volatility regimes: SL = max(Entry * 0.95, Entry - ATR * Multiplier)
+    """
+    result = {}
+    default_sl = config.get("trading", {}).get("stop_loss_pct", 5.0)
+    for sig in signals:
+        ind = sig.get("indicators", {})
+        price = ind.get("close", 0)
+        atr = ind.get("atr_14")
+        if not atr or price <= 0:
+            result[sig["pair"]] = default_sl
+            continue
+            
+        multiplier = get_volatility_multiplier(atr, price)
+        sl_dist = multiplier * atr
+        
+        # Max SL distance is 5% of price
+        max_dist = price * 0.05
+        actual_sl_dist = min(sl_dist, max_dist)
+        
+        sl_pct = (actual_sl_dist / price) * 100
+        result[sig["pair"]] = float(max(1.0, min(default_sl, round(sl_pct, 1))))
     return result
 
 
@@ -758,5 +777,6 @@ def build_ai_context(
         ),
         "dynamic_tp":        build_dynamic_tp_context(signals, config),
         "dynamic_tp_values": compute_dynamic_tp_values(signals, config),
+        "dynamic_sl_values": compute_dynamic_sl_values(signals, config),
         "exit_timing":     build_exit_timing_context(open_positions, signals, config),
     }
