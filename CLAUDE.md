@@ -157,6 +157,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_04a | Volatility-Adaptive Quant Migration; OBI implementation; Limit orders |
 | session_2026_04_05a | Minimum Profit Floor implementation; extracted trading rules to SKILL.md |
 | session_2026_04_05b | Multi-indicator confluence scoring; circuit breaker (DB-backed); heartbeat |
+| session_2026_04_05c | Live API Limit orders / fallbacks; 2-hour heartbeat, 6-hour PnL report |
 
 ---
 

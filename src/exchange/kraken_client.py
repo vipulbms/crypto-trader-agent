@@ -120,17 +120,11 @@ class KrakenClient:
         sl_price = round(fill_price * (1 - stop_loss_pct / 100), 8)
         tp_price = round(fill_price * (1 + take_profit_pct / 100), 8)
 
-        # Stop-loss order (Kraken native — survives app restarts)
-        sl_order = self._exchange.create_order(
-            ccxt_pair, "stop-loss", "sell", volume, sl_price,
-            {"stopPrice": sl_price}
-        )
-
-        # Take-profit order
-        tp_order = self._exchange.create_order(
-            ccxt_pair, "take-profit", "sell", volume, tp_price,
-            {"stopPrice": tp_price}
-        )
+        # We no longer place SL/TP here natively before the Limit order fills.
+        # Instead, check_stops_and_tp will poll the entry order and place SL/TP natively
+        # once the entry order status flips to 'closed' (filled).
+        sl_order_id = "pending_fill"
+        tp_order_id = "pending_fill"
 
         # Record position in DB
         conn = get_connection(self._db)
@@ -142,16 +136,16 @@ class KrakenClient:
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_now(), pair, "buy", fill_price, volume, actual_cost,
              sl_price, tp_price, stop_loss_pct, take_profit_pct,
-             entry["id"], sl_order["id"], tp_order["id"], "open"),
+             entry["id"], sl_order_id, tp_order_id, "open"),
         )
         conn.commit()
         position_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.close()
 
         logger.info(
-            "[LIVE] BUY %s: %.8f @ $%.2f | SL: $%.2f | TP: $%.2f | entry=%s sl=%s tp=%s",
+            "[LIVE] BUY LIMIT %s: %.8f @ $%.2f | SL: $%.2f | TP: $%.2f | entry=%s",
             pair, volume, fill_price, sl_price, tp_price,
-            entry["id"], sl_order["id"], tp_order["id"],
+            entry["id"]
         )
 
         return {
@@ -167,8 +161,8 @@ class KrakenClient:
             "stop_loss_pct":         stop_loss_pct,
             "take_profit_pct":       take_profit_pct,
             "entry_order_id":        entry["id"],
-            "stop_loss_order_id":    sl_order["id"],
-            "take_profit_order_id":  tp_order["id"],
+            "stop_loss_order_id":    sl_order_id,
+            "take_profit_order_id":  tp_order_id,
             "position_id":           position_id,
         }
 
@@ -200,15 +194,15 @@ class KrakenClient:
         fill_price = exit_price
         exit_order_id = None
 
-        if exit_reason == "agent_sell":
-            # LLM wants to exit — place market sell now
+        if exit_reason in ("agent_sell", "fallback_stop_loss", "fallback_take_profit"):
+            # LLM wants to exit or fallback triggered — place market sell now
             sell = self._exchange.create_market_sell_order(ccxt_pair, pos["volume"])
             fill_price = float(sell.get("average") or sell.get("price") or exit_price)
             exit_order_id = sell["id"]
-            # Cancel pending SL and TP orders
+            # Cancel pending SL and TP orders if any exist natively
             for oid_key in ("stop_loss_order_id", "take_profit_order_id"):
                 oid = pos.get(oid_key)
-                if oid:
+                if oid and oid != "pending_fill":
                     try:
                         self._exchange.cancel_order(oid, ccxt_pair)
                     except Exception as e:
@@ -218,7 +212,7 @@ class KrakenClient:
             # Cancel the counter-order (e.g. if SL fired, cancel TP).
             counter_key = "take_profit_order_id" if exit_reason == "stop_loss" else "stop_loss_order_id"
             counter_oid = pos.get(counter_key)
-            if counter_oid:
+            if counter_oid and counter_oid != "pending_fill":
                 try:
                     self._exchange.cancel_order(counter_oid, ccxt_pair)
                 except Exception as e:
@@ -306,12 +300,55 @@ class KrakenClient:
             exit_reason = None
             exit_price  = current_price
 
+            # 0. If the limit entry hasn't been confirmed filled, poll it.
+            if pos.get("stop_loss_order_id") == "pending_fill" or pos.get("take_profit_order_id") == "pending_fill":
+                try:
+                    entry_order = self._exchange.fetch_order(pos["entry_order_id"], ccxt_pair)
+                    status = entry_order.get("status")
+                    if status == "closed":
+                        # Entry filled! Place native SL/TP
+                        sl_order = self._exchange.create_order(
+                            ccxt_pair, "stop-loss", "sell", pos["volume"], pos["stop_loss_price"],
+                            {"stopPrice": pos["stop_loss_price"]}
+                        )
+                        tp_order = self._exchange.create_order(
+                            ccxt_pair, "take-profit", "sell", pos["volume"], pos["take_profit_price"],
+                            {"stopPrice": pos["take_profit_price"]}
+                        )
+                        
+                        up_conn = get_connection(self._db)
+                        up_conn.execute(
+                            "UPDATE live_positions SET stop_loss_order_id=?, take_profit_order_id=? WHERE id=?",
+                            (sl_order["id"], tp_order["id"], pos["id"])
+                        )
+                        up_conn.commit()
+                        up_conn.close()
+                        
+                        pos["stop_loss_order_id"] = sl_order["id"]
+                        pos["take_profit_order_id"] = tp_order["id"]
+                        logger.info("Placed SL/TP for filled position %s. SL: %s, TP: %s", pos["id"], sl_order["id"], tp_order["id"])
+                    
+                    elif status in ("canceled", "expired", "rejected"):
+                        # Entry limit order failed. Clean up tracker DB.
+                        up_conn = get_connection(self._db)
+                        up_conn.execute("UPDATE live_positions SET status='closed' WHERE id=?", (pos["id"],))
+                        up_conn.commit()
+                        up_conn.close()
+                        logger.warning("Entry order %s was %s natively. Closed tracker.", pos["entry_order_id"], status)
+                        continue
+                    else:
+                        # Entry still open, skip SL/TP checks this cycle
+                        continue
+                except Exception as e:
+                    logger.debug("Could not verify entry fill %s: %s", pos["entry_order_id"], e)
+                    continue
+
             # 1. Check if Kraken already executed SL or TP natively
             for order_id, reason, price_key in [
                 (pos.get("stop_loss_order_id"),   "stop_loss",   "stop_loss_price"),
                 (pos.get("take_profit_order_id"), "take_profit", "take_profit_price"),
             ]:
-                if not order_id:
+                if not order_id or order_id == "pending_fill":
                     continue
                 try:
                     order = self._exchange.fetch_order(order_id, ccxt_pair)
@@ -326,10 +363,10 @@ class KrakenClient:
             # 2. Price-based fallback (native order may not have been placed)
             if exit_reason is None:
                 if current_price <= pos["stop_loss_price"]:
-                    exit_reason = "stop_loss"
+                    exit_reason = "fallback_stop_loss"
                     exit_price  = pos["stop_loss_price"]
                 elif current_price >= pos["take_profit_price"]:
-                    exit_reason = "take_profit"
+                    exit_reason = "fallback_take_profit"
                     exit_price  = pos["take_profit_price"]
 
             if exit_reason:
@@ -339,7 +376,7 @@ class KrakenClient:
                         pair=pair,
                         event_type=(
                             "stop_loss_triggered"
-                            if exit_reason == "stop_loss"
+                            if "stop_loss" in exit_reason
                             else "take_profit_triggered"
                         ),
                         entry_price=pos["entry_price"],

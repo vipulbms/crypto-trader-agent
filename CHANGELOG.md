@@ -415,3 +415,25 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 - **Configurable Profit Floor**: Added `min_profit_floor_pct` to `config.yaml`.
 - **Trading Rules SKILL**: Moved hardcoded trading rules from the agent prompt into `.claude/skills/trading-rules/SKILL.md` to be dynamically loaded, deduplicating logic.
 - **Strict PNL Validation**: Updated `src/risk/risk_manager.py` to strictly reject sell requests that do not meet the minimum profit floor. The live execution price from the WebSocket is now used to calculate the estimated PNL during `propose_sell`.
+
+## Session: 2026-04-05 (Part C) — Live API Execution Fixes
+
+### Bugs Fixed
+- **Kraken Client Limits**: Fixed a critical execution sequence bugs where Stop-Loss/Take-Profit orders were placed instantly right after a Limit Buy Order in `kraken_client.py`, triggering 'Insufficient Funds'. Orders are now gracefully queued until the initial Limit executes.
+- **Kraken Client Fallbacks**: Fixed a fallback exit bug where missed native SL/TP triggers incorrectly just canceled orders instead of issuing a market sell.
+
+### Features Added
+- **VPS Telemetry**: Built 2-Hour Heartbeats, 6-Hour PnL reports, and explicit start/stop telemetry events.
+- **Dependency Locking**: Generated a strict `requirements.txt` pinned version file.
+- **Defensive Unit Testing**: Constructed `tests/test_indicators.py` explicitly verifying indicators and ATR stop loss dynamic ranges.
+
+## Session: 2026-04-05 (Part C) — Live API Execution Fixes
+
+### Bugs Fixed
+- **Kraken Client Limits**: Fixed a critical execution sequence bugs where Stop-Loss/Take-Profit orders were placed instantly right after a Limit Buy Order in `kraken_client.py`, triggering 'Insufficient Funds'. Orders are now gracefully queued until the initial Limit executes.
+- **Kraken Client Fallbacks**: Fixed a fallback exit bug where missed native SL/TP triggers incorrectly just canceled orders instead of issuing a market sell.
+
+### Features Added
+- **VPS Telemetry**: Built 2-Hour Heartbeats, 6-Hour PnL reports, and explicit start/stop telemetry events.
+- **Dependency Locking**: Generated a strict `requirements.txt` pinned version file.
+- **Defensive Unit Testing**: Constructed `tests/test_indicators.py` explicitly verifying indicators and ATR stop loss dynamic ranges.
