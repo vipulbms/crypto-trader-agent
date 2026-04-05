@@ -463,3 +463,6 @@ storage:
 - Limit Order Chasing for Post-Only Maker Fee advantage.
 - Strict Trading Windows: 16:00-20:00 UTC and Volume SMA.
 - Healtcheck webhook for Uptime Monitoring.
+
+## Global Kill Switch
+Kryptos tracks a `global_max_daily_loss_pct` limiting drawdown severity. Upon tripping, limit orders are natively cancelled and positions are market sold for preservation, locking daily activities.
