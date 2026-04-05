@@ -58,6 +58,11 @@ class RiskManager:
         self._daily_loss_limit_pct= risk.get("daily_loss_limit_pct", 10)
         self._min_cash_reserve_pct= risk.get("min_cash_reserve_pct", 10)
 
+        # Fat finger guards
+        self._min_order_usd = risk.get("min_order_usd", 5.0)
+        self._max_token_volume_per_trade = risk.get("max_token_volume_per_trade", 500_000)
+        self._flash_crash_tolerance_pct = risk.get("flash_crash_tolerance_pct", 15.0)
+
         # Circuit breaker config — thresholds from config.yaml
         cb_cfg = risk.get("circuit_breaker", {})
         self._cb_enabled          = cb_cfg.get("enabled", True)
@@ -195,6 +200,8 @@ class RiskManager:
         open_positions_count: int,
         daily_loss_usd: float,
         starting_balance_usd: float,
+        current_price: float = 0.0,
+        baseline_price: float = 0.0
     ) -> tuple:
         """
         Returns (approved: bool, reason: str, capped_amount: float)
@@ -238,6 +245,52 @@ class RiskManager:
                 0.0,
             )
 
+        # -- NEW ALLOCATIONS: DYNAMIC BALANCE & CRASH VALIDATION --
+        
+        # Guard 1: Minimum Order Size
+        if proposed_usd < self._min_order_usd:
+            return (
+                False, 
+                f"Proposed USD (${proposed_usd:.2f}) is below minimum order size (${self._min_order_usd:.2f}).", 
+                0.0
+            )
+            
+        # Guard 2: Flash Crash Anomaly Detection
+        if current_price > 0 and baseline_price > 0:
+            price_drop_pct = ((baseline_price - current_price) / baseline_price) * 100
+            
+            # If price fell off a cliff, assume broken order book
+            if price_drop_pct > self._flash_crash_tolerance_pct: 
+                return (
+                    False, 
+                    f"Flash Crash Guard triggered: Price (${current_price}) dropped {price_drop_pct:.1f}% below baseline.", 
+                    0.0
+                )
+                
+            # Guard 3: Fat Finger Token Volume Overflow
+            token_est_quantity = proposed_usd / current_price
+            if token_est_quantity > self._max_token_volume_per_trade:
+                return (
+                    False, 
+                    f"Fat Finger Guard: Token quantity ({token_est_quantity:,.0f}) exceeds reasonable max limits.", 
+                    0.0
+                )
+
+        # --- NEW: Dynamic Balance & Fat Finger Guard ---
+        
+        # 1. Ensure proposed amount doesn't eat into the 2% fee/buffer of available cash
+        max_safe_allocation = available_cash_usd * 0.98
+        
+        if proposed_usd > max_safe_allocation:
+            # Fat-finger or over-leverage protection triggered
+            return (
+                False,
+                f"Risk Guard triggered: Proposed USD (${proposed_usd:.2f}) exceeds "
+                f"the 98% safe available balance buffer (${max_safe_allocation:.2f}).",
+                0.0,
+            )
+        # --- END NEW Guard ---
+
         # 4. Cap at 30% of portfolio
         max_trade_usd = portfolio_balance_usd * (self._max_position_pct / 100)
         capped = min(proposed_usd, max_trade_usd)
@@ -246,7 +299,7 @@ class RiskManager:
         tradable_cash = available_cash_usd - min_cash
         capped = min(capped, tradable_cash)
 
-        if capped <= 0:
+        if capped < 5.0:
             return (False, "No tradable cash after min reserve deduction", 0.0)
 
         reason = "Approved"

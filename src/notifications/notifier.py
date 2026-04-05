@@ -148,6 +148,21 @@ class Notifier:
         )
         self._send(msg)
 
+    def send_agent_stopped(self, mode: str) -> None:
+        """Notify when agent stops."""
+        mode_label = "PAPER TRADING" if mode == "paper" else "LIVE TRADING"
+        msg = f"{self._prefix}🛑 <b>Agent Stopped — {mode_label}</b>"
+        self._send(msg)
+
+    def send_pnl_report(self, balance: float, pnl_usd: float, pnl_pct: float) -> None:
+        """Send mid-day P&L report."""
+        msg = (
+            f"{self._prefix}📊 <b>6-Hour PnL Report</b>\n"
+            f"Balance: ${balance:.2f}\n"
+            f"Net P&L: ${pnl_usd:+.2f} ({pnl_pct:+.2f}%)"
+        )
+        self._send(msg)
+
     def send_error_alert(self, component: str, error: str) -> None:
         """Alert on critical errors."""
         msg = f"{self._prefix}⚠️ <b>Error in {component}</b>: {error}"

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/*.py)",
+      "Bash(sqlite3 /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/data/paper_trading.db \"SELECT opened_at, closed_at, pair, entry_price, exit_price, volume, usd_invested, pnl_usd, pnl_pct, exit_reason, stop_loss_pct, take_profit_pct FROM paper_trades WHERE pair LIKE ''%RAILS%'' ORDER BY closed_at DESC LIMIT 5;\")",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(python3 -c \":*)",
+      "Edit(/.claude/skills/trading-rules/**)",
+      "Bash(/dev/null grep:*)",
+      "Bash(head -15 grep -n \"heartbeat\\\\|still alive\\\\|hourly\\\\|60.*min\\\\|summary.*hour\" /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/src/notifications/notifier.py /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/main.py)",
+      "Bash(ls /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/*.md)"
+    ]
+  }
+}

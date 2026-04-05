@@ -78,6 +78,14 @@ class TradingTools:
         """
         logger.info("[TOOL] propose_buy(%s, $%.2f)", pair, usd_amount)
 
+        current_price = self._ws.get_latest_price(pair)
+        if not current_price:
+            msg = f"No price data available for {pair}"
+            logger.error(msg)
+            return f"FAILED: {msg}"
+            
+        ema_200 = current_price # Default baseline
+
         balance    = self._broker.get_balance()
         total_usd  = balance["total_usd"]
         cash_usd   = balance["available_cash_usd"]
@@ -93,6 +101,8 @@ class TradingTools:
             open_positions_count=n_positions,
             daily_loss_usd=daily_pnl["pnl_usd"],
             starting_balance_usd=self._sod_balance,
+            current_price=current_price,
+            baseline_price=ema_200,
         )
 
         # Audit risk check
@@ -109,12 +119,6 @@ class TradingTools:
         if not approved:
             logger.warning("[RISK] BUY rejected for %s: %s", pair, reason)
             return f"REJECTED: {reason}"
-
-        current_price = self._ws.get_latest_price(pair)
-        if not current_price:
-            msg = f"No price data available for {pair}"
-            logger.error(msg)
-            return f"FAILED: {msg}"
 
         sl_pct = self._dynamic_sl_values.get(pair) or self._risk.get_stop_loss_pct(pair)
         tp_pct = self._dynamic_tp_values.get(pair) or self._risk.get_take_profit_pct(pair)

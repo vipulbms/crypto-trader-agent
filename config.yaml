@@ -199,6 +199,9 @@ notifications:
 risk:
   daily_loss_limit_pct: 10    # Stop all trading if daily loss exceeds 10%
   min_cash_reserve_pct: 10    # Always keep at least 10% as cash
+  min_order_usd: 5.0
+  max_token_volume_per_trade: 500000
+  flash_crash_tolerance_pct: 15.0
 
   # Circuit breaker — pause all new buys after consecutive stop-losses ("revenge trading" prevention)
   circuit_breaker:

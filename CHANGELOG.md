@@ -437,3 +437,9 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 - **VPS Telemetry**: Built 2-Hour Heartbeats, 6-Hour PnL reports, and explicit start/stop telemetry events.
 - **Dependency Locking**: Generated a strict `requirements.txt` pinned version file.
 - **Defensive Unit Testing**: Constructed `tests/test_indicators.py` explicitly verifying indicators and ATR stop loss dynamic ranges.
+
+## Session: 2026-04-05 (Part B) — Fat Finger and Balance Guards
+
+### Features Added
+- **Fat Finger Guard**: Dynamic Balance Validation. Added `max_safe_allocation = available_cash_usd * 0.98` to buffer 2% cash and protect from failed execution. Added strict checks to prevent enormous token quantity purchases caused by floating point limits or order fat fingers.
+- **Flash Crash Anomaly Detection**: Rejected orders when current asset price plummets below macroscopic baseline pricing limits.

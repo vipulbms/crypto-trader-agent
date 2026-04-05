@@ -254,8 +254,8 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
                 audit.log_error("main_loop", type(e).__name__, str(e), tb, recovered=True)
                 notifier.send_error_alert("main_loop", str(e)[:200])
 
-            # ── Hourly heartbeat ──────────────────────────────────────────
-            heartbeat_interval = config.get("notifications", {}).get("heartbeat_interval_minutes", 60) * 60
+            # ── 2-Hourly heartbeat ──────────────────────────────────────────
+            heartbeat_interval = config.get("notifications", {}).get("heartbeat_interval_minutes", 120) * 60
             if not is_backtest and (time.time() - loop_state["last_heartbeat_time"]) >= heartbeat_interval:
                 bal = broker.get_balance()
                 hourly_pnl_usd = bal["total_usd"] - loop_state["balance_at_heartbeat"]
@@ -278,6 +278,18 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
                 loop_state["sells_since_heartbeat"]  = 0
                 loop_state["balance_at_heartbeat"]   = bal["total_usd"]
 
+            # ── 6-Hour PnL Report ─────────────────────────────────────────
+            if "last_6h_report_time" not in loop_state:
+                loop_state["last_6h_report_time"] = time.time()
+                
+            report_interval = config.get("notifications", {}).get("pnl_report_interval_minutes", 360) * 60
+            if not is_backtest and (time.time() - loop_state["last_6h_report_time"]) >= report_interval:
+                bal = broker.get_balance()
+                net_pnl_usd = bal["total_usd"] - start_of_day_bal
+                net_pnl_pct = (net_pnl_usd / start_of_day_bal * 100) if start_of_day_bal else 0
+                notifier.send_pnl_report(bal["total_usd"], net_pnl_usd, net_pnl_pct)
+                loop_state["last_6h_report_time"] = time.time()
+
             if is_backtest:
                 if not ws_feed.advance():
                     logger.info("Backtest complete — history exhausted (%s)", ws_feed.progress)
@@ -298,6 +310,7 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
     finally:
         logger.info("Stopping WebSocket feed...")
         await ws_feed.stop()
+        notifier.send_agent_stopped(mode)
         logger.info("Agent stopped cleanly")
 
 
