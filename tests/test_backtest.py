@@ -67,6 +67,23 @@ def main():
     config["storage"]["paper_db"] = "backtest_paper.db"
     config["storage"]["audit_db"] = "backtest_audit.db"
 
+    # Clean up old backtest databases and logs before starting
+    print("Cleaning up previous backtest databases and logs...")
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    for db_file in [config["storage"]["paper_db"], config["storage"]["audit_db"]]:
+        db_path = os.path.join(data_dir, db_file)
+        if os.path.exists(db_path):
+            os.remove(db_path)
+            print(f"  Removed {db_file}")
+
+    log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtest_run.log")
+    if os.path.exists(log_file):
+        try:
+            open(log_file, "w").close()
+            print(f"  Cleared backtest_run.log")
+        except Exception as e:
+            print(f"  Warning: failed to clear backtest_run.log - {e}")
+
     feed = HistoricalFeed(pair_candles, config, max_steps=args.candles, start_date=args.start_date)
     print(f"Starting backtest — {feed.total_tradeable} tradeable candle steps...\n")
 
