@@ -360,6 +360,44 @@ async def run_cycle(
     # Check daily loss limit
     trading_cfg     = config.get("trading", {})
     risk_cfg        = config.get("risk", {})
+    
+    # ── Global Kill Switch ─────────────────────────────────────
+    global_max_daily_loss_pct = risk_cfg.get("global_max_daily_loss_pct", 7.0)
+    if daily_pnl["pnl_pct"] <= -global_max_daily_loss_pct:
+        open_pos = [p for p in open_positions if p.get("status", "open") == "open"]
+        if open_pos:
+            logger.critical("🚨 GLOBAL KILL SWITCH TRIGGERED: Drawdown %.2f%% exceeds %.2f%%. Panic selling all positions!", 
+                            abs(daily_pnl["pnl_pct"]), global_max_daily_loss_pct)
+            audit_logger = audit  # for local reference
+            for pos in open_pos:
+                try:
+                    current_price = ws_feed.get_latest_price(pos["pair"])
+                    # Emergency market sell
+                    broker.close_position(
+                        position_id=pos["id"],
+                        current_price=current_price or 0.0,
+                        exit_reason="global_kill_switch"
+                    )
+                    notifier.send_error_alert(
+                        "kill_switch",
+                        f"Emergency closed {pos['pair']} due to {abs(daily_pnl['pnl_pct']):.2f}% portfolio drawdown."
+                    )
+                except Exception as ex:
+                    logger.error("Failed to panic sell %s: %s", pos["pair"], ex)
+            
+            # Recalculate daily_pnl after dumping
+            balance_data = broker.get_balance()
+            daily_pnl = broker.get_daily_pnl(start_of_day_balance)
+            total_usd = balance_data["total_usd"]
+
+        # Kill switch implies trading is done for the day
+        logger.warning("Global Kill Switch is active. Halting all new trades.")
+        today = datetime.now(timezone.utc).date()
+        if loop_state is not None and loop_state.get("daily_loss_notified_date") != today:
+            notifier.send_daily_loss_limit_reached(abs(daily_pnl["pnl_pct"]))
+            loop_state["daily_loss_notified_date"] = today
+        return {"buys": 0, "sells": len(open_pos)}
+
     daily_limit_pct = risk_cfg.get("daily_loss_limit_pct", 10)
     if (daily_pnl["pnl_usd"] < 0 and start_of_day_balance > 0 and
             abs(daily_pnl["pnl_usd"]) / start_of_day_balance * 100 >= daily_limit_pct):

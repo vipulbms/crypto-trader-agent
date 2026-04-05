@@ -36,6 +36,7 @@ class KrakenClient:
             "secret":  api_secret,
             "enableRateLimit": True,
         })
+        self._exchange.load_markets()
         self._pair_map = _build_ccxt_pair_map(config or {})
         self._db = live_db
         logger.info("KrakenClient initialised (live mode) db=%s", live_db)
@@ -108,11 +109,16 @@ class KrakenClient:
             raise ValueError("KrakenClient.place_order only supports 'buy' side for entries")
 
         ccxt_pair = self._pair_map.get(pair, pair)
-        # Using a Limit order, volume is exact at current_price
-        volume = round(usd_amount / current_price, 8)
+        
+        # Calculate raw volume, then strictly apply Kraken's specific precision filters
+        raw_volume = usd_amount / current_price
+        volume = float(self._exchange.amount_to_precision(ccxt_pair, raw_volume))
+        
+        # Format the entry price tick increments
+        safe_price = float(self._exchange.price_to_precision(ccxt_pair, current_price))
 
         # Entry limit order at the Bid price (Post-Only to guarantee Maker fee)
-        entry = self._exchange.create_limit_buy_order(ccxt_pair, volume, current_price, params={"postOnly": True})
+        entry = self._exchange.create_limit_buy_order(ccxt_pair, volume, safe_price, params={"postOnly": True})
         fill_price = float(entry.get("average") or entry.get("price") or current_price)
         fee_usd = float(entry.get("fee", {}).get("cost", 0.0)) if entry.get("fee") else 0.0
         actual_cost = round(fill_price * volume, 4)
@@ -194,7 +200,7 @@ class KrakenClient:
         fill_price = exit_price
         exit_order_id = None
 
-        if exit_reason in ("agent_sell", "fallback_stop_loss", "fallback_take_profit"):
+        if exit_reason in ("agent_sell", "fallback_stop_loss", "fallback_take_profit", "global_kill_switch"):
             # LLM wants to exit or fallback triggered — place market sell now
             sell = self._exchange.create_market_sell_order(ccxt_pair, pos["volume"])
             fill_price = float(sell.get("average") or sell.get("price") or exit_price)
@@ -345,10 +351,13 @@ class KrakenClient:
                             try:
                                 self._exchange.cancel_order(pos["entry_order_id"], ccxt_pair)
                                 
-                                # Replace with new limit order at the new Best Bid (Post-Only)
-                                new_volume = round(pos["usd_value"] / current_price, 8)
+                                # Replace with new limit order at the precise new Best Bid (Post-Only)
+                                raw_new_vol = pos["usd_value"] / current_price
+                                new_volume = float(self._exchange.amount_to_precision(ccxt_pair, raw_new_vol))
+                                safe_price = float(self._exchange.price_to_precision(ccxt_pair, current_price))
+                                
                                 new_entry = self._exchange.create_limit_buy_order(
-                                    ccxt_pair, new_volume, current_price, params={"postOnly": True}
+                                    ccxt_pair, new_volume, safe_price, params={"postOnly": True}
                                 )
                                 
                                 new_fill_price = float(new_entry.get("average") or new_entry.get("price") or current_price)

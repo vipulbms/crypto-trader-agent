@@ -206,6 +206,7 @@ notifications:
 # ──────────────────────────────────────────────
 risk:
   daily_loss_limit_pct: 10    # Stop all trading if daily loss exceeds 10%
+  global_max_daily_loss_pct: 7.0  # Kill Switch: panic-sell all open positions if total account drops by this % from start of day
   min_cash_reserve_pct: 10    # Always keep at least 10% as cash
   min_order_usd: 5.0
   max_token_volume_per_trade: 500000
