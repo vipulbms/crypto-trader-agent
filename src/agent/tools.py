@@ -85,6 +85,10 @@ class TradingTools:
             return f"FAILED: {msg}"
             
         ema_200 = current_price # Default baseline
+        
+        # Get current candle timestamp if available (useful for backtesting limits)
+        candles = self._ws.get_candles(pair) if hasattr(self._ws, "get_candles") else []
+        current_time = float(candles[-1].get("time", candles[-1].get("timestamp", 0.0))) if candles else 0.0
 
         balance    = self._broker.get_balance()
         total_usd  = balance["total_usd"]
@@ -103,6 +107,7 @@ class TradingTools:
             starting_balance_usd=self._sod_balance,
             current_price=current_price,
             baseline_price=ema_200,
+            candle_timestamp_sec=current_time
         )
 
         # Audit risk check

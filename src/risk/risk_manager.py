@@ -208,7 +208,8 @@ class RiskManager:
         daily_loss_usd: float,
         starting_balance_usd: float,
         current_price: float = 0.0,
-        baseline_price: float = 0.0
+        baseline_price: float = 0.0,
+        candle_timestamp_sec: float = 0.0
     ) -> tuple:
         """
         Returns (approved: bool, reason: str, capped_amount: float)
@@ -216,7 +217,11 @@ class RiskManager:
         """
         # 0.5. Time-of-Day Guard — explicitly block outside of allowed volume overlap
         if self._trading_hours_enabled:
-            current_hour = datetime.datetime.now(datetime.timezone.utc).hour
+            if candle_timestamp_sec > 0:
+                current_hour = datetime.datetime.fromtimestamp(candle_timestamp_sec, datetime.timezone.utc).hour
+            else:
+                current_hour = datetime.datetime.now(datetime.timezone.utc).hour
+                
             if self._trading_start_hour <= self._trading_end_hour:
                 allowed = self._trading_start_hour <= current_hour < self._trading_end_hour
             else:
