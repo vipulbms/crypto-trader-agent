@@ -2,6 +2,18 @@
 
 ---
 
+## Session: 2026-04-05 (Part E) — Global Kill Switch & Backtest Telemetry
+
+### Features Added
+
+| Feature | Files | Notes |
+|---|---|---|
+| Global Max Daily Loss (Kill Switch) | `config.yaml`, `main.py`, `kraken_client.py` | Protects the portfolio at 7% drawdown; executes a mass limit-cancellation and market-sell out of crypto. |
+| Backtesting Lifecycle Refinement | `test_backtest.py` | Native flush of `backtest_paper.db` and log rotations allowing sterile execution runs. |
+| Audit Rejection Utility | `scripts/audit_rejections.py` | Extracts telemetry indicating why algorithmic blocks triggered. |
+
+---
+
 ## Session: 2026-04-05 (Part B) — Confluence scoring, circuit breaker, heartbeat
 
 ### Features Added
