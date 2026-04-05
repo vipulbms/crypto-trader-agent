@@ -159,6 +159,8 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_05b | Multi-indicator confluence scoring; circuit breaker (DB-backed); heartbeat |
 | session_2026_04_05c | Live API Limit orders / fallbacks; 2-hour heartbeat, 6-hour PnL report |
 | session_2026_04_05d | Post-only limit chase orders, volume/time-of-day filters, healthcheck webhook |
+| session_2026_04_05e | Global kill switch (-7% daily drawdown); backtest clean-slate teardown; audit_rejections.py |
+| session_2026_04_05f | Documentation: BRD, detailed solution design (10 sections, 9 Mermaid diagrams, 7 ADRs), epics/stories/AC; removed stale scripts |
 
 ---
 

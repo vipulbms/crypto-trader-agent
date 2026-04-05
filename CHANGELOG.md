@@ -2,6 +2,22 @@
 
 ---
 
+## Session: 2026-04-05 (Part F) — Documentation: BRD, Detailed Design, Epics/Stories
+
+### Added
+
+| Artifact | File | Summary |
+|---|---|---|
+| Business Requirements Document | `docs/business_requirements.md` | 8 FRs, 6 NFRs, bug resolution table, setup guide |
+| Detailed Solution Design | `docs/detailed_solution_design.md` | 10 sections, 9 Mermaid diagrams, 7 ADRs, LLM architecture deep-dive, Skills system docs |
+| Epics, Stories & AC | `docs/epics_stories_ac.md` | 11 Epics, 40+ Stories with Gherkin AC, traceability matrix |
+
+### Removed
+- Deleted `random_execution_kraken.py` — stale exploration prototype
+- Deleted `test_ws.py` — stale WebSocket exploration script
+
+---
+
 ## Session: 2026-04-05 (Part E) — Global Kill Switch & Backtest Telemetry
 
 ### Features Added
