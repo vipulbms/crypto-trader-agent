@@ -161,6 +161,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_05d | Post-only limit chase orders, volume/time-of-day filters, healthcheck webhook |
 | session_2026_04_05e | Global kill switch (-7% daily drawdown); backtest clean-slate teardown; audit_rejections.py |
 | session_2026_04_05f | Documentation: BRD, detailed solution design (10 sections, 9 Mermaid diagrams, 7 ADRs), epics/stories/AC; removed stale scripts |
+| session_2026_04_05g | Documentation: README rewrite; BRD v2.0 formal rewrite; new docs/codebase.md (developer reference); new docs/how_to_debug.md; commit SKILL.md expanded to 6 docs; model references generalised |
 
 ---
 
@@ -172,7 +173,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Cycle interval**: 30 minutes. SL/TP checks happen every cycle start, not on every price tick. Price can blow past SL between cycles without firing.
 - **caution_factor is code-enforced**: In bearish regime, `portfolio["max_per_trade"]` is scaled by 0.5 in `main.py` before the LLM cycle. The LLM cannot exceed this cap even if it ignores the prompt warning.
 - **Dynamic TP is now order-level**: `TradingTools.propose_buy()` uses ATR/BB-adjusted TP from `ai_context["dynamic_tp_values"]` instead of static config. Falls back to static if `dynamic_tp.enabled: false` or pair not in values. Logged as `[DYNAMIC_TP]`.
-- **deepseek-r1 `<think>` blocks**: deepseek-r1 emits chain-of-thought `<think>…</think>` before its response. Ollama strips these before populating `msg.tool_calls`, so tool dispatch is unaffected. If you see verbose `content` in debug logs, that's the reasoning block.
+- **Reasoning model `<think>` blocks**: some models (e.g. DeepSeek-R1, QwQ) emit chain-of-thought `<think>…</think>` before their response. Ollama strips these before populating `msg.tool_calls`, so tool dispatch is unaffected. If you see verbose `content` in debug logs, that's the reasoning block.
 - **Live broker parity**: `KrakenClient` now has the same interface as `PaperBroker` — `get_balance()`, `get_open_positions()`, `close_position()`, `check_stops_and_tp()` all implemented. Positions are tracked in `live_trading.db` (same SQLite pattern as paper mode).
 - **Minimum Profit Floor**: The agent is blocked by `validate_sell` from closing a trade manually if the PNL is below `min_profit_floor_pct` (1.0%), guarding against net losses from Kraken exit fees.
 - **Signal scoring is confluence-based**: No single indicator triggers a BUY. Score must reach `buy_min_score` (5) from up to 10 contributors. The two hard vetoes are RSI ≥ 70 and ATR-based TP < profit floor. See `signals.py` for full weight table.

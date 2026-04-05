@@ -58,13 +58,48 @@ Review `CLAUDE.md` in the project root and update it to reflect any changes made
 - Update "Session Notes" table with the new session file
 - Update architecture section if any new files/modules were added
 
-### 4. Update business-requirement.md, README.md, and plan.md
-Review `business-requirement.md`, `README.md`, and `plan.md` and update them to reflect any changes made in this session:
-- `business-requirement.md` — update if new features or pairs change the product scope
-- `README.md` — update setup instructions, feature list, or usage examples if anything changed
-- `plan.md` — tick off completed items; add new planned work if discussed
+### 4. Update documentation files
+Review and update the following documents to reflect changes made in this session. Only update sections that are genuinely stale — do not rewrite content that is still accurate.
 
-Only update sections that are genuinely stale. Do not rewrite content that is still accurate.
+**Complexity guide:**
+- **Minor change** (1-2 files, bug fix, small config tweak) → update affected sections only
+- **Moderate change** (new feature, multiple files) → update all affected sections across all docs
+- **Large change** (new module, architectural decision, new pair) → consider full rewrite of impacted docs
+
+#### `plan.md`
+Tick off completed items. Add new planned work if discussed this session. Never remove items — mark them `[x]` or strike through.
+
+#### `README.md`
+Update setup instructions, feature list, configuration reference, or usage examples if anything changed. Rewrite if the scope of changes is large (e.g. a new major feature or architectural shift).
+
+#### `docs/codebase.md`
+This is the primary developer reference. It is generated using the `/explain` skill — read each changed module and update the corresponding section(s):
+- Module deep-dives (function signatures, purpose, dependencies)
+- Config reference table
+- Data flow section
+- Design patterns section
+Rewrite the entire document if multiple modules changed significantly.
+
+#### `docs/business_requirements.md`
+Update only if a change alters a functional requirement, business rule, or pair configuration:
+- Add/modify FRs in the appropriate section
+- Update the pair TP/SL table if pairs changed
+- Update business rules if risk thresholds changed (profit floor, kill switch, circuit breaker)
+Do **not** rewrite — this is a formal BRD; append or surgically edit.
+
+#### `docs/detailed_solution_design.md`
+Update if a change affects architecture, system design, or integration contracts:
+- Update sequence diagrams if a new flow was added
+- Update the ADR section if an architectural decision was made
+- Update the relevant module's technical description
+Rewrite a section only if the flow fundamentally changed (e.g. limit order chase logic, kill switch sequence).
+
+#### `docs/epics_stories_ac.md`
+Update if new features were added or stories were completed:
+- Tick off completed stories
+- Add new stories under the appropriate Epic if new work was scoped
+- Update Acceptance Criteria if behaviour changed
+Do **not** rewrite the entire document — append or edit targeted stories only.
 
 ### 5. Update CHANGELOG.md
 Append a new entry to `CHANGELOG.md` summarising the changes in this commit:
@@ -96,7 +131,20 @@ Co-Authored-By: Claude Sonnet 4.6
 ```
 
 ### 8. Stage only the appropriate files
-Use `git add <specific files>` — never `git add -A` or `git add .` to avoid accidentally staging secrets or large runtime files. Always include `CHANGELOG.md`, `CLAUDE.md`, `README.md`, `plan.md`, `business-requirement.md`, and the new session notes file.
+Use `git add <specific files>` — never `git add -A` or `git add .` to avoid accidentally staging secrets or large runtime files.
+
+Always include these documentation files when they were updated:
+- `CHANGELOG.md`
+- `CLAUDE.md`
+- `README.md`
+- `plan.md`
+- `docs/codebase.md`
+- `docs/business_requirements.md`
+- `docs/detailed_solution_design.md`
+- `docs/epics_stories_ac.md`
+- The new session notes file (e.g. `docs/sessions/session_2026_04_05g.md`)
+
+Only stage a doc file if it was actually modified in this session.
 
 ### 9. Commit and push
 ```bash

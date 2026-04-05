@@ -477,3 +477,15 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 - Execution: Post-Only limit orders with 60-second replacement chase logic to mitigate taker fees.
 - Strategy: Time-of-Day filter (16:00-20:00 UTC) and Volume guards (>50% 20-SMA).
 - Architectural: Healthcheck webhook ping on agent loop completion to monitor for deadlocks.
+
+## Session: 2026-04-05 (Part G) — Documentation Suite
+
+### Documentation Added / Updated
+- **README.md rewrite**: Full rewrite reflecting quantitative migration — confluence scoring, ATR sizing, dynamic TP, OBI, limit orders, profit floor, kill switch, heartbeat, healthchecks.io. All 15 pairs listed with correct TP%. Configuration reference table and architecture section added.
+- **docs/business_requirements.md (BRD v2.0)**: Formal rewrite from scratch — 13 sections, 99+ numbered FRs, 15 Business Rules, 23-term glossary, revision history table, pair configuration table.
+- **docs/codebase.md** (new): Developer reference covering all 13 modules with function signatures, DB schema, config.yaml parameter reference, data-flow section, and 6 Design Patterns (744 lines).
+- **docs/how_to_debug.md** (new): Operational runbook — 5-step debug workflow, SQL snippets, log grep patterns, paper vs live differences, common failure scenarios (616 lines).
+- **commit SKILL.md expanded**: Step 4 now includes per-file update guidance for all 6 docs with complexity guide. Step 8 stage list updated to include all 6 docs.
+- **business-requirement.md deleted**: Stale root-level file removed; `docs/business_requirements.md` is now the single source of truth.
+- **CLAUDE.md**: Model `<think>` block note generalised to cover any reasoning model (not just deepseek-r1).
+- **plan.md**: Architecture diagram LLM label updated to `(tool-capable)`.
