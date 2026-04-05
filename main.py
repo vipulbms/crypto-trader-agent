@@ -114,7 +114,8 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
     audit       = AuditLogger(audit_db=audit_db, mode=mode)
 
     ws_feed     = feed if is_backtest else WebSocketFeed(config)
-    risk        = RiskManager(config)
+    _trading_db = storage_cfg.get("paper_db" if mode == "paper" else "live_db", "paper_trading.db")
+    risk        = RiskManager(config, db_path=_trading_db)
     notifier    = Notifier(config, mode)
 
     trading_cfg = config.get("trading", {})
@@ -198,7 +199,14 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
     logger.info("Candle buffers ready. Starting decision cycles.")
 
     # ── Main cycle loop ────────────────────────────────────────
-    loop_state = {"daily_loss_notified_date": None}  # mutable shared state across cycles
+    loop_state = {
+        "daily_loss_notified_date": None,
+        "last_heartbeat_time": time.time(),
+        "cycles_since_heartbeat": 0,
+        "buys_since_heartbeat": 0,
+        "sells_since_heartbeat": 0,
+        "balance_at_heartbeat": start_of_day_bal,
+    }
     try:
         while True:
             cycle_start = time.time()
@@ -211,9 +219,19 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
                     for trade in closed:
                         notifier.send_trade_executed(trade, mode)
                         tools._run_post_trade_analysis(trade)
+                        # Update circuit breaker state
+                        if trade.get("exit_reason") == "stop_loss":
+                            tripped = risk.record_stop_loss(trade.get("pair", pair))
+                            if tripped:
+                                notifier.send_circuit_breaker_tripped(
+                                    risk._cb_consecutive_stops,
+                                    risk._cb_pause_secs / 3600,
+                                )
+                        elif trade.get("pnl_usd", 0) > 0:
+                            risk.record_profitable_exit()
 
             try:
-                await run_cycle(
+                cycle_result = await run_cycle(
                     broker=broker,
                     agent=agent,
                     ws_feed=ws_feed,
@@ -226,11 +244,39 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
                     start_of_day_balance=start_of_day_bal,
                     loop_state=loop_state,
                 )
+                loop_state["cycles_since_heartbeat"] += 1
+                if cycle_result:
+                    loop_state["buys_since_heartbeat"]  += cycle_result.get("buys", 0)
+                    loop_state["sells_since_heartbeat"] += cycle_result.get("sells", 0)
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error("Cycle error: %s\n%s", e, tb)
                 audit.log_error("main_loop", type(e).__name__, str(e), tb, recovered=True)
                 notifier.send_error_alert("main_loop", str(e)[:200])
+
+            # ── Hourly heartbeat ──────────────────────────────────────────
+            heartbeat_interval = config.get("notifications", {}).get("heartbeat_interval_minutes", 60) * 60
+            if not is_backtest and (time.time() - loop_state["last_heartbeat_time"]) >= heartbeat_interval:
+                bal = broker.get_balance()
+                hourly_pnl_usd = bal["total_usd"] - loop_state["balance_at_heartbeat"]
+                hourly_pnl_pct = (hourly_pnl_usd / loop_state["balance_at_heartbeat"] * 100) if loop_state["balance_at_heartbeat"] else 0
+                open_pos = broker.get_open_positions()
+                cb_active, _ = risk.is_circuit_open()
+                notifier.send_heartbeat({
+                    "balance_usd":          bal["total_usd"],
+                    "hourly_pnl_usd":       round(hourly_pnl_usd, 2),
+                    "hourly_pnl_pct":       round(hourly_pnl_pct, 2),
+                    "cycles_completed":     loop_state["cycles_since_heartbeat"],
+                    "open_positions":       len([p for p in open_pos if p.get("status") == "open"]),
+                    "buys_last_hour":       loop_state["buys_since_heartbeat"],
+                    "sells_last_hour":      loop_state["sells_since_heartbeat"],
+                    "circuit_breaker_active": cb_active,
+                })
+                loop_state["last_heartbeat_time"]    = time.time()
+                loop_state["cycles_since_heartbeat"] = 0
+                loop_state["buys_since_heartbeat"]   = 0
+                loop_state["sells_since_heartbeat"]  = 0
+                loop_state["balance_at_heartbeat"]   = bal["total_usd"]
 
             if is_backtest:
                 if not ws_feed.advance():
@@ -312,6 +358,11 @@ async def run_cycle(
             loop_state["daily_loss_notified_date"] = today
         return
 
+    # Fetch Fear & Greed once per cycle — injected into each pair's indicators dict
+    from src.analysis.features import fetch_fear_greed
+    fear_greed_data = fetch_fear_greed(config)
+    fear_greed_index = fear_greed_data["value"] if fear_greed_data else None
+
     # Compute indicators and signals for each pair
     signals = []
     for pair in pairs:
@@ -324,6 +375,10 @@ async def run_cycle(
         if not indicators:
             logger.warning("Insufficient candles for %s indicators — skipping", pair)
             continue
+
+        # Inject sentiment so generate_signal() can score it
+        if fear_greed_index is not None:
+            indicators["fear_greed_index"] = fear_greed_index
 
         sig = generate_signal(pair, indicators, config)
         sig["indicators"] = indicators  # attach raw indicators for prompt
@@ -377,8 +432,14 @@ async def run_cycle(
         ai_context=ai_context,
     )
 
+    buys = sells = 0
     for r in results:
         logger.info("Agent result [%s]: %s", r["pair"], r["result"])
+        action = r.get("result", "")
+        if "BUY" in action or "buy" in action.lower():
+            buys += 1
+        elif "SELL" in action or "sell" in action.lower():
+            sells += 1
 
     # Audit balance snapshot — re-fetch to capture any trades that executed this cycle
     post_balance = broker.get_balance()
@@ -392,6 +453,8 @@ async def run_cycle(
     # Update cycle duration
     cycle_duration_ms = int(time.time() * 1000) - cycle_start_ms
     audit.update_cycle_duration(cycle_id, cycle_duration_ms)
+
+    return {"buys": buys, "sells": sells}
 
 
 def main() -> None:

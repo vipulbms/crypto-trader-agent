@@ -156,6 +156,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_01c | Backtesting pipeline added; 5 bugs identified; 7.5-day backtest run and reported |
 | session_2026_04_04a | Volatility-Adaptive Quant Migration; OBI implementation; Limit orders |
 | session_2026_04_05a | Minimum Profit Floor implementation; extracted trading rules to SKILL.md |
+| session_2026_04_05b | Multi-indicator confluence scoring; circuit breaker (DB-backed); heartbeat |
 
 ---
 
@@ -169,5 +170,9 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Dynamic TP is now order-level**: `TradingTools.propose_buy()` uses ATR/BB-adjusted TP from `ai_context["dynamic_tp_values"]` instead of static config. Falls back to static if `dynamic_tp.enabled: false` or pair not in values. Logged as `[DYNAMIC_TP]`.
 - **deepseek-r1 `<think>` blocks**: deepseek-r1 emits chain-of-thought `<think>…</think>` before its response. Ollama strips these before populating `msg.tool_calls`, so tool dispatch is unaffected. If you see verbose `content` in debug logs, that's the reasoning block.
 - **Live broker parity**: `KrakenClient` now has the same interface as `PaperBroker` — `get_balance()`, `get_open_positions()`, `close_position()`, `check_stops_and_tp()` all implemented. Positions are tracked in `live_trading.db` (same SQLite pattern as paper mode).
-- **Volatility-Adaptive Limits**: The system no longer uses naive market orders. `KrakenClient` and `PaperBroker` now execute `Limit` orders on the bid to save on spread. These limit entries are gated by positive **Order Book Imbalance (OBI)** monitored in real-time.
 - **Minimum Profit Floor**: The agent is blocked by `validate_sell` from closing a trade manually if the PNL is below `min_profit_floor_pct` (1.0%), guarding against net losses from Kraken exit fees.
+- **Signal scoring is confluence-based**: No single indicator triggers a BUY. Score must reach `buy_min_score` (5) from up to 10 contributors. The two hard vetoes are RSI ≥ 70 and ATR-based TP < profit floor. See `signals.py` for full weight table.
+- **MACD histogram turn vs positive**: `indicators.py` returns both `macd_histogram` (current) and `macd_histogram_prev` (previous candle). A turn from negative to positive scores +3; merely being positive scores +1.
+- **Fear & Greed injected into signals**: `main.py` fetches Fear & Greed once per cycle and injects it as `fear_greed_index` into each pair's indicators dict before `generate_signal()` runs. Scores +1 (fear ≤ 40) or +2 (extreme fear ≤ 25).
+- **Circuit breaker reads trade history**: `RiskManager.is_circuit_open()` queries the last 3 trades with `WHERE closed_at >= <4h ago>`. If all 3 are `stop_loss`, all buys are blocked for 4 hours. No separate state table — survives restarts automatically. Configurable: `risk.circuit_breaker.consecutive_stops` and `pause_hours`.
+- **Heartbeat (live mode only)**: Every 60 minutes, `notifier.send_heartbeat()` sends a Telegram summary: balance, hourly P&L, cycles, buys/sells, circuit breaker state. Skipped in backtest mode.

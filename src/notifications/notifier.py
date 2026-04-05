@@ -160,3 +160,30 @@ class Notifier:
             f"Loss: {loss_pct:.1f}% — trading halted for today"
         )
         self._send(msg)
+
+    def send_circuit_breaker_tripped(self, consecutive_stops: int, pause_hours: float) -> None:
+        """Alert when circuit breaker pauses all buys after consecutive stop-losses."""
+        msg = (
+            f"{self._prefix}⚡ <b>Circuit Breaker Tripped</b>\n"
+            f"{consecutive_stops} consecutive stop-losses hit.\n"
+            f"All new buys paused for {pause_hours:.0f} hours."
+        )
+        self._send(msg)
+
+    def send_heartbeat(self, summary: dict) -> None:
+        """Hourly 'still alive' message with last-hour activity summary."""
+        balance    = summary.get("balance_usd", 0)
+        pnl_usd    = summary.get("hourly_pnl_usd", 0)
+        pnl_pct    = summary.get("hourly_pnl_pct", 0)
+        cycles     = summary.get("cycles_completed", 0)
+        open_pos   = summary.get("open_positions", 0)
+        buys       = summary.get("buys_last_hour", 0)
+        sells      = summary.get("sells_last_hour", 0)
+        circuit    = summary.get("circuit_breaker_active", False)
+        cb_note    = " | ⚡ Circuit breaker ACTIVE" if circuit else ""
+        msg = (
+            f"{self._prefix}💓 <b>Heartbeat</b>{cb_note}\n"
+            f"Balance: ${balance:.2f} ({pnl_usd:+.2f} / {pnl_pct:+.2f}% last hour)\n"
+            f"Cycles: {cycles} | Open: {open_pos} | Buys: {buys} | Sells: {sells}"
+        )
+        self._send(msg)

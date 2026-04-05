@@ -95,55 +95,24 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         logger.error("Indicator calculation error: %s", e)
         return None
 
-    # ── Reversal detector ────────────────────────────────────────────────────
-    # Count consecutive red/green candles at the tail of the candle list.
-    # consecutive_red  > 0 means the last N candles all closed down — downtrend
-    # consecutive_green > 0 means the last N candles all closed up  — uptrend
-    # prev_consecutive_red tracks how many red candles preceded the current
-    # green streak — used by signals.py to confirm a reversal from a real dip.
-    closes = df["close"].values
-    opens  = df["open"].values
-    n = len(closes)
-
-    consecutive_green = 0
-    for j in range(n - 1, -1, -1):
-        if closes[j] >= opens[j]:
-            consecutive_green += 1
-        else:
-            break
-
-    consecutive_red = 0
-    if consecutive_green == 0:
-        for j in range(n - 1, -1, -1):
-            if closes[j] < opens[j]:
-                consecutive_red += 1
-            else:
-                break
-
-    # How many red candles came just before the current green streak
-    prev_consecutive_red = 0
-    if consecutive_green > 0:
-        for j in range(n - 1 - consecutive_green, -1, -1):
-            if closes[j] < opens[j]:
-                prev_consecutive_red += 1
-            else:
-                break
+    # macd_histogram_prev: second-to-last histogram value — used to detect a turn
+    # (negative → positive crossover is a stronger signal than just being positive)
+    hist_vals = macd_histogram.dropna()
+    macd_histogram_prev = safe(hist_vals.iloc[-2]) if len(hist_vals) >= 2 else None
 
     return {
-        "rsi_14":              safe(rsi.iloc[-1]),
-        "macd_line":           safe(macd_line.iloc[-1]),
-        "macd_signal_line":    safe(macd_signal_line.iloc[-1]),
-        "macd_histogram":      safe(macd_histogram.iloc[-1]),
-        "ema_9":               safe(ema_9_series.iloc[-1]),
-        "ema_21":              safe(ema_21_series.iloc[-1]),
-        "ema_20":              safe(ema_fast_series.iloc[-1]),
-        "ema_50":              safe(ema_slow_series.iloc[-1]),
-        "bb_upper":            safe(bb_upper.iloc[-1]),
-        "bb_mid":              safe(bb_mid.iloc[-1]),
-        "bb_lower":            safe(bb_lower.iloc[-1]),
-        "atr_14":              safe(atr.iloc[-1]),
-        "close":               safe(df["close"].iloc[-1]),
-        "consecutive_red":     consecutive_red,
-        "consecutive_green":   consecutive_green,
-        "prev_consecutive_red": prev_consecutive_red,
+        "rsi_14":               safe(rsi.iloc[-1]),
+        "macd_line":            safe(macd_line.iloc[-1]),
+        "macd_signal_line":     safe(macd_signal_line.iloc[-1]),
+        "macd_histogram":       safe(macd_histogram.iloc[-1]),
+        "macd_histogram_prev":  macd_histogram_prev,
+        "ema_9":                safe(ema_9_series.iloc[-1]),
+        "ema_21":               safe(ema_21_series.iloc[-1]),
+        "ema_20":               safe(ema_fast_series.iloc[-1]),
+        "ema_50":               safe(ema_slow_series.iloc[-1]),
+        "bb_upper":             safe(bb_upper.iloc[-1]),
+        "bb_mid":               safe(bb_mid.iloc[-1]),
+        "bb_lower":             safe(bb_lower.iloc[-1]),
+        "atr_14":               safe(atr.iloc[-1]),
+        "close":                safe(df["close"].iloc[-1]),
     }

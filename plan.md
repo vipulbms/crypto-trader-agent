@@ -814,3 +814,12 @@ All functions are decorated with `@_safe` — they catch all exceptions and retu
 ## Completed (April 4 2026)
 - Upgraded the strategy to a strictly quantitative volatility-adaptive algorithm driven by ATR and Order Book Imbalance (OBI), reducing LLM errors.
 - Shifted all live and paper broker executions to dynamic Limit Orders at the Bid rather than Taker Market Orders.
+
+## Completed (April 5 2026)
+- Replaced all hard EMA gates with multi-indicator confluence scoring (10 contributors, min score 5). No single indicator blocks or triggers a buy.
+- Added ATR minimum profit floor veto: if ATR-based TP < 1% (fee break-even), entry is blocked.
+- Added MACD histogram turn detection (`macd_histogram_prev`) — crossover from negative to positive scores +3 vs merely positive (+1).
+- Fear & Greed index injected into signal scoring per cycle (+1 fear, +2 extreme fear).
+- Circuit breaker: 3 consecutive `stop_loss` exits within 4h → all buys paused for 4h. Reads directly from trade history — no extra table, survives restarts.
+- Heartbeat: hourly Telegram summary in live mode (balance, P&L, cycles, buys/sells, circuit state).
+- SKILL.md aligned with new signal and risk logic.

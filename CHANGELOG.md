@@ -2,6 +2,34 @@
 
 ---
 
+## Session: 2026-04-05 (Part B) — Confluence scoring, circuit breaker, heartbeat
+
+### Features Added
+
+| Feature | Files | Notes |
+|---|---|---|
+| Multi-indicator confluence BUY scoring | `signals.py`, `indicators.py`, `config.yaml` | 10 contributors, min score 5; removed all hard EMA gates |
+| MACD histogram turn detection | `indicators.py` | `macd_histogram_prev` added; turn = +3, continuation = +1 |
+| Fear & Greed injected into signal scoring | `main.py`, `signals.py` | Fetched once/cycle; +1 fear ≤40, +2 extreme fear ≤25 |
+| ATR profit floor veto | `signals.py` | Blocks entry if ATR-based TP < `min_profit_floor_pct` |
+| Circuit breaker (DB-backed) | `risk_manager.py`, `config.yaml` | Reads last 3 trades within 4h window; no extra table needed |
+| Heartbeat notification | `notifier.py`, `main.py`, `config.yaml` | Hourly Telegram summary in live mode |
+| Circuit breaker tests | `tests/test_circuit_breaker.py` | 4 Gherkin-annotated test cases |
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/analysis/signals.py` | Full rewrite — confluence scoring, two vetoes, helper functions |
+| `src/analysis/indicators.py` | Added `macd_histogram_prev`; removed candle-counting reversal detector |
+| `src/risk/risk_manager.py` | Circuit breaker reads trade history via SQL time window; `db_path` param |
+| `src/notifications/notifier.py` | Added `send_heartbeat()` and `send_circuit_breaker_tripped()` |
+| `main.py` | Fear & Greed injection; heartbeat loop; circuit breaker wiring; `run_cycle` returns buy/sell counts |
+| `config.yaml` | New signal score weights; circuit breaker block; heartbeat interval |
+| `.claude/skills/trading-rules/SKILL.md` | Aligned with confluence scoring and circuit breaker rules |
+
+---
+
 ## Session: 2026-04-01 (Part C) — Backtesting pipeline
 
 ### Features Added

@@ -6,6 +6,7 @@ loss limit are enforced deterministically — NOT by the LLM.
 """
 
 import logging
+import time
 from typing import Optional
 
 from src.utils.timing import timed
@@ -41,11 +42,12 @@ def validate_config(config: dict) -> None:
 
 class RiskManager:
     """
-    Stateless risk validation. Receives current portfolio state and a proposed
-    action, returns (approved: bool, reason: str, adjusted_amount: float|None).
+    Risk validation with DB-persisted circuit breaker.
+    State survives agent restarts — consecutive stop count and triggered timestamp
+    are read from and written to the trading DB (agent_state table).
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, db_path: Optional[str] = None):
         trading = config.get("trading", {})
         risk    = config.get("risk", {})
         self._stop_loss_pct       = trading.get("stop_loss_pct", 5)
@@ -56,10 +58,118 @@ class RiskManager:
         self._daily_loss_limit_pct= risk.get("daily_loss_limit_pct", 10)
         self._min_cash_reserve_pct= risk.get("min_cash_reserve_pct", 10)
 
+        # Circuit breaker config — thresholds from config.yaml
+        cb_cfg = risk.get("circuit_breaker", {})
+        self._cb_enabled          = cb_cfg.get("enabled", True)
+        self._cb_max_consec_stops = cb_cfg.get("consecutive_stops", 3)
+        self._cb_pause_secs       = cb_cfg.get("pause_hours", 4) * 3600
+
+        # DB path — used to query trade history for circuit breaker
+        self._db_path = db_path
+
         # Build per-pair TP map
         self._pair_tp: dict = {}
         for p in trading.get("pairs", []):
             self._pair_tp[p["pair"]] = p.get("take_profit_pct", self._global_tp_pct)
+
+    # ── Circuit breaker — derived from trade history ──────────────────────────
+    # Queries the last N trades that closed within the pause window.
+    # If all N are stop_loss AND the most recent happened within pause_hours → tripped.
+    # An old streak (all stops but >4 hours ago) does not block new trades.
+
+    def _query_recent_exits(self, since_epoch: float) -> list:
+        """
+        Return the most recent `consecutive_stops` closed trades that occurred
+        after `since_epoch`, newest-first: [{"exit_reason": str, "closed_at": str}, ...]
+        Returns [] if DB unavailable.
+        """
+        if not self._db_path:
+            return []
+        try:
+            from src.storage.database import get_connection
+            from datetime import datetime, timezone
+            conn = get_connection(self._db_path)
+            trades_table = "paper_trades" if "paper" in self._db_path else "live_trades"
+            since_iso = datetime.fromtimestamp(since_epoch, tz=timezone.utc).isoformat()
+            rows = conn.execute(
+                f"SELECT exit_reason, closed_at FROM {trades_table} "
+                f"WHERE closed_at >= ? "
+                f"ORDER BY closed_at DESC LIMIT ?",
+                (since_iso, self._cb_max_consec_stops),
+            ).fetchall()
+            conn.close()
+            return [{"exit_reason": r["exit_reason"], "closed_at": r["closed_at"]} for r in rows]
+        except Exception as e:
+            logger.warning("[CIRCUIT] Failed to query trade history: %s", e)
+            return []
+
+    def is_circuit_open(self) -> tuple:
+        """
+        Returns (tripped: bool, resume_in_secs: float).
+
+        Tripped when: the last N trades within the pause window are ALL stop_loss.
+        The time window is passed into the SQL query — an old streak (outside the
+        window) is ignored and trading resumes automatically.
+        """
+        if not self._cb_enabled:
+            return False, 0.0
+
+        window_start = time.time() - self._cb_pause_secs
+        recent = self._query_recent_exits(since_epoch=window_start)
+
+        if len(recent) < self._cb_max_consec_stops:
+            return False, 0.0
+
+        all_stops = all(r["exit_reason"] == "stop_loss" for r in recent)
+        if not all_stops:
+            return False, 0.0
+
+        # All N consecutive stop-losses happened within the pause window.
+        # resume_in = time remaining until the oldest of the N stops falls outside the window.
+        try:
+            from datetime import datetime, timezone
+            most_recent_ts = datetime.fromisoformat(recent[0]["closed_at"]).timestamp()
+        except Exception:
+            most_recent_ts = time.time()
+
+        resume_in = (most_recent_ts + self._cb_pause_secs) - time.time()
+        if resume_in <= 0:
+            return False, 0.0
+
+        logger.debug(
+            "[CIRCUIT] Active — %d consecutive stop-losses within last %.0fh, resumes in %.0f min",
+            self._cb_max_consec_stops, self._cb_pause_secs / 3600, resume_in / 60,
+        )
+        return True, resume_in
+
+    def record_stop_loss(self, pair: str) -> bool:
+        """
+        Call after every stop-loss exit to log and check if circuit just tripped.
+        No DB write needed — the trade record already exists in paper_trades/live_trades.
+        Returns True if circuit breaker just tripped.
+        """
+        if not self._cb_enabled:
+            return False
+        tripped, _ = self.is_circuit_open()
+        if tripped:
+            logger.warning(
+                "[CIRCUIT] Circuit breaker TRIPPED — %d consecutive stop-losses (last: %s). "
+                "All buys paused for %.0f hours.",
+                self._cb_max_consec_stops, pair, self._cb_pause_secs / 3600,
+            )
+            return True
+        window_start = time.time() - self._cb_pause_secs
+        recent = self._query_recent_exits(since_epoch=window_start)
+        stop_streak = sum(1 for r in recent if r["exit_reason"] == "stop_loss")
+        logger.info(
+            "[CIRCUIT] Stop-loss recorded for %s — consecutive stops: %d/%d",
+            pair, stop_streak, self._cb_max_consec_stops,
+        )
+        return False
+
+    def record_profitable_exit(self) -> None:
+        """No-op — a profitable exit breaks the streak automatically via trade history."""
+        pass
 
     def get_stop_loss_pct(self, pair: str) -> float:
         return self._stop_loss_pct
@@ -90,6 +200,17 @@ class RiskManager:
         Returns (approved: bool, reason: str, capped_amount: float)
         The capped_amount is the actual amount to trade after applying the 30% cap.
         """
+        # 0. Circuit breaker — pause all buys after consecutive stop-losses
+        tripped, resume_in = self.is_circuit_open()
+        if tripped:
+            resume_mins = int(resume_in / 60)
+            return (
+                False,
+                f"Circuit breaker active — {self._cb_max_consec_stops} consecutive stop-losses."
+                f" Resumes in {resume_mins} min.",
+                0.0,
+            )
+
         # 1. Daily loss limit check
         if starting_balance_usd > 0:
             daily_loss_pct = abs(daily_loss_usd) / starting_balance_usd * 100

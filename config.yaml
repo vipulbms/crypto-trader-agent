@@ -139,29 +139,28 @@ indicators:
 # (controls buy/sell sensitivity — tune with care)
 # ──────────────────────────────────────────────
 signals:
-  # BUY score weights (out of max_score)
-  rsi_oversold_score: 3       # RSI below rsi_oversold threshold
-  macd_hist_positive_score: 2 # MACD histogram > 0 (bullish momentum)
-  macd_crossover_score: 1     # MACD line crossed above signal line
-  bb_lower_score: 3           # Price at/near lower Bollinger Band
-  ema_uptrend_score: 1        # EMA fast >= EMA slow (uptrend)
-  max_score: 10               # Denominator for strength normalisation
+  # ── BUY score weights ─────────────────────────────────────────────────────
+  # Multiple signals must align — no single indicator triggers a buy.
+  rsi_oversold_score: 3           # RSI < rsi_oversold (strong dip)
+  rsi_mild_oversold_score: 1      # RSI 30-40 (moderate dip)
+  macd_turn_positive_score: 3     # MACD histogram turned positive this candle (momentum crossover)
+  macd_hist_positive_score: 1     # MACD histogram > 0 but not a fresh turn
+  macd_crossover_score: 1         # MACD line crossed above signal line
+  bb_lower_score: 2               # Price at/near lower Bollinger Band
+  ema_short_uptrend_score: 2      # EMA9 > EMA21 (short-term momentum turning up)
+  ema_medium_trend_score: 1       # Price > EMA50 (medium-term trend support — bonus, not a blocker)
+  fear_greed_fear_score: 1        # Fear & Greed Index <= 40 (market fear = buy context)
+  fear_greed_extreme_score: 1     # Fear & Greed Index <= 25 (extreme fear — stacks with above)
+  max_score: 16                   # Denominator for strength normalisation
 
-  # SELL score weights
-  rsi_overbought_score: 3     # RSI above rsi_overbought threshold
-  macd_hist_negative_score: 2 # MACD histogram < 0 (bearish momentum)
-  bb_upper_score: 2           # Price at/near upper Bollinger Band
+  # ── SELL score weights ────────────────────────────────────────────────────
+  rsi_overbought_score: 3         # RSI above rsi_overbought threshold
+  macd_hist_negative_score: 2     # MACD histogram < 0 (bearish momentum)
+  bb_upper_score: 2               # Price at/near upper Bollinger Band
 
-  # Decision thresholds
-  buy_min_score: 4            # Minimum buy score to emit BUY signal
-  sell_min_score: 3           # Minimum sell score to emit SELL signal
-
-  # Reversal detector — inflection point filter
-  # BUY only fires after N consecutive red candles followed by M consecutive green candles.
-  # Data-backed defaults from Jul-Dec 2025 analysis: avg down streak = 2 days = 8 candles (15-min)
-  reversal_min_red_candles: 8    # Minimum prior red candles (= ~2 hours down)
-  reversal_min_green_candles: 4  # Minimum confirmation green candles (= ~1 hour recovery)
-  reversal_confirmed_score: 3    # Extra buy score weight when reversal is confirmed
+  # ── Decision thresholds ───────────────────────────────────────────────────
+  buy_min_score: 5                # Need ~2-3 signals aligned (e.g. RSI oversold + MACD turn = 6)
+  sell_min_score: 3               # Any one strong sell signal is sufficient
 
 # ──────────────────────────────────────────────
 # LLM settings
@@ -192,6 +191,7 @@ notifications:
   telegram_enabled: true
   approval_timeout_seconds: 300
   daily_report_hour_utc: 23
+  heartbeat_interval_minutes: 60   # Send "still alive" summary every N minutes (live mode only)
 
 # ──────────────────────────────────────────────
 # Risk limits
@@ -199,6 +199,12 @@ notifications:
 risk:
   daily_loss_limit_pct: 10    # Stop all trading if daily loss exceeds 10%
   min_cash_reserve_pct: 10    # Always keep at least 10% as cash
+
+  # Circuit breaker — pause all new buys after consecutive stop-losses ("revenge trading" prevention)
+  circuit_breaker:
+    enabled: true
+    consecutive_stops: 3      # Trip after this many stop-losses in a row
+    pause_hours: 4            # Pause all buys for this many hours after tripping
 
 # ──────────────────────────────────────────────
 # Feature 1: Multi-pair context awareness
