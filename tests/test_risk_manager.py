@@ -83,5 +83,61 @@ class TestRiskManager(unittest.TestCase):
         self.assertFalse(approved)
         self.assertIn("Fat Finger Guard: Token quantity", reason)
 
+    def test_trading_hours_guard(self):
+        import datetime
+        from unittest.mock import patch
+        
+        # Enable trading hours logic
+        self.config["trading"]["allowed_trading_hours"] = {
+            "enabled": True,
+            "start_hour_utc": 12,
+            "end_hour_utc": 20
+        }
+        self.risk_mgr = RiskManager(self.config)
+
+        # Mock current time to 10:00 UTC (outside window)
+        class MockDatetime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.datetime(2026, 4, 5, 10, 0, 0, tzinfo=datetime.timezone.utc)
+
+        with patch("src.risk.risk_manager.datetime.datetime", MockDatetime):
+            approved, reason, amount = self.risk_mgr.validate_buy(
+                pair="BTC/USD",
+                proposed_usd=100.0,
+                portfolio_balance_usd=1000.0,
+                available_cash_usd=1000.0,
+                open_positions_count=0,
+                daily_loss_usd=0.0,
+                starting_balance_usd=1000.0,
+                current_price=50000.0,
+                baseline_price=50000.0
+            )
+
+        self.assertFalse(approved)
+        self.assertIn("Time-of-Day Guard", reason)
+
+        # Mock current time to 14:00 UTC (inside window)
+        class MockDatetimeInside(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.datetime(2026, 4, 5, 14, 0, 0, tzinfo=datetime.timezone.utc)
+
+        with patch("src.risk.risk_manager.datetime.datetime", MockDatetimeInside):
+            approved, reason, amount = self.risk_mgr.validate_buy(
+                pair="BTC/USD",
+                proposed_usd=100.0,
+                portfolio_balance_usd=1000.0,
+                available_cash_usd=1000.0,
+                open_positions_count=0,
+                daily_loss_usd=0.0,
+                starting_balance_usd=1000.0,
+                current_price=50000.0,
+                baseline_price=50000.0
+            )
+
+        self.assertTrue(approved)
+        self.assertIn("Approved", reason)
+
 if __name__ == "__main__":
     unittest.main()

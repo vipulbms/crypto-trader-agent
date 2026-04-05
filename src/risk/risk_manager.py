@@ -7,6 +7,7 @@ loss limit are enforced deterministically — NOT by the LLM.
 
 import logging
 import time
+import datetime
 from typing import Optional
 
 from src.utils.timing import timed
@@ -62,6 +63,12 @@ class RiskManager:
         self._min_order_usd = risk.get("min_order_usd", 5.0)
         self._max_token_volume_per_trade = risk.get("max_token_volume_per_trade", 500_000)
         self._flash_crash_tolerance_pct = risk.get("flash_crash_tolerance_pct", 15.0)
+
+        # Time-of-Day filter
+        trading_hours = trading.get("allowed_trading_hours", {})
+        self._trading_hours_enabled = trading_hours.get("enabled", False)
+        self._trading_start_hour = trading_hours.get("start_hour_utc", 12)
+        self._trading_end_hour = trading_hours.get("end_hour_utc", 20)
 
         # Circuit breaker config — thresholds from config.yaml
         cb_cfg = risk.get("circuit_breaker", {})
@@ -207,6 +214,21 @@ class RiskManager:
         Returns (approved: bool, reason: str, capped_amount: float)
         The capped_amount is the actual amount to trade after applying the 30% cap.
         """
+        # 0.5. Time-of-Day Guard — explicitly block outside of allowed volume overlap
+        if self._trading_hours_enabled:
+            current_hour = datetime.datetime.now(datetime.timezone.utc).hour
+            if self._trading_start_hour <= self._trading_end_hour:
+                allowed = self._trading_start_hour <= current_hour < self._trading_end_hour
+            else:
+                allowed = current_hour >= self._trading_start_hour or current_hour < self._trading_end_hour
+            
+            if not allowed:
+                return (
+                    False,
+                    f"Time-of-Day Guard: Current hour ({current_hour:02d}:00 UTC) outside allowed window ({self._trading_start_hour:02d}:00 - {self._trading_end_hour:02d}:00 UTC).",
+                    0.0,
+                )
+
         # 0. Circuit breaker — pause all buys after consecutive stop-losses
         tripped, resume_in = self.is_circuit_open()
         if tripped:

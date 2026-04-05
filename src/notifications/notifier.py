@@ -32,6 +32,7 @@ class Notifier:
         self._prefix  = "[PAPER] " if mode == "paper" else "[LIVE] "
         self._bot: Optional[object] = None
         self._chat_id: Optional[str] = None
+        self._healthcheck_url = notif_cfg.get("healthcheck_url", "")
 
         if self._enabled:
             token    = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -202,3 +203,17 @@ class Notifier:
             f"Cycles: {cycles} | Open: {open_pos} | Buys: {buys} | Sells: {sells}"
         )
         self._send(msg)
+
+    def ping_healthcheck(self) -> None:
+        """Pings an external webhook (e.g. healthchecks.io) to signal the bot is alive."""
+        if not self._healthcheck_url:
+            return
+        logger.debug("Pinging healthcheck URL: %s", self._healthcheck_url)
+        try:
+            import urllib.request
+            req = urllib.request.Request(self._healthcheck_url, method="GET")
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status not in (200, 202):
+                    logger.warning("Healthcheck ping returned status %s", response.status)
+        except Exception as e:
+            logger.warning("Failed to ping healthcheck URL: %s", e)

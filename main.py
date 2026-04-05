@@ -301,6 +301,7 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
                     "Cycle complete in %.1fs. Next cycle in %.0fs.",
                     elapsed, sleep_for,
                 )
+                notifier.ping_healthcheck()
                 await asyncio.sleep(sleep_for)
 
     except asyncio.CancelledError:

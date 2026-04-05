@@ -30,7 +30,7 @@ class PaperBroker:
     Reads/writes paper_trading.db exclusively.
     """
 
-    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.26):
+    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.16):
         self._db = paper_db
         self._slippage  = slippage_pct / 100
         self._maker_fee = maker_fee_pct / 100

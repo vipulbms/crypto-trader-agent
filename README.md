@@ -458,3 +458,8 @@ storage:
 | [business-requirement.md](business-requirement.md) | Full BRD — functional requirements, NFRs, business rules, acceptance criteria, risks, glossary |
 | [.claude/skills/add-pair/SKILL.md](.claude/skills/add-pair/SKILL.md) | `/add-pair` Claude Code skill — onboards a new trading pair across all required files in one command |
 | [.claude/skills/commit/SKILL.md](.claude/skills/commit/SKILL.md) | `/commit` Claude Code skill — stages, commits, and pushes changes to GitHub safely |
+
+### Recent Updates
+- Limit Order Chasing for Post-Only Maker Fee advantage.
+- Strict Trading Windows: 16:00-20:00 UTC and Volume SMA.
+- Healtcheck webhook for Uptime Monitoring.

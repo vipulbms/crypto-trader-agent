@@ -199,7 +199,6 @@ notifications:
   approval_timeout_seconds: 300
   daily_report_hour_utc: 23
   heartbeat_interval_minutes: 60   # Send "still alive" summary every N minutes (live mode only)
-  healthcheck_url: ""              # Webhook to ping after every cycle successfully completes (e.g. healthchecks.io)
 
 # ──────────────────────────────────────────────
 # Risk limits

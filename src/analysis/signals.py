@@ -89,6 +89,8 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     bb_upper      = indicators.get("bb_upper")
     bb_lower      = indicators.get("bb_lower")
     atr           = indicators.get("atr_14")
+    volume        = indicators.get("volume")
+    volume_sma_20 = indicators.get("volume_sma_20")
     price         = indicators.get("close", 0.0)
     fear_greed    = indicators.get("fear_greed_index")  # injected by run_cycle
 
@@ -122,6 +124,20 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
             reasons.append(
                 f"BLOCKED: ATR-based TP {atr_tp_pct:.2f}% < {min_floor}% floor"
                 f" — market too flat to cover fees"
+            )
+            sell_score = _score_sell(
+                rsi, rsi_overbought, macd_hist, near_upper_for_sell, near_lower,
+                w_rsi_overbought, w_macd_hist_neg, w_bb_upper, reasons
+            )
+            return _build_result(pair, 0, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
+
+    # ── Hard blocker 3: Volume drop-off (Dead Zones) ──────────────────────────
+    min_vol_ratio = config.get("trading", {}).get("allowed_trading_hours", {}).get("min_volume_ratio", 0.5)
+    if volume is not None and volume_sma_20 is not None and volume_sma_20 > 0:
+        if volume < (volume_sma_20 * min_vol_ratio):
+            reasons.append(
+                f"BLOCKED: Volume ({volume:.2f}) dropped below {min_vol_ratio * 100}% "
+                f"of average ({volume_sma_20:.2f}) — dead zone detected"
             )
             sell_score = _score_sell(
                 rsi, rsi_overbought, macd_hist, near_upper_for_sell, near_lower,

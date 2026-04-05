@@ -158,6 +158,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_05a | Minimum Profit Floor implementation; extracted trading rules to SKILL.md |
 | session_2026_04_05b | Multi-indicator confluence scoring; circuit breaker (DB-backed); heartbeat |
 | session_2026_04_05c | Live API Limit orders / fallbacks; 2-hour heartbeat, 6-hour PnL report |
+| session_2026_04_05d | Post-only limit chase orders, volume/time-of-day filters, healthcheck webhook |
 
 ---
 
@@ -177,3 +178,4 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Fear & Greed injected into signals**: `main.py` fetches Fear & Greed once per cycle and injects it as `fear_greed_index` into each pair's indicators dict before `generate_signal()` runs. Scores +1 (fear ≤ 40) or +2 (extreme fear ≤ 25).
 - **Circuit breaker reads trade history**: `RiskManager.is_circuit_open()` queries the last 3 trades with `WHERE closed_at >= <4h ago>`. If all 3 are `stop_loss`, all buys are blocked for 4 hours. No separate state table — survives restarts automatically. Configurable: `risk.circuit_breaker.consecutive_stops` and `pause_hours`.
 - **Heartbeat (live mode only)**: Every 60 minutes, `notifier.send_heartbeat()` sends a Telegram summary: balance, hourly P&L, cycles, buys/sells, circuit breaker state. Skipped in backtest mode.
+- **Volatility Windows & Dead Zones**: Only trades inside the `allowed_trading_hours` overlap (default 16:00 - 20:00 UTC) and when current 15-min volume is strictly above `min_volume_ratio` (50%) of its 20-period moving average.

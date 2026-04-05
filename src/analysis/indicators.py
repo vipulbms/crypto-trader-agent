@@ -91,6 +91,9 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
             high=df["high"], low=df["low"], close=df["close"], window=atr_period
         ).average_true_range()
 
+        # Add volume moving average to detect dry volume (dead zones)
+        volume_sma_20 = df["volume"].rolling(window=20).mean()
+
     except Exception as e:
         logger.error("Indicator calculation error: %s", e)
         return None
@@ -114,5 +117,7 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         "bb_mid":               safe(bb_mid.iloc[-1]),
         "bb_lower":             safe(bb_lower.iloc[-1]),
         "atr_14":               safe(atr.iloc[-1]),
+        "volume":               safe(df["volume"].iloc[-1]),
+        "volume_sma_20":        safe(volume_sma_20.iloc[-1]),
         "close":                safe(df["close"].iloc[-1]),
     }

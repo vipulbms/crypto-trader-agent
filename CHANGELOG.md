@@ -443,3 +443,9 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 ### Features Added
 - **Fat Finger Guard**: Dynamic Balance Validation. Added `max_safe_allocation = available_cash_usd * 0.98` to buffer 2% cash and protect from failed execution. Added strict checks to prevent enormous token quantity purchases caused by floating point limits or order fat fingers.
 - **Flash Crash Anomaly Detection**: Rejected orders when current asset price plummets below macroscopic baseline pricing limits.
+
+## [Unreleased]
+### Added
+- Execution: Post-Only limit orders with 60-second replacement chase logic to mitigate taker fees.
+- Strategy: Time-of-Day filter (16:00-20:00 UTC) and Volume guards (>50% 20-SMA).
+- Architectural: Healthcheck webhook ping on agent loop completion to monitor for deadlocks.

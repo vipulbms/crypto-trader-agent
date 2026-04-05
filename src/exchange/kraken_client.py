@@ -111,8 +111,8 @@ class KrakenClient:
         # Using a Limit order, volume is exact at current_price
         volume = round(usd_amount / current_price, 8)
 
-        # Entry limit order at the Bid price
-        entry = self._exchange.create_limit_buy_order(ccxt_pair, volume, current_price)
+        # Entry limit order at the Bid price (Post-Only to guarantee Maker fee)
+        entry = self._exchange.create_limit_buy_order(ccxt_pair, volume, current_price, params={"postOnly": True})
         fill_price = float(entry.get("average") or entry.get("price") or current_price)
         fee_usd = float(entry.get("fee", {}).get("cost", 0.0)) if entry.get("fee") else 0.0
         actual_cost = round(fill_price * volume, 4)
@@ -337,7 +337,40 @@ class KrakenClient:
                         logger.warning("Entry order %s was %s natively. Closed tracker.", pos["entry_order_id"], status)
                         continue
                     else:
-                        # Entry still open, skip SL/TP checks this cycle
+                        # Entry still open, check if we need to chase the bid (Post-Only / Maker Fee Mitigation)
+                        opened_ts = datetime.fromisoformat(pos["opened_at"])
+                        elapsed_secs = (now_sgt() - opened_ts.replace(tzinfo=opened_ts.tzinfo or SGT)).total_seconds()
+                        if elapsed_secs >= 60:
+                            logger.info("Chasing bid for %s. Elapsed: %.1fs", pos["pair"], elapsed_secs)
+                            try:
+                                self._exchange.cancel_order(pos["entry_order_id"], ccxt_pair)
+                                
+                                # Replace with new limit order at the new Best Bid (Post-Only)
+                                new_volume = round(pos["usd_value"] / current_price, 8)
+                                new_entry = self._exchange.create_limit_buy_order(
+                                    ccxt_pair, new_volume, current_price, params={"postOnly": True}
+                                )
+                                
+                                new_fill_price = float(new_entry.get("average") or new_entry.get("price") or current_price)
+                                new_sl_price = round(new_fill_price * (1 - pos["stop_loss_pct"] / 100), 8)
+                                new_tp_price = round(new_fill_price * (1 + pos["take_profit_pct"] / 100), 8)
+                                
+                                up_conn = get_connection(self._db)
+                                up_conn.execute(
+                                    """UPDATE live_positions 
+                                       SET entry_order_id=?, entry_price=?, volume=?, stop_loss_price=?, take_profit_price=?, opened_at=? 
+                                       WHERE id=?""",
+                                    (new_entry["id"], new_fill_price, new_volume, new_sl_price, new_tp_price, _now(), pos["id"])
+                                )
+                                up_conn.commit()
+                                up_conn.close()
+                                
+                                pos["entry_order_id"] = new_entry["id"]
+                                pos["opened_at"] = _now()
+                            except Exception as e:
+                                logger.warning("Could not chase limit order %s: %s", pos["entry_order_id"], e)
+                        
+                        # Skip SL/TP checks this cycle since entry isn't filled yet
                         continue
                 except Exception as e:
                     logger.debug("Could not verify entry fill %s: %s", pos["entry_order_id"], e)

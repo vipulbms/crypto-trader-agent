@@ -814,3 +814,8 @@ All functions are decorated with `@_safe` — they catch all exceptions and retu
 ## Completed (April 4 2026)
 - Upgraded the strategy to a strictly quantitative volatility-adaptive algorithm driven by ATR and Order Book Imbalance (OBI), reducing LLM errors.
 - Shifted all live and paper broker executions to dynamic Limit Orders at the Bid rather than Taker Market Orders.
+
+### Recent Updates
+- Execution: Post-Only Limit chase orders to save taker fees.
+- Strategy: Time-of-Day Filter (16-20 UTC) and Volume guards.
+- Architecture: Heartbeat webhook for monitoring deadlocks.
