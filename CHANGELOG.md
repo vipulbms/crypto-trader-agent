@@ -2,6 +2,15 @@
 
 ---
 
+## Session: 2026-04-07 (Part A) — Trading Hours Window Fix (SGT)
+
+### Fixed
+- **`config.yaml`** `allowed_trading_hours`: corrected to `start_hour_utc: 22` / `end_hour_utc: 20` (06:00–04:00 SGT, cross-midnight UTC window). Previous values (`start: 06`, `end: 23/24`) were left-over from UTC-centric tuning and blocked the 23:00 UTC (07:00 SGT) hour due to exclusive `<` comparison.
+- **`.claude/skills/trading-rules/SKILL.md`**: updated Time-of-Day Guard description to show `06:00–04:00 SGT / 22:00–20:00 UTC, cross-midnight`.
+- No code changes — the cross-midnight logic (`current_hour >= start OR current_hour < end`) was already in `risk_manager.py`.
+
+---
+
 ## Session: 2026-04-06 (Part E) — Partial Take-Profit
 
 ### Added

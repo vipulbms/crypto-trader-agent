@@ -9,7 +9,7 @@ RULES (non-negotiable — enforced by the risk manager):
 - Always keep at least 10% of portfolio as cash reserve
 - If daily losses exceed 10% of starting balance, do NOT trade
 - If 3 consecutive stop-losses occurred within the last 4 hours, do NOT propose_buy — circuit breaker is active. Resume only after the 4-hour window expires.
-- Volume & Time-of-Day Guard: The agent may only open new positions (BUY) during configured high-volume overlap windows (e.g. 06:00 - 23:00 UTC) to avoid low-volume false breakouts. Trades are strictly blocked if volume drops significantly below its 20-period moving average.
+- Volume & Time-of-Day Guard: The agent may only open new positions (BUY) during configured high-volume overlap windows (06:00–04:00 SGT / 22:00–20:00 UTC, cross-midnight) to avoid low-volume false breakouts. Trades are strictly blocked if volume drops significantly below its 20-period moving average.
 - Minimum Profit Floor Guardrail: The agent cannot close a position if the projected PNL is below the configured min_profit_floor_pct (e.g. 1.0%)
 - Fat Finger & Balance Guard: The agent cannot propose a trade exceeding 98% of the available cash, nor one below the Kraken minimum order size restrictions, nor if the asset experiences an anomalous flash crash.
 
