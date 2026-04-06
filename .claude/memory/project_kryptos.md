@@ -1,0 +1,99 @@
+---
+name: Kryptos project context
+description: Core architecture, known bugs, decisions, and conventions for the Kryptos crypto trading agent
+type: project
+---
+
+Autonomous paper/live crypto trading agent on Kraken. Local LLM (deepseek-r1:7b via Ollama). 15 pairs. Python 3.11. SQLite. SGT timezone throughout.
+
+**Why:** Product owner is new to crypto; agent must be conservative and capital-first.
+
+**How to apply:** Use this context when making any code or config changes to understand the full system.
+
+## Key files
+- `main.py` — async agent runner, decision cycle loop
+- `src/agent/trading_agent.py` — LLM orchestration per pair
+- `src/exchange/paper_broker.py` — paper trading simulation
+- `src/exchange/kraken_client.py` — live trading via ccxt
+- `src/exchange/websocket_feed.py` — Kraken WS + REST backfill
+- `src/reports/trade_report.py` — all report queries
+- `src/cli/display.py` — Rich terminal output
+- `config.yaml` — ALL parameters (no hardcoded values in source)
+- `data/audit.db` — every decision audit trail
+- `data/paper_trading.db` — paper positions, trades, wallet
+
+## 15 trading pairs
+BTC/USD (8%), ETH/USD (12%), BNB/USD (12%), SOL/USD (16%), XRP/USD (12%), TRX/USD (12%), DOGE/USD (20%), ADA/USD (12%), LTC/USD (8%), RAILS/USD (20%), AVAX/USD (12%), SUI/USD (20%), HYPE/USD (20%), UNI/USD (12%), INJ/USD (20%). Stop-loss fixed at 5% for all.
+
+## LLM config (current)
+- model: `deepseek-r1:7b` (fallback: same)
+- timeout: 600 s
+- deepseek-r1 emits `<think>` blocks; Ollama strips before `msg.tool_calls` — no impact on tool dispatch
+- LLM references in code/docs are model-agnostic ("any tool-capable model"); do not hardcode deepseek-r1 anywhere.
+
+## Live broker (KrakenClient)
+Fully implemented to mirror PaperBroker interface: `get_balance()` uses DB entry cost + Kraken cash; positions tracked in `live_trading.db`; `close_position()` and `check_stops_and_tp()` both implemented. SL/TP check runs for both paper and live in `main.py`.
+
+## Critical conventions
+- `decision_type` values are `BUY`/`SELL`/`HOLD` (not `TRADE_BUY`)
+- Tool execution always uses the signal `pair`, never `tool_args["pair"]` (LLM hallucinates pair names)
+- `set_cycle_id()` must be called in `main.py` immediately after `audit.log_cycle()` — before signals are computed
+- `PaperBroker.get_balance()` returns `total_usd` = cash + open position entry cost (not cash-only) — this fix has regressed twice; always verify it after any paper_broker.py edit
+- `get_daily_pnl()` uses `total_usd` so buying doesn't count as a loss
+- `paper_broker.py` requires `from datetime import datetime` — used in `close_position()`
+- Always close DB connections AFTER all queries — never before
+- `prompts.py` system prompt must stay aligned with signal scorer weights — never hardcode RSI thresholds as mandatory BUY conditions
+- `prompts.py` must use an explicit decision tree (Signal=BUY → propose_buy) with an exhaustive list of override conditions — never vague "when in doubt, hold" language; the LLM will use any ambiguity to HOLD
+- BB config: `bb_min_width_pct=0.5`, `bb_buy_tolerance_pct=0.5`, `bb_sell_tolerance_pct=0.5`
+- BB squeeze fix is in `signals.py` logic, NOT in the config threshold — `near_lower` and `near_upper_for_sell` are mutually exclusive; if both fire simultaneously, neither is awarded. Do NOT raise `bb_min_width_pct` above 0.5% — it suppresses too many valid signals.
+
+## GitHub
+`vipulbms/crypto-trader-agent` — branch `main`
+
+## Skills
+- `/add-pair SYMBOL/USD tp_pct` — onboards new pair across all 7 files
+- `/commit [optional message]` — safe commit + push, never stages .env/data/logs
+
+## Signal scoring
+- BUY is confluence-based: min score 5 from 10 contributors. No single hard gate except RSI ≥ 70 veto and ATR profit floor veto.
+- `macd_histogram_prev` returned by `indicators.py` — turn from negative to positive = +3, staying positive = +1.
+- Fear & Greed fetched once per cycle in `main.py`, injected as `fear_greed_index` into indicators dict before `generate_signal()`.
+- Score weights all in `config.yaml` under `signals:`. Never hardcode them.
+
+## Circuit breaker
+- `RiskManager.is_circuit_open()` queries `paper_trades`/`live_trades` with `WHERE closed_at >= <now - pause_hours>`. If last N rows are all `stop_loss` → blocked.
+- No extra DB table. Survives restarts. Config: `risk.circuit_breaker.consecutive_stops` and `pause_hours`.
+- `RiskManager` requires `db_path` param — injected in `main.py`.
+- Tests in `tests/test_circuit_breaker.py` — run after any `risk_manager.py` changes.
+
+## Heartbeat
+- `notifier.send_heartbeat()` called every `notifications.heartbeat_interval_minutes` (60) in live mode. Skipped in backtest.
+
+## Minimum Profit Floor & Quant Constraints
+- `min_profit_floor_pct = 1.0` enforced in `validate_sell` (risk_manager) as the sell floor.
+- ATR signal gate in `signals.py` uses `dynamic_tp.atr_tp_min_pct: 0.3` (NOT `min_profit_floor_pct`) — decoupled to allow large-cap pairs (BTC ATR% ~0.625%) to pass.
+- `validate_sell()` code-enforces the 80% TP proximity guard (BRD FR-20): LLM cannot exit until P&L ≥ 80% of the position's `take_profit_pct`. Automatic SL/TP exits bypass this.
+- LLM trading rules in `.claude/skills/trading-rules/SKILL.md` — keep SKILL.md in sync whenever signal logic or risk rules change.
+
+## Trading Hours
+- Configured window: 06:00–04:00 SGT = 22:00–20:00 UTC (cross-midnight).
+- `config.yaml`: `start_hour_utc: 22`, `end_hour_utc: 20`. Cross-midnight logic in `risk_manager.py`: `allowed = hour >= 22 or hour < 20`.
+- `end_hour_utc` is EXCLUSIVE (`current_hour < end_hour_utc`) — set to 20 to include up to 19:59 UTC (03:59 SGT).
+- Blocked dead zone: 20:00–21:59 UTC (04:00–05:59 SGT).
+
+## Live Trading Limits & Async
+- Limit Orders in live (`KrakenClient`) must resolve to 'closed' before SL/TP orders are attached. `check_stops_and_tp` handles polling.
+- System handles a global Max Daily Loss (7.0%) acting as a Kill Switch to cancel and market-sell positions.
+- Test execution scripts self-clean backtest_run.log and backtesting sqlite environments automatically.
+
+## GitHub issues
+- `scripts/create_github_issues.sh` — run once to create all epics (E1–E12) and 28 stories with full AC, BRD FR-XX, DSD §X.X, and NFR-XX traceability.
+- E12 = Stop-Loss Protection & Gain Preservation: S12.1.1 (closed #83), S12.2.1 trailing stop, S12.3.1 breakeven stop, S12.4.1 ATR-based SL, S12.5.1 partial TP.
+
+## Documentation structure
+- `docs/codebase.md` — developer reference; regenerate with /explain skill when multiple modules change.
+- `docs/how_to_debug.md` — debug runbook; SQL queries, log grep patterns.
+- `docs/business_requirements.md` — formal BRD v2.0; surgical edits only, never full rewrite.
+- `docs/detailed_solution_design.md` — architecture with Mermaid diagrams + ADRs 1-7.
+- `docs/epics_stories_ac.md` — backlog; append new stories or tick completed ones only.
+- `docs/business_requirements.md` is the single source of truth (root-level `business-requirement.md` deleted).

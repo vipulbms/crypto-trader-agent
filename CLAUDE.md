@@ -1,5 +1,11 @@
 # Kryptos — AI Crypto Trading Agent
 
+<!-- Shared context — applies to all contributors and Claude sessions -->
+@.claude/memory/project_kryptos.md
+@.claude/memory/feedback_coding_style.md
+@.claude/memory/feedback_testing.md
+@.claude/memory/feedback_github_traceability.md
+
 ## Project Overview
 
 Kryptos is an automated crypto trading agent that uses a local LLM (Ollama) to make trading decisions on Kraken exchange. It operates in paper mode (virtual money) or live mode (real money).
@@ -168,6 +174,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_06d | S12.3.1: Breakeven stop tests (3 tests); closes #85 |
 | session_2026_04_06e | S12.5.1: Partial take-profit (paper + live broker, 5 tests, closes #87); all 51 tests pass |
 | session_2026_04_07a | Fix: trading hours window corrected to 06:00–04:00 SGT (22:00–20:00 UTC cross-midnight) |
+| session_2026_04_07b | Chore: migrate Claude memory files to project scope (.claude/memory/); closes #91 |
 
 ---
 

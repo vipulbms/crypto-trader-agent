@@ -2,6 +2,14 @@
 
 ---
 
+## Session: 2026-04-07 (Part B) — Migrate Claude Memory to Project Scope
+
+### Added
+- **`.claude/memory/`** directory with 4 files committed to git: `project_kryptos.md`, `feedback_coding_style.md`, `feedback_testing.md`, `feedback_github_traceability.md`
+- **`CLAUDE.md`**: added `@.claude/memory/*.md` import directives so all contributors and Claude sessions auto-load the shared context — closes #91
+
+---
+
 ## Session: 2026-04-07 (Part A) — Trading Hours Window Fix (SGT)
 
 ### Fixed
