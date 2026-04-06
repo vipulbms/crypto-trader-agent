@@ -717,7 +717,7 @@
 - [x] S12.2.1: Trailing stop moves SL upward as price rises (#84 — closed)
 - [x] S12.3.1: Breakeven stop moves SL to entry once in profit (#85 — closed)
 - [x] S12.4.1: ATR-based SL sets volatility-proportional stop-loss at entry (#86 — closed)
-- [ ] S12.5.1: Partial take-profit closes 50% at mid-target (#87)
+- [x] S12.5.1: Partial take-profit closes 50% at mid-target (#87 — closed)
 
 ---
 
@@ -796,22 +796,22 @@
 
 ---
 
-### Feature F12.5 — Partial Take-Profit
+### Feature F12.5 — Partial Take-Profit (completed)
 
-#### Story S12.5.1
+#### Story S12.5.1 ✅
 **As a** trader,  
 **I want** to automatically close 50% of a position when it reaches 50% of its TP target,  
 **so that** I lock in real profit while leaving half exposed to further upside.
 
 **Acceptance Criteria:**
-- [ ] AC1: When `current_price >= entry_price × (1 + tp_pct × 0.5 / 100)`, close 50% of volume.
-- [ ] AC2: `partial_exited` flag in DB prevents double-fire.
-- [ ] AC3: Remaining 50% continues with original SL/TP.
-- [ ] AC4: If `move_sl_to_breakeven: true`, SL is moved to entry after partial exit.
-- [ ] AC5: Exit reason logged as `"partial_take_profit"` in trades table.
-- [ ] AC6: `trade_report.py` handles `partial_take_profit` exit reason.
-- [ ] AC7: 5 unit tests cover partial close, no-second-fire, SL move, report display.
-- [ ] AC8: Mirrored in `kraken_client.py`.
+- [x] AC1: When `current_price >= entry_price × (1 + tp_pct × 0.5 / 100)`, close 50% of volume.
+- [x] AC2: `partial_exited` flag in DB prevents double-fire.
+- [x] AC3: Remaining 50% continues with original SL/TP.
+- [x] AC4: If `move_sl_to_breakeven: true`, SL is moved to entry after partial exit.
+- [x] AC5: Exit reason logged as `"partial_take_profit"` in trades table.
+- [x] AC6: `trade_report.py` handles `partial_take_profit` exit reason (via dynamic `exit_reason_counts`).
+- [x] AC7: 5 unit tests cover partial close, no-second-fire, SL move, report display.
+- [x] AC8: Mirrored in `kraken_client.py`.
 
 **Code Association:** `paper_broker.py::check_stops_and_tp`, `paper_broker.py::close_position`, `kraken_client.py`, `database.py`, `trade_report.py`, `config.yaml::partial_take_profit`
 

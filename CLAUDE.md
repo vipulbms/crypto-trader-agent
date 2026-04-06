@@ -166,6 +166,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_06b | Fix GitHub Sub-Issues API headers in `create_story()`; create `link_epics.sh` retroactive linker |
 | session_2026_04_06c | Fix: ATR floor decoupled (atr_tp_min_pct=0.3); rsi_overbought raised 60→65; validate_sell 80% TP proximity guard; 5 new tests; closes #83 |
 | session_2026_04_06d | S12.3.1: Breakeven stop tests (3 tests); closes #85 |
+| session_2026_04_06e | S12.5.1: Partial take-profit (paper + live broker, 5 tests, closes #87); all 51 tests pass |
 
 ---
 
@@ -186,3 +187,5 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Circuit breaker reads trade history**: `RiskManager.is_circuit_open()` queries the last 3 trades with `WHERE closed_at >= <4h ago>`. If all 3 are `stop_loss`, all buys are blocked for 4 hours. No separate state table — survives restarts automatically. Configurable: `risk.circuit_breaker.consecutive_stops` and `pause_hours`.
 - **Heartbeat (live mode only)**: Every 60 minutes, `notifier.send_heartbeat()` sends a Telegram summary: balance, hourly P&L, cycles, buys/sells, circuit breaker state. Skipped in backtest mode.
 - **Volatility Windows & Dead Zones**: Only trades inside the `allowed_trading_hours` overlap (default 16:00 - 20:00 UTC) and when current 15-min volume is strictly above `min_volume_ratio` (50%) of its 20-period moving average.
+- **Partial Take-Profit**: `partial_take_profit.enabled: false` by default. When enabled, fires once per position (guarded by `partial_exited` DB column). Closes `close_fraction` (50%) of volume at `trigger_pct_of_tp`% (50%) of the way to full TP. Remaining half continues with original SL/TP. If `move_sl_to_breakeven: true`, SL is moved to entry after partial close. `close_position(volume_override=...)` handles partial math; P&L is proportional to the fraction closed.
+- **Stop-Loss execution order** in `check_stops_and_tp()`: (1) update highest_price_seen, (2a) trailing SL raise OR (2b) breakeven SL OR none, (3) partial TP check, (4) full SL/TP check. Trailing and breakeven are mutually exclusive (ConfigError if both enabled).

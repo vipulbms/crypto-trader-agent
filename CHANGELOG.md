@@ -2,6 +2,17 @@
 
 ---
 
+## Session: 2026-04-06 (Part E) — Partial Take-Profit
+
+### Added
+- **`partial_take_profit` config block** (`config.yaml`): enabled flag, trigger_pct_of_tp (50%), close_fraction (0.5), move_sl_to_breakeven
+- **`close_position(volume_override)` parameter** (`paper_broker.py`, `kraken_client.py`): partial close reduces volume/usd_value in DB; position stays open; `partial_exited=1` set
+- **Step 3 partial TP in `check_stops_and_tp()`** (`paper_broker.py`, `kraken_client.py`): fires when price ≥ entry×(1+tp_pct×trigger_ratio/100); guarded by `partial_exited` flag; optionally moves SL to entry after close
+- **`tests/test_partial_tp.py`** (5 tests): fires at trigger, silent before trigger, no double-fire, SL-to-entry after partial, wallet credit check
+- Full test suite: **51 tests pass** — closes #87
+
+---
+
 ## Session: 2026-04-06 (Part D) — Breakeven Stop Tests
 
 ### Added

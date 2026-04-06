@@ -180,9 +180,16 @@ class KrakenClient:
         position_id: int,
         exit_price: float,
         exit_reason: str,
+        volume_override: Optional[float] = None,
     ) -> Optional[dict]:
         """
-        Close an open live position.
+        Close an open live position (fully or partially).
+
+        Args:
+            volume_override: if provided, execute a partial market sell for this
+                             volume only. Position stays open; volume/usd_value
+                             are reduced and partial_exited=1 is set.
+
         - Places a market sell if exit_reason is agent_sell (LLM-initiated).
         - For stop_loss / take_profit: Kraken already executed the native order;
           we only update our DB record and cancel the remaining counter-order.
@@ -200,22 +207,27 @@ class KrakenClient:
         pos = dict(pos)
         ccxt_pair = self._pair_map.get(pos["pair"], pos["pair"])
 
+        close_volume = volume_override if volume_override is not None else pos["volume"]
+        is_partial   = volume_override is not None
+
         fill_price = exit_price
         exit_order_id = None
 
-        if exit_reason in ("agent_sell", "fallback_stop_loss", "fallback_take_profit", "global_kill_switch"):
-            # LLM wants to exit or fallback triggered — place market sell now
-            sell = self._exchange.create_market_sell_order(ccxt_pair, pos["volume"])
+        if exit_reason in ("agent_sell", "fallback_stop_loss", "fallback_take_profit",
+                           "global_kill_switch", "partial_take_profit"):
+            # LLM wants to exit, fallback triggered, or partial TP — place market sell now
+            sell = self._exchange.create_market_sell_order(ccxt_pair, close_volume)
             fill_price = float(sell.get("average") or sell.get("price") or exit_price)
             exit_order_id = sell["id"]
-            # Cancel pending SL and TP orders if any exist natively
-            for oid_key in ("stop_loss_order_id", "take_profit_order_id"):
-                oid = pos.get(oid_key)
-                if oid and oid != "pending_fill":
-                    try:
-                        self._exchange.cancel_order(oid, ccxt_pair)
-                    except Exception as e:
-                        logger.warning("Could not cancel %s %s: %s", oid_key, oid, e)
+            if not is_partial:
+                # Cancel pending SL and TP orders if any exist natively
+                for oid_key in ("stop_loss_order_id", "take_profit_order_id"):
+                    oid = pos.get(oid_key)
+                    if oid and oid != "pending_fill":
+                        try:
+                            self._exchange.cancel_order(oid, ccxt_pair)
+                        except Exception as e:
+                            logger.warning("Could not cancel %s %s: %s", oid_key, oid, e)
         else:
             # stop_loss or take_profit was triggered by Kraken natively.
             # Cancel the counter-order (e.g. if SL fired, cancel TP).
@@ -227,19 +239,30 @@ class KrakenClient:
                 except Exception as e:
                     logger.warning("Could not cancel counter order %s: %s", counter_oid, e)
 
-        gross_out = round(fill_price * pos["volume"], 4)
-        fee_usd   = round(gross_out * 0.0026, 4)
-        net_out   = round(gross_out - fee_usd, 4)
-        pnl_usd   = round(net_out - pos["usd_value"], 4)
-        pnl_pct   = round(pnl_usd / pos["usd_value"] * 100, 2) if pos["usd_value"] else 0.0
+        fraction    = close_volume / pos["volume"] if pos["volume"] else 1.0
+        cost_basis  = round(pos["usd_value"] * fraction, 4)
+        gross_out   = round(fill_price * close_volume, 4)
+        fee_usd     = round(gross_out * 0.0026, 4)
+        net_out     = round(gross_out - fee_usd, 4)
+        pnl_usd     = round(net_out - cost_basis, 4)
+        pnl_pct     = round(pnl_usd / cost_basis * 100, 2) if cost_basis else 0.0
 
         opened_ts = datetime.fromisoformat(pos["opened_at"])
         hold_secs = int((now_sgt() - opened_ts.replace(tzinfo=opened_ts.tzinfo or SGT)).total_seconds())
 
-        conn.execute(
-            "UPDATE live_positions SET status='closed' WHERE id=?",
-            (position_id,),
-        )
+        if is_partial:
+            remaining_volume    = round(pos["volume"] - close_volume, 8)
+            remaining_usd_value = round(pos["usd_value"] - cost_basis, 4)
+            conn.execute(
+                "UPDATE live_positions SET volume=?, usd_value=?, partial_exited=1 WHERE id=?",
+                (remaining_volume, remaining_usd_value, position_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE live_positions SET status='closed' WHERE id=?",
+                (position_id,),
+            )
+
         conn.execute(
             """INSERT INTO live_trades
                (opened_at, closed_at, pair, side, entry_price, exit_price,
@@ -249,7 +272,7 @@ class KrakenClient:
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 pos["opened_at"], _now(), pos["pair"], pos["side"],
-                pos["entry_price"], fill_price, pos["volume"], pos["usd_value"],
+                pos["entry_price"], fill_price, close_volume, cost_basis,
                 pnl_usd, pnl_pct, exit_reason, hold_secs,
                 fee_usd, pos["stop_loss_pct"], pos["take_profit_pct"],
                 pos["entry_order_id"], exit_order_id,
@@ -259,16 +282,17 @@ class KrakenClient:
         conn.close()
 
         emoji = "✅" if pnl_usd >= 0 else "🔴"
+        partial_tag = "[PARTIAL] " if is_partial else ""
         logger.info(
-            "[LIVE] %s CLOSE %s @ $%.2f | P&L: $%.2f (%.2f%%) | Reason: %s",
-            emoji, pos["pair"], fill_price, pnl_usd, pnl_pct, exit_reason,
+            "[LIVE] %s %sCLOSE %s @ $%.2f | P&L: $%.2f (%.2f%%) | Reason: %s",
+            emoji, partial_tag, pos["pair"], fill_price, pnl_usd, pnl_pct, exit_reason,
         )
 
         return {
             "pair":               pos["pair"],
             "entry_price":        pos["entry_price"],
             "exit_price":         fill_price,
-            "volume":             pos["volume"],
+            "volume":             close_volume,
             "pnl_usd":            pnl_usd,
             "pnl_pct":            pnl_pct,
             "exit_reason":        exit_reason,
@@ -465,6 +489,49 @@ class KrakenClient:
                         "[BREAKEVEN_SL] %s SL moved to entry $%.4f", pair, pos["entry_price"]
                     )
                     pos["stop_loss_price"] = pos["entry_price"]
+
+            # 1d. Partial Take-Profit (S12.5.1) — fires once per position
+            partial_cfg = self._config.get("partial_take_profit", {})
+            if (
+                partial_cfg.get("enabled", False)
+                and not pos.get("partial_exited", 0)
+            ):
+                trigger_ratio = partial_cfg.get("trigger_pct_of_tp", 50) / 100
+                partial_trigger_price = pos["entry_price"] * (
+                    1 + pos["take_profit_pct"] * trigger_ratio / 100
+                )
+                if current_price >= partial_trigger_price:
+                    close_fraction = partial_cfg.get("close_fraction", 0.5)
+                    partial_volume = round(pos["volume"] * close_fraction, 8)
+                    ptrade = self.close_position(
+                        pos["id"], current_price, "partial_take_profit",
+                        volume_override=partial_volume
+                    )
+                    if ptrade:
+                        closed.append(ptrade)
+                        logger.info(
+                            "[PARTIAL_TP] %s closed %.8f @ $%.4f (%.1f%% of position)",
+                            pair, partial_volume, current_price, close_fraction * 100,
+                        )
+                    # Re-fetch position after partial close
+                    upd_p = get_connection(self._db)
+                    pos = dict(upd_p.execute(
+                        "SELECT * FROM live_positions WHERE id=?", (pos["id"],)
+                    ).fetchone() or {})
+                    upd_p.close()
+                    if not pos or pos.get("status") == "closed":
+                        continue
+                    # Optionally move SL to entry (breakeven)
+                    if partial_cfg.get("move_sl_to_breakeven", True) and pos["stop_loss_price"] < pos["entry_price"]:
+                        upd_sl = get_connection(self._db)
+                        upd_sl.execute(
+                            "UPDATE live_positions SET stop_loss_price=? WHERE id=?",
+                            (pos["entry_price"], pos["id"])
+                        )
+                        upd_sl.commit()
+                        upd_sl.close()
+                        pos["stop_loss_price"] = pos["entry_price"]
+                        logger.info("[PARTIAL_TP] %s SL moved to entry $%.4f", pair, pos["entry_price"])
 
             # 2. Check if Kraken already executed SL or TP natively
             for order_id, reason, price_key in [

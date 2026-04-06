@@ -280,6 +280,17 @@ breakeven_stop:
   trigger_pct: 2.0            # Move SL to entry when position gains this %
 
 # ──────────────────────────────────────────────
+# Feature S12.5.1: Partial Take-Profit
+# Closes a fraction of the position at mid-TP, lets the rest run to full TP.
+# partial_exited DB flag prevents double-fire.
+# ──────────────────────────────────────────────
+partial_take_profit:
+  enabled: false              # Off by default; turn on when backtested
+  trigger_pct_of_tp: 50       # Fire when price is 50% of the way to full TP
+  close_fraction: 0.5         # Close 50% of remaining volume
+  move_sl_to_breakeven: true  # After partial exit, move SL to entry_price
+
+# ──────────────────────────────────────────────
 # Feature 3: Market regime detection
 # Classifies current market as trending / ranging / bearish / volatile
 # ──────────────────────────────────────────────
