@@ -26,8 +26,10 @@ create_story() {
 
   # Register as sub-issue of the epic
   gh api --method POST \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2026-03-10" \
     "/repos/${REPO}/issues/${epic_num}/sub_issues" \
-    --field sub_issue_id="$story_num" \
+    -F "sub_issue_id=${story_num}" \
     --silent 2>/dev/null || \
     echo "    (sub-issue API unavailable — story #${story_num} created standalone)"
 

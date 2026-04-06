@@ -502,3 +502,11 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 - **business-requirement.md deleted**: Stale root-level file removed; `docs/business_requirements.md` is now the single source of truth.
 - **CLAUDE.md**: Model `<think>` block note generalised to cover any reasoning model (not just deepseek-r1).
 - **plan.md**: Architecture diagram LLM label updated to `(tool-capable)`.
+
+## Session: 2026-04-06 (Part B) — GitHub Sub-Issues API Fix
+
+### Bug Fixed
+- **`create_story()` sub-issue linking**: Fixed broken `gh api` call in `scripts/create_github_issues.sh` — added required `Accept: application/vnd.github+json` and `X-GitHub-Api-Version: 2026-03-10` headers; changed `--field` to `-F` for the POST body parameter.
+
+### Scripts Added
+- **`scripts/link_epics.sh`**: Retroactive sub-issue linker — discovers existing Epic and Story issues by label and links each Story as a GitHub Sub-Issue of its parent Epic. Idempotent (safe to re-run).

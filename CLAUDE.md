@@ -163,6 +163,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_05f | Documentation: BRD, detailed solution design (10 sections, 9 Mermaid diagrams, 7 ADRs), epics/stories/AC; removed stale scripts |
 | session_2026_04_05g | Documentation: README rewrite; BRD v2.0 formal rewrite; new docs/codebase.md (developer reference); new docs/how_to_debug.md; commit SKILL.md expanded to 6 docs; model references generalised |
 | session_2026_04_06a | Backtest analysis (3,931 cycles): root-caused early-sell bug + 5 SL/TP improvements; GitHub issues shell script (E1–E12, 28 stories, sub-issues API) |
+| session_2026_04_06b | Fix GitHub Sub-Issues API headers in `create_story()`; create `link_epics.sh` retroactive linker |
 
 ---
 
