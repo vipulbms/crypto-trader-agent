@@ -30,10 +30,11 @@ class PaperBroker:
     Reads/writes paper_trading.db exclusively.
     """
 
-    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.16):
+    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.16, config: dict = None):
         self._db = paper_db
         self._slippage  = slippage_pct / 100
         self._maker_fee = maker_fee_pct / 100
+        self._config = config or {}
 
     # ──────────────────────────────────────────────
     # Account queries (same interface as KrakenClient)
@@ -133,10 +134,12 @@ class PaperBroker:
         conn.execute(
             """INSERT INTO paper_positions
                (opened_at, pair, side, entry_price, volume, usd_value,
-                stop_loss_price, take_profit_price, stop_loss_pct, take_profit_pct, status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                stop_loss_price, take_profit_price, stop_loss_pct, take_profit_pct,
+                status, highest_price_seen, partial_exited)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_now(), pair, "buy", fill_price, volume, actual_cost,
-             sl_price, tp_price, stop_loss_pct, take_profit_pct, "open"),
+             sl_price, tp_price, stop_loss_pct, take_profit_pct, "open",
+             fill_price, 0),
         )
         conn.commit()
         position_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -259,7 +262,11 @@ class PaperBroker:
     ) -> list:
         """
         Check all open positions for the given pair.
-        Auto-closes any that hit stop-loss or take-profit.
+        Execution order:
+          1. Update highest_price_seen
+          2. Trailing SL update (S12.2.1) — or breakeven (S12.3.1); mutually exclusive
+          3. Full SL check
+          4. Full TP check
         Returns list of closed trade summaries.
         """
         conn = get_connection(self._db)
@@ -269,9 +276,69 @@ class PaperBroker:
         ).fetchall()
         conn.close()
 
+        trailing_cfg  = self._config.get("trailing_stop", {})
+        breakeven_cfg = self._config.get("breakeven_stop", {})
+
         closed = []
         for pos in positions:
             pos = dict(pos)
+
+            # 1. Update highest_price_seen
+            highest = pos.get("highest_price_seen") or pos["entry_price"]
+            if current_price > highest:
+                highest = current_price
+                upd = get_connection(self._db)
+                upd.execute(
+                    "UPDATE paper_positions SET highest_price_seen=? WHERE id=?",
+                    (highest, pos["id"])
+                )
+                upd.commit()
+                upd.close()
+                pos["highest_price_seen"] = highest
+
+            # 2a. Trailing SL update
+            if trailing_cfg.get("enabled", False):
+                trail_pct = trailing_cfg.get("per_pair_overrides", {}).get(
+                    pair, trailing_cfg.get("trail_pct", 3.0)
+                )
+                activate_pct = trailing_cfg.get("activate_after_pct", 1.5)
+                gain_pct = (current_price - pos["entry_price"]) / pos["entry_price"] * 100
+                if gain_pct >= activate_pct:
+                    trailing_sl = round(highest * (1 - trail_pct / 100), 8)
+                    if trailing_sl > pos["stop_loss_price"]:
+                        upd2 = get_connection(self._db)
+                        upd2.execute(
+                            "UPDATE paper_positions SET stop_loss_price=? WHERE id=?",
+                            (trailing_sl, pos["id"])
+                        )
+                        upd2.commit()
+                        upd2.close()
+                        logger.debug(
+                            "[TRAILING_SL] %s SL raised to $%.4f (%.1f%% below $%.4f)",
+                            pair, trailing_sl, trail_pct, highest
+                        )
+                        pos["stop_loss_price"] = trailing_sl
+
+            # 2b. Breakeven SL (mutually exclusive with trailing)
+            elif breakeven_cfg.get("enabled", False):
+                trigger_pct = breakeven_cfg.get("trigger_pct", 2.0)
+                if (
+                    current_price >= pos["entry_price"] * (1 + trigger_pct / 100)
+                    and pos["stop_loss_price"] < pos["entry_price"]
+                ):
+                    upd3 = get_connection(self._db)
+                    upd3.execute(
+                        "UPDATE paper_positions SET stop_loss_price=? WHERE id=?",
+                        (pos["entry_price"], pos["id"])
+                    )
+                    upd3.commit()
+                    upd3.close()
+                    logger.info(
+                        "[BREAKEVEN_SL] %s SL moved to entry $%.4f", pair, pos["entry_price"]
+                    )
+                    pos["stop_loss_price"] = pos["entry_price"]
+
+            # 3 & 4. SL / TP check
             exit_reason = None
             exit_price  = current_price
 

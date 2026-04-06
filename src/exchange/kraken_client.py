@@ -39,6 +39,7 @@ class KrakenClient:
         self._exchange.load_markets()
         self._pair_map = _build_ccxt_pair_map(config or {})
         self._db = live_db
+        self._config = config or {}
         logger.info("KrakenClient initialised (live mode) db=%s", live_db)
 
     # ──────────────────────────────────────────────
@@ -138,10 +139,12 @@ class KrakenClient:
             """INSERT INTO live_positions
                (opened_at, pair, side, entry_price, volume, usd_value,
                 stop_loss_price, take_profit_price, stop_loss_pct, take_profit_pct,
+                highest_price_seen, partial_exited,
                 entry_order_id, stop_loss_order_id, take_profit_order_id, status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_now(), pair, "buy", fill_price, volume, actual_cost,
              sl_price, tp_price, stop_loss_pct, take_profit_pct,
+             fill_price, 0,
              entry["id"], sl_order_id, tp_order_id, "open"),
         )
         conn.commit()
@@ -385,7 +388,85 @@ class KrakenClient:
                     logger.debug("Could not verify entry fill %s: %s", pos["entry_order_id"], e)
                     continue
 
-            # 1. Check if Kraken already executed SL or TP natively
+            # 1a. Update highest_price_seen (S12.2.1)
+            highest = pos.get("highest_price_seen") or pos["entry_price"]
+            if current_price > highest:
+                highest = current_price
+                upd = get_connection(self._db)
+                upd.execute(
+                    "UPDATE live_positions SET highest_price_seen=? WHERE id=?",
+                    (highest, pos["id"])
+                )
+                upd.commit()
+                upd.close()
+                pos["highest_price_seen"] = highest
+
+            trailing_cfg  = self._config.get("trailing_stop", {})
+            breakeven_cfg = self._config.get("breakeven_stop", {})
+
+            # 1b. Trailing SL update (S12.2.1)
+            if trailing_cfg.get("enabled", False):
+                trail_pct = trailing_cfg.get("per_pair_overrides", {}).get(
+                    pair, trailing_cfg.get("trail_pct", 3.0)
+                )
+                activate_pct = trailing_cfg.get("activate_after_pct", 1.5)
+                gain_pct = (current_price - pos["entry_price"]) / pos["entry_price"] * 100
+                if gain_pct >= activate_pct:
+                    trailing_sl = round(highest * (1 - trail_pct / 100), 8)
+                    if trailing_sl > pos["stop_loss_price"]:
+                        upd2 = get_connection(self._db)
+                        upd2.execute(
+                            "UPDATE live_positions SET stop_loss_price=? WHERE id=?",
+                            (trailing_sl, pos["id"])
+                        )
+                        upd2.commit()
+                        upd2.close()
+                        # Also update native SL order on Kraken if placed
+                        sl_oid = pos.get("stop_loss_order_id")
+                        if sl_oid and sl_oid != "pending_fill":
+                            try:
+                                self._exchange.cancel_order(sl_oid, ccxt_pair)
+                                safe_sl = float(self._exchange.price_to_precision(ccxt_pair, trailing_sl))
+                                new_sl = self._exchange.create_order(
+                                    ccxt_pair, "stop-loss", "sell", pos["volume"], safe_sl,
+                                    {"stopPrice": safe_sl}
+                                )
+                                upd3 = get_connection(self._db)
+                                upd3.execute(
+                                    "UPDATE live_positions SET stop_loss_order_id=? WHERE id=?",
+                                    (new_sl["id"], pos["id"])
+                                )
+                                upd3.commit()
+                                upd3.close()
+                                pos["stop_loss_order_id"] = new_sl["id"]
+                            except Exception as e:
+                                logger.warning("[TRAILING_SL] Could not update Kraken native SL: %s", e)
+                        logger.debug(
+                            "[TRAILING_SL] %s SL raised to $%.4f (%.1f%% below $%.4f)",
+                            pair, trailing_sl, trail_pct, highest
+                        )
+                        pos["stop_loss_price"] = trailing_sl
+
+            # 1c. Breakeven SL (mutually exclusive with trailing — S12.3.1)
+            elif breakeven_cfg.get("enabled", False):
+                trigger_pct = breakeven_cfg.get("trigger_pct", 2.0)
+                if (
+                    current_price >= pos["entry_price"] * (1 + trigger_pct / 100)
+                    and pos["stop_loss_price"] < pos["entry_price"]
+                ):
+                    upd4 = get_connection(self._db)
+                    upd4.execute(
+                        "UPDATE live_positions SET stop_loss_price=? WHERE id=?",
+                        (pos["entry_price"], pos["id"])
+                    )
+                    upd4.commit()
+                    upd4.close()
+                    logger.info(
+                        "[BREAKEVEN_SL] %s SL moved to entry $%.4f", pair, pos["entry_price"]
+                    )
+                    pos["stop_loss_price"] = pos["entry_price"]
+
+            # 2. Check if Kraken already executed SL or TP natively
             for order_id, reason, price_key in [
                 (pos.get("stop_loss_order_id"),   "stop_loss",   "stop_loss_price"),
                 (pos.get("take_profit_order_id"), "take_profit", "take_profit_price"),

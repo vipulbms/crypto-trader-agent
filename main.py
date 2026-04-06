@@ -129,7 +129,7 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
         slippage    = paper_cfg.get("slippage_pct", 0.05)
         maker_fee   = paper_cfg.get("maker_fee_pct", 0.26)
         paper_db    = storage_cfg.get("paper_db", "paper_trading.db")
-        broker      = PaperBroker(paper_db=paper_db, slippage_pct=slippage, maker_fee_pct=maker_fee)
+        broker      = PaperBroker(paper_db=paper_db, slippage_pct=slippage, maker_fee_pct=maker_fee, config=config)
     else:
         from src.exchange.kraken_client import KrakenClient
         api_key    = os.getenv("KRAKEN_API_KEY")

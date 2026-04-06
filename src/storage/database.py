@@ -57,7 +57,9 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     take_profit_price   REAL NOT NULL,
     stop_loss_pct       REAL NOT NULL,
     take_profit_pct     REAL NOT NULL,
-    status              TEXT NOT NULL DEFAULT 'open'
+    status              TEXT NOT NULL DEFAULT 'open',
+    highest_price_seen  REAL,          -- S12.2.1: tracks peak price for trailing stop
+    partial_exited      INTEGER DEFAULT 0  -- S12.5.1: 1 after first partial TP close
 );
 
 CREATE TABLE IF NOT EXISTS paper_trades (
@@ -97,6 +99,8 @@ CREATE TABLE IF NOT EXISTS live_positions (
     take_profit_price       REAL NOT NULL,
     stop_loss_pct           REAL NOT NULL,
     take_profit_pct         REAL NOT NULL,
+    highest_price_seen      REAL,          -- S12.2.1: tracks peak price for trailing stop
+    partial_exited          INTEGER DEFAULT 0,  -- S12.5.1: 1 after first partial TP close
     entry_order_id          TEXT,
     stop_loss_order_id      TEXT,
     take_profit_order_id    TEXT,
@@ -286,6 +290,16 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     """Initialise paper trading DB. Seeds wallet if first run."""
     conn = get_connection(paper_db)
     _init_db(conn, PAPER_SCHEMA, paper_db)
+    # Idempotent migrations for columns added after initial schema creation
+    for col_ddl in [
+        "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
+        "ALTER TABLE paper_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
+    ]:
+        try:
+            conn.execute(col_ddl)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM paper_wallet")
     if cursor.fetchone()[0] == 0:
@@ -304,6 +318,15 @@ def init_live_db(live_db: str) -> None:
     """Initialise live trading DB."""
     conn = get_connection(live_db)
     _init_db(conn, LIVE_SCHEMA, live_db)
+    for col_ddl in [
+        "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
+        "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
+    ]:
+        try:
+            conn.execute(col_ddl)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     conn.close()
 
 

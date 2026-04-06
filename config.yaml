@@ -256,6 +256,30 @@ dynamic_tp:
   atr_tp_min_pct: 0.3           # Min ATR-based TP% required to allow a BUY signal (decoupled from fee floor)
 
 # ──────────────────────────────────────────────
+# Feature: Trailing stop-loss (S12.2.1 — #84)
+# Activates once position gains activate_after_pct; then trails highest price
+# by trail_pct. Cannot be enabled simultaneously with breakeven_stop.
+# ──────────────────────────────────────────────
+trailing_stop:
+  enabled: true
+  trail_pct: 3.0              # Trail SL by this % below highest price seen
+  activate_after_pct: 1.5     # Only activate once position is up this %
+  per_pair_overrides:         # Override trail_pct for high-volatility pairs
+    DOGE/USD: 5.0
+    RAILS/USD: 5.0
+    HYPE/USD: 5.0
+    SUI/USD: 4.0
+
+# ──────────────────────────────────────────────
+# Feature: Breakeven stop (S12.3.1 — #85)
+# Moves SL to entry price once position is up trigger_pct.
+# MUTUALLY EXCLUSIVE with trailing_stop — enabling both raises ConfigError.
+# ──────────────────────────────────────────────
+breakeven_stop:
+  enabled: false              # Off by default; cannot be on with trailing_stop
+  trigger_pct: 2.0            # Move SL to entry when position gains this %
+
+# ──────────────────────────────────────────────
 # Feature 3: Market regime detection
 # Classifies current market as trending / ranging / bearish / volatile
 # ──────────────────────────────────────────────
