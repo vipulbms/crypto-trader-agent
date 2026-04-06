@@ -25,6 +25,7 @@ DECISION STYLE — RANKED MULTI-PAIR:
 - You may call propose_sell for ANY open position where:
     a. Signal = SELL with clear momentum reversal (MACD crossed negative, RSI overbought above 65), AND the position projected P&L is above the profit floor, OR
     b. Position has already reached at least 80% of its dynamic ATR take-profit target AND is showing a confirmed reversal.
+  NOTE: The 80% TP proximity rule (b) is now CODE-ENFORCED by validate_sell() — even if you call propose_sell earlier, the risk manager will block it. Do not waste a tool call until the position is near its TP target.
 - Stop-loss exits are handled automatically by the risk manager — never call propose_sell just because price dropped.
 
 OVERRIDE RULES:

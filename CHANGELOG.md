@@ -2,6 +2,16 @@
 
 ---
 
+## Session: 2026-04-06 (Part C) — Signal Coverage & Profit Margin Fixes
+
+### Fixed
+- **ATR floor decoupled** (`signals.py`, `config.yaml`): `dynamic_tp.atr_tp_min_pct: 0.3` — BTC/ETH/SOL now pass ATR gate (was blocked by 1% floor)
+- **RSI overbought 60→65** (`config.yaml`): Reduces premature SELL signals before TP targets are reached
+- **validate_sell() TP proximity guard** (`risk_manager.py`, `config.yaml`): Code-enforces BRD FR-20 — LLM blocked until P&L ≥ 80% of TP target; closes #83
+- **5 unit tests** (`tests/test_risk_manager.py`): All proximity guard scenarios covered
+
+---
+
 ## Session: 2026-04-06 (Part A) — Backtest Analysis & GitHub Issues Shell Script
 
 ### Analysis

@@ -8,6 +8,7 @@
 trading:
   stop_loss_pct: 5            # Fixed — not recommended to change
   min_profit_floor_pct: 1.0   # Min PNL needed to close a position (covers fees/slippage)
+  early_sell_min_tp_proximity_pct: 80  # LLM cannot propose_sell until P&L >= this % of TP target (code-enforced BRD FR-20)
 
   # Global default take-profit. Overridden per pair below.
   # Allowed values: 5 | 8 | 12 | 16 | 20
@@ -123,7 +124,7 @@ paper:
 indicators:
   rsi_period: 14
   rsi_oversold: 30        # Data-backed: fires 7-11% of candles (was 35 = 13-22%, too loose)
-  rsi_overbought: 60      # Data-backed: BTC/XRP/DOGE/ADA/BNB rarely exceed 65
+  rsi_overbought: 65      # Raised from 60: reduces premature SELL signals before TP targets are reached
   macd_fast: 12
   macd_slow: 26
   macd_signal: 9
@@ -241,6 +242,7 @@ dynamic_tp:
   min_tp_pct: 5                 # Never set TP below this % (must be in allowed_take_profit_pcts)
   max_tp_pct: 20                # Never set TP above this %
   squeeze_threshold_pct: 1.0    # BB width % below which TP is reduced to min_tp_pct
+  atr_tp_min_pct: 0.3           # Min ATR-based TP% required to allow a BUY signal (decoupled from fee floor)
 
 # ──────────────────────────────────────────────
 # Feature 3: Market regime detection

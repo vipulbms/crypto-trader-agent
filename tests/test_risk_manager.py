@@ -139,5 +139,104 @@ class TestRiskManager(unittest.TestCase):
         self.assertTrue(approved)
         self.assertIn("Approved", reason)
 
+class TestValidateSellTPProximityGuard(unittest.TestCase):
+    """
+    Tests for the Early Exit Guard in validate_sell().
+
+    Given a position with a configured take_profit_pct
+    When propose_sell is called at various P&L levels
+    Then validate_sell() enforces the 80% TP proximity rule (BRD FR-20)
+    """
+
+    def setUp(self):
+        self.config = {
+            "trading": {
+                "stop_loss_pct": 5,
+                "take_profit_pct": 12,
+                "min_profit_floor_pct": 1.0,
+                "early_sell_min_tp_proximity_pct": 80,
+                "max_position_pct": 30,
+            },
+            "risk": {
+                "min_cash_reserve_pct": 10,
+                "circuit_breaker": {"enabled": False},
+            },
+        }
+        self.rm = RiskManager(self.config)
+
+    def _pos(self, entry_price: float, take_profit_pct: float) -> list:
+        return [{"entry_price": entry_price, "take_profit_pct": take_profit_pct}]
+
+    def test_sell_blocked_below_80_pct_of_tp(self):
+        """
+        Given TP=12% and entry=$100
+        When current price is $105 (+5% P&L — only 42% of 12% TP)
+        Then validate_sell() returns False with Early Exit Guard reason
+        """
+        approved, reason, _ = self.rm.validate_sell(
+            pair="ETH/USD",
+            open_positions=self._pos(entry_price=100.0, take_profit_pct=12.0),
+            current_price=105.0,
+        )
+        self.assertFalse(approved)
+        self.assertIn("Early Exit Guard", reason)
+
+    def test_sell_allowed_at_85_pct_of_tp(self):
+        """
+        Given TP=12% and entry=$100
+        When current price is $110.20 (+10.2% P&L — 85% of 12% TP)
+        Then validate_sell() returns True
+        """
+        approved, reason, _ = self.rm.validate_sell(
+            pair="ETH/USD",
+            open_positions=self._pos(entry_price=100.0, take_profit_pct=12.0),
+            current_price=110.20,
+        )
+        self.assertTrue(approved)
+        self.assertIn("Approved", reason)
+
+    def test_sell_always_allowed_above_100_pct_of_tp(self):
+        """
+        Given TP=12% and entry=$100
+        When current price is $113 (+13% P&L — above 100% of TP target)
+        Then validate_sell() returns True
+        """
+        approved, reason, _ = self.rm.validate_sell(
+            pair="ETH/USD",
+            open_positions=self._pos(entry_price=100.0, take_profit_pct=12.0),
+            current_price=113.0,
+        )
+        self.assertTrue(approved)
+        self.assertIn("Approved", reason)
+
+    def test_sell_blocked_by_profit_floor_below_tp_guard(self):
+        """
+        Given TP=12% and entry=$100
+        When current price is $100.50 (+0.5% P&L — below 1% profit floor)
+        Then validate_sell() returns False with Minimum Profit Floor reason (floor check fires first)
+        """
+        approved, reason, _ = self.rm.validate_sell(
+            pair="ETH/USD",
+            open_positions=self._pos(entry_price=100.0, take_profit_pct=12.0),
+            current_price=100.50,
+        )
+        self.assertFalse(approved)
+        self.assertIn("Minimum Profit Floor", reason)
+
+    def test_sell_allowed_when_tp_pct_missing(self):
+        """
+        Given a position with no take_profit_pct recorded
+        When P&L is above the profit floor
+        Then validate_sell() approves (no proximity guard without TP info)
+        """
+        approved, reason, _ = self.rm.validate_sell(
+            pair="BTC/USD",
+            open_positions=[{"entry_price": 80000.0}],  # no take_profit_pct key
+            current_price=81200.0,  # +1.5% — above 1% floor
+        )
+        self.assertTrue(approved)
+        self.assertIn("Approved", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,7 @@ class RiskManager:
         self._stop_loss_pct       = trading.get("stop_loss_pct", 5)
         self._global_tp_pct       = trading.get("take_profit_pct", 10)
         self._min_profit_floor_pct= trading.get("min_profit_floor_pct", 1.0)
+        self._early_sell_min_tp_proximity_pct = trading.get("early_sell_min_tp_proximity_pct", 80)
         self._max_position_pct    = trading.get("max_position_pct", 30)
         self._max_open_positions  = trading.get("max_open_positions", 3)
         self._daily_loss_limit_pct= risk.get("daily_loss_limit_pct", 10)
@@ -356,10 +357,23 @@ class RiskManager:
             # BLOCK trades that don't satisfy the minimum floor
             if est_pnl_pct < self._min_profit_floor_pct:
                 return (
-                    False, 
+                    False,
                     f"Minimum Profit Floor Guardrail: Projected PNL is {est_pnl_pct:+.2f}%, "
-                    f"which is below the {self._min_profit_floor_pct}% required to cover exchange fees.", 
+                    f"which is below the {self._min_profit_floor_pct}% required to cover exchange fees.",
                     0.0
                 )
+
+            # BLOCK early exits below 80% of the TP target (BRD FR-20 — code-enforced)
+            take_profit_pct = pos.get("take_profit_pct")
+            if take_profit_pct and take_profit_pct > 0:
+                proximity_threshold_pct = take_profit_pct * (self._early_sell_min_tp_proximity_pct / 100)
+                if est_pnl_pct < proximity_threshold_pct:
+                    return (
+                        False,
+                        f"Early Exit Guard: P&L {est_pnl_pct:+.2f}% is below "
+                        f"{proximity_threshold_pct:.1f}% ({self._early_sell_min_tp_proximity_pct}% of "
+                        f"{take_profit_pct}% TP target). Let the trade run.",
+                        0.0,
+                    )
 
         return (True, "Approved", 0.0)

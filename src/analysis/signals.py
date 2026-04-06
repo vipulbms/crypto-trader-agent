@@ -115,8 +115,12 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         return _build_result(pair, 0, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
 
     # ── Hard blocker 2: ATR too small to cover fees ───────────────────────────
-    # ATR-based TP must exceed the profit floor (fees = ~0.52% round trip)
-    min_floor = config.get("trading", {}).get("min_profit_floor_pct", 1.0)
+    # Uses atr_tp_min_pct when set (allows large-cap pairs with lower ATR% to trade).
+    # Falls back to min_profit_floor_pct so the default behaviour is unchanged.
+    min_floor = config.get("dynamic_tp", {}).get(
+        "atr_tp_min_pct",
+        config.get("trading", {}).get("min_profit_floor_pct", 1.0),
+    )
     atr_multiplier = config.get("dynamic_tp", {}).get("atr_multiplier", 2.0)
     if atr and price and price > 0:
         atr_tp_pct = (atr_multiplier * atr / price) * 100
