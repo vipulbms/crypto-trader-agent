@@ -178,28 +178,30 @@ def compute_dynamic_tp_values(signals: list, config: dict) -> dict:
 
 def compute_dynamic_sl_values(signals: list, config: dict) -> dict:
     """
-    Returns {pair: sl_pct} for pairs, respecting the 5% maximum limit.
-    SL width is tighter in low volatility regimes: SL = max(Entry * 0.95, Entry - ATR * Multiplier)
+    Returns {pair: sl_pct} for all pairs in `signals`.
+
+    S12.4.1: When atr_stop_loss.enabled=True, computes SL as:
+        sl_pct = (atr_multiplier × ATR / price) × 100
+        clamped to [min_stop_loss_pct, max_stop_loss_pct]
+    Falls back to trading.stop_loss_pct when disabled or ATR is unavailable.
     """
     result = {}
     default_sl = config.get("trading", {}).get("stop_loss_pct", 5.0)
+    atr_sl_cfg = config.get("atr_stop_loss", {})
+    atr_sl_enabled = atr_sl_cfg.get("enabled", False)
+    atr_multiplier = atr_sl_cfg.get("atr_multiplier", 1.5)
+    max_sl = atr_sl_cfg.get("max_stop_loss_pct", 5.0)
+    min_sl = atr_sl_cfg.get("min_stop_loss_pct", 1.0)
+
     for sig in signals:
         ind = sig.get("indicators", {})
         price = ind.get("close", 0)
         atr = ind.get("atr_14")
-        if not atr or price <= 0:
+        if atr_sl_enabled and atr and price > 0:
+            atr_sl_pct = (atr_multiplier * atr / price) * 100
+            result[sig["pair"]] = float(max(min_sl, min(max_sl, round(atr_sl_pct, 2))))
+        else:
             result[sig["pair"]] = default_sl
-            continue
-            
-        multiplier = get_volatility_multiplier(atr, price)
-        sl_dist = multiplier * atr
-        
-        # Max SL distance is 5% of price
-        max_dist = price * 0.05
-        actual_sl_dist = min(sl_dist, max_dist)
-        
-        sl_pct = (actual_sl_dist / price) * 100
-        result[sig["pair"]] = float(max(1.0, min(default_sl, round(sl_pct, 1))))
     return result
 
 

@@ -232,6 +232,17 @@ position_sizing:
   max_position_pct: 30          # Hard cap (aligned with risk.max_position_pct)
 
 # ──────────────────────────────────────────────
+# Feature: ATR-based stop-loss at entry (S12.4.1 — #86)
+# SL = (atr_multiplier × ATR / entry_price) × 100, clamped to [min, max]
+# When disabled, falls back to trading.stop_loss_pct (5%)
+# ──────────────────────────────────────────────
+atr_stop_loss:
+  enabled: true
+  atr_multiplier: 1.5       # SL distance = ATR × multiplier
+  max_stop_loss_pct: 5.0    # Hard cap — never wider than 5%
+  min_stop_loss_pct: 1.0    # Floor — never tighter than 1%
+
+# ──────────────────────────────────────────────
 # Feature 2: Dynamic take-profit targets
 # TP adjusted based on ATR and Bollinger Band width
 # ──────────────────────────────────────────────

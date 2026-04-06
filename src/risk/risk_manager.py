@@ -21,6 +21,7 @@ def validate_config(config: dict) -> None:
     """
     Called once at startup. Raises ValueError if any take-profit value
     is not in the allowed set. Prevents misconfigured agents from starting.
+    Also validates mutually exclusive features (trailing_stop / breakeven_stop).
     """
     allowed = config.get("trading", {}).get(
         "allowed_take_profit_pcts", ALLOWED_TAKE_PROFIT_PCTS
@@ -38,6 +39,14 @@ def validate_config(config: dict) -> None:
                 f"Invalid take_profit_pct for {pair_cfg['pair']}: {pair_tp}. "
                 f"Allowed: {allowed}"
             )
+    # Trailing stop and breakeven stop are mutually exclusive (S12.3.1)
+    trailing_enabled = config.get("trailing_stop", {}).get("enabled", False)
+    breakeven_enabled = config.get("breakeven_stop", {}).get("enabled", False)
+    if trailing_enabled and breakeven_enabled:
+        raise ValueError(
+            "trailing_stop and breakeven_stop cannot both be enabled simultaneously. "
+            "Disable one in config.yaml."
+        )
     logger.info("Config validation passed — all take-profit values are valid")
 
 
@@ -59,6 +68,13 @@ class RiskManager:
         self._max_open_positions  = trading.get("max_open_positions", 3)
         self._daily_loss_limit_pct= risk.get("daily_loss_limit_pct", 10)
         self._min_cash_reserve_pct= risk.get("min_cash_reserve_pct", 10)
+
+        # ATR-based stop-loss at entry (S12.4.1 — #86)
+        atr_sl_cfg = config.get("atr_stop_loss", {})
+        self._atr_sl_enabled    = atr_sl_cfg.get("enabled", False)
+        self._atr_sl_multiplier = atr_sl_cfg.get("atr_multiplier", 1.5)
+        self._atr_sl_max_pct    = atr_sl_cfg.get("max_stop_loss_pct", 5.0)
+        self._atr_sl_min_pct    = atr_sl_cfg.get("min_stop_loss_pct", 1.0)
 
         # Fat finger guards
         self._min_order_usd = risk.get("min_order_usd", 5.0)
@@ -184,7 +200,11 @@ class RiskManager:
         """No-op — a profitable exit breaks the streak automatically via trade history."""
         pass
 
-    def get_stop_loss_pct(self, pair: str) -> float:
+    def get_stop_loss_pct(self, pair: str, atr: float = None, price: float = None) -> float:
+        """Return SL % for this pair. Uses ATR-based formula when enabled (S12.4.1)."""
+        if self._atr_sl_enabled and atr and price and price > 0:
+            atr_sl_pct = (self._atr_sl_multiplier * atr / price) * 100
+            return float(max(self._atr_sl_min_pct, min(self._atr_sl_max_pct, round(atr_sl_pct, 2))))
         return self._stop_loss_pct
 
     def get_take_profit_pct(self, pair: str) -> float:

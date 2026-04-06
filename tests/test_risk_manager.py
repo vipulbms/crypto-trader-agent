@@ -238,5 +238,53 @@ class TestValidateSellTPProximityGuard(unittest.TestCase):
         self.assertIn("Approved", reason)
 
 
+class TestAtrBasedStopLoss(unittest.TestCase):
+    """
+    Tests for S12.4.1 — ATR-based stop-loss at entry.
+    get_stop_loss_pct(pair, atr, price) should compute sl_pct = (multiplier × ATR / price) × 100
+    clamped to [min_stop_loss_pct, max_stop_loss_pct].
+    """
+
+    def _make_rm(self, enabled: bool, multiplier: float = 1.5, min_pct: float = 1.0, max_pct: float = 5.0):
+        config = {
+            "trading": {"stop_loss_pct": 5},
+            "risk": {},
+            "atr_stop_loss": {
+                "enabled": enabled,
+                "atr_multiplier": multiplier,
+                "min_stop_loss_pct": min_pct,
+                "max_stop_loss_pct": max_pct,
+            },
+        }
+        return RiskManager(config)
+
+    def test_atr_sl_basic_computation(self):
+        """
+        Given atr_multiplier=1.5, ATR=100, price=10000
+        sl_pct = (1.5 × 100 / 10000) × 100 = 1.5%
+        Expected: 1.5 (within [1.0, 5.0])
+        """
+        rm = self._make_rm(enabled=True)
+        sl = rm.get_stop_loss_pct("BTC/USD", atr=100.0, price=10000.0)
+        self.assertAlmostEqual(sl, 1.5, places=2)
+
+    def test_atr_sl_clamped_to_max(self):
+        """
+        Given atr_multiplier=1.5, ATR=500, price=10000
+        sl_pct = (1.5 × 500 / 10000) × 100 = 7.5% → clamped to max 5.0%
+        """
+        rm = self._make_rm(enabled=True)
+        sl = rm.get_stop_loss_pct("SOL/USD", atr=500.0, price=10000.0)
+        self.assertEqual(sl, 5.0)
+
+    def test_atr_sl_disabled_falls_back_to_fixed(self):
+        """
+        When atr_stop_loss.enabled=False, get_stop_loss_pct returns trading.stop_loss_pct (5%).
+        """
+        rm = self._make_rm(enabled=False)
+        sl = rm.get_stop_loss_pct("ETH/USD", atr=100.0, price=3000.0)
+        self.assertEqual(sl, 5)
+
+
 if __name__ == "__main__":
     unittest.main()
