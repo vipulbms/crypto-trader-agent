@@ -5,6 +5,10 @@
 
 # Runtime databases
 data/
+backtest_audit.db
+backtest_paper.db
+audit.db
+paper_trading.db
 
 # Logs
 logs/
