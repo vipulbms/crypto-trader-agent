@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-06 (Part D) — Breakeven Stop Tests
+
+### Added
+- **`tests/test_breakeven_stop.py`** (3 tests): SL moves to entry at trigger, no-move before threshold, no re-fire guard — closes #85
+
+---
+
 ## Session: 2026-04-06 (Part C) — Signal Coverage & Profit Margin Fixes
 
 ### Fixed

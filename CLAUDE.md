@@ -165,6 +165,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_06a | Backtest analysis (3,931 cycles): root-caused early-sell bug + 5 SL/TP improvements; GitHub issues shell script (E1–E12, 28 stories, sub-issues API) |
 | session_2026_04_06b | Fix GitHub Sub-Issues API headers in `create_story()`; create `link_epics.sh` retroactive linker |
 | session_2026_04_06c | Fix: ATR floor decoupled (atr_tp_min_pct=0.3); rsi_overbought raised 60→65; validate_sell 80% TP proximity guard; 5 new tests; closes #83 |
+| session_2026_04_06d | S12.3.1: Breakeven stop tests (3 tests); closes #85 |
 
 ---
 

@@ -708,6 +708,115 @@
 
 ---
 
+## Epic E12 — Stop-Loss Protection & Gain Preservation
+
+**Goal:** Protect accumulated gains and reduce maximum drawdown per trade by adding adaptive stop-loss mechanisms that respond to price movement after entry.
+
+**Acceptance Criteria (Epic-level):**
+- [x] S12.1.1: LLM cannot exit early via `propose_sell` unless at ≥80% of TP target (#83 — closed)
+- [x] S12.2.1: Trailing stop moves SL upward as price rises (#84 — closed)
+- [x] S12.3.1: Breakeven stop moves SL to entry once in profit (#85 — closed)
+- [x] S12.4.1: ATR-based SL sets volatility-proportional stop-loss at entry (#86 — closed)
+- [ ] S12.5.1: Partial take-profit closes 50% at mid-target (#87)
+
+---
+
+### Feature F12.1 — 80% TP Proximity Guard (completed)
+
+#### Story S12.1.1 ✅
+**As a** risk manager,  
+**I want** the LLM blocked from calling `propose_sell` until the position is ≥80% towards its TP target,  
+**so that** early exits cannot undercut the profit floor.
+
+**Acceptance Criteria:**
+- [x] AC1: `validate_sell()` calculates `pnl_pct / take_profit_pct` proximity ratio.
+- [x] AC2: If proximity < 0.80 and pnl_pct < `min_profit_floor_pct`, sell is rejected.
+- [x] AC3: Automatic SL/TP hits are exempt from this guard.
+- [x] AC4: 5 unit tests cover all proximity scenarios.
+
+**Code Association:** `risk_manager.py::validate_sell`, `config.yaml::risk.tp_proximity_threshold: 0.8`
+
+---
+
+### Feature F12.2 — Trailing Stop (completed)
+
+#### Story S12.2.1 ✅
+**As a** trader,  
+**I want** the stop-loss to trail upward as price rises,  
+**so that** profits are locked in during strong uptrends.
+
+**Acceptance Criteria:**
+- [x] AC1: `check_stops_and_tp()` tracks `highest_price_seen` per position in DB.
+- [x] AC2: Trailing SL activates only after gain ≥ `activate_after_pct` (default 1.5%).
+- [x] AC3: Trailing SL = `highest_price_seen × (1 − trail_pct/100)`.
+- [x] AC4: SL is only raised (never lowered) by trailing logic.
+- [x] AC5: Per-pair `trail_pct` overrides supported (DOGE/RAILS/HYPE: 5%, SUI: 4%).
+- [x] AC6: `highest_price_seen` persists in SQLite — survives restarts.
+- [x] AC7: 4 unit tests cover activation threshold, SL raise, per-pair override, and SL close.
+- [x] AC8: Mirrored in `kraken_client.py` for live trading parity.
+- [x] AC9: Trailing stop and breakeven stop are mutually exclusive — `ConfigError` at startup if both enabled.
+
+**Code Association:** `paper_broker.py::check_stops_and_tp`, `kraken_client.py::check_stops_and_tp`, `database.py` (migration), `config.yaml::trailing_stop`
+
+---
+
+### Feature F12.3 — Breakeven Stop (completed)
+
+#### Story S12.3.1 ✅
+**As a** trader,  
+**I want** the stop-loss moved to my entry price once the position reaches a profit threshold,  
+**so that** I cannot lose money on a trade that was once in profit.
+
+**Acceptance Criteria:**
+- [x] AC1: When `current_price >= entry_price × (1 + trigger_pct/100)`, SL is set to `entry_price`.
+- [x] AC2: Guard: SL only moves if `sl_price < entry_price` (prevents re-fire).
+- [x] AC3: Trailing stop takes precedence — breakeven is `elif` branch (mutually exclusive).
+- [x] AC4: 3 unit tests: fires at trigger, silent before threshold, no-re-fire guard.
+- [x] AC5: Mirrored in `kraken_client.py`.
+
+**Code Association:** `paper_broker.py::check_stops_and_tp`, `kraken_client.py::check_stops_and_tp`, `config.yaml::breakeven_stop`
+
+---
+
+### Feature F12.4 — ATR-Based Stop-Loss at Entry (completed)
+
+#### Story S12.4.1 ✅
+**As a** quant,  
+**I want** the initial stop-loss set proportional to the pair's ATR rather than a fixed percentage,  
+**so that** volatile pairs get wider stops and calm pairs get tighter stops.
+
+**Acceptance Criteria:**
+- [x] AC1: `RiskManager.get_stop_loss_pct(pair, atr, price)` returns `atr_multiplier × ATR / price × 100`.
+- [x] AC2: Result is clamped to `[min_stop_loss_pct, max_stop_loss_pct]` (default 1%–5%).
+- [x] AC3: Falls back to static `risk.stop_loss_pct` if `atr_stop_loss.enabled: false` or ATR is None.
+- [x] AC4: `TradingTools.propose_buy()` calls `get_stop_loss_pct()` and passes dynamic SL to broker.
+- [x] AC5: Logged as `[ATR_SL]`.
+
+**Code Association:** `risk_manager.py::get_stop_loss_pct`, `tools.py::propose_buy`, `config.yaml::atr_stop_loss`
+
+---
+
+### Feature F12.5 — Partial Take-Profit
+
+#### Story S12.5.1
+**As a** trader,  
+**I want** to automatically close 50% of a position when it reaches 50% of its TP target,  
+**so that** I lock in real profit while leaving half exposed to further upside.
+
+**Acceptance Criteria:**
+- [ ] AC1: When `current_price >= entry_price × (1 + tp_pct × 0.5 / 100)`, close 50% of volume.
+- [ ] AC2: `partial_exited` flag in DB prevents double-fire.
+- [ ] AC3: Remaining 50% continues with original SL/TP.
+- [ ] AC4: If `move_sl_to_breakeven: true`, SL is moved to entry after partial exit.
+- [ ] AC5: Exit reason logged as `"partial_take_profit"` in trades table.
+- [ ] AC6: `trade_report.py` handles `partial_take_profit` exit reason.
+- [ ] AC7: 5 unit tests cover partial close, no-second-fire, SL move, report display.
+- [ ] AC8: Mirrored in `kraken_client.py`.
+
+**Code Association:** `paper_broker.py::check_stops_and_tp`, `paper_broker.py::close_position`, `kraken_client.py`, `database.py`, `trade_report.py`, `config.yaml::partial_take_profit`
+
+---
+
 ## Traceability Matrix
 
 | Story | Epic | BRD FR | NFR | Code File(s) |
@@ -732,3 +841,8 @@
 | S10.2.1 | E10 | FR1 | NFR-Validation | `test_backtest.py` |
 | S11.2.1 | E11 | FR1 | NFR-Resilience | `paper_broker.py`, `database.py` |
 | S11.3.1 | E11 | FR7 | NFR-Resilience | `notifier.py`, `main.py` |
+| S12.1.1 | E12 | FR4, FR20 | NFR-Safety | `risk_manager.py` |
+| S12.2.1 | E12 | FR4 | NFR-Safety | `paper_broker.py`, `kraken_client.py`, `database.py` |
+| S12.3.1 | E12 | FR4 | NFR-Safety | `paper_broker.py`, `kraken_client.py` |
+| S12.4.1 | E12 | FR4 | NFR-Safety | `risk_manager.py`, `tools.py` |
+| S12.5.1 | E12 | FR4 | NFR-Safety | `paper_broker.py`, `kraken_client.py`, `database.py`, `trade_report.py` |
