@@ -2,6 +2,19 @@
 
 ---
 
+## Session: 2026-04-06 (Part A) — Backtest Analysis & GitHub Issues Shell Script
+
+### Analysis
+- Diagnosed early-sell bug from 3,931-cycle backtest: `validate_sell()` has no upper-side proximity guard → LLM exits at 2–4% despite TP targets of 5–20%
+- Root cause: BRD FR-20 (80% TP proximity before early exit) is prompt-only, not code-enforced
+
+### Added
+- `scripts/create_github_issues.sh` — comprehensive script creating all 12 epics (E1–E12) and 28 stories as GitHub issues with full AC and traceability to BRD FR-XX, DSD §X.X, NFR-XX, code file::function
+- Stories are registered as GitHub sub-issues under their parent epic via `gh api POST /repos/{owner}/{repo}/issues/{num}/sub_issues`
+- E12 (new epic) covers: propose_sell proximity guard (bug), trailing stop, breakeven stop, ATR-based SL, partial take-profit
+
+---
+
 ## Session: 2026-04-05 (Part F) — Documentation: BRD, Detailed Design, Epics/Stories
 
 ### Added
