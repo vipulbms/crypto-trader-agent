@@ -140,11 +140,16 @@ def compute_dynamic_tp(
                 return p.get("take_profit_pct", config["trading"].get("take_profit_pct", 8))
         return config.get("trading", {}).get("take_profit_pct", 8)
 
-    min_tp = dtp_cfg.get("min_tp_pct", 5)
+    global_min_tp = dtp_cfg.get("min_tp_pct", 5)
     max_tp = dtp_cfg.get("max_tp_pct", 20)
+    pair_static_tp = next(
+        (p.get("take_profit_pct", global_min_tp) for p in config.get("trading", {}).get("pairs", []) if p["pair"] == pair),
+        config.get("trading", {}).get("take_profit_pct", global_min_tp),
+    )
+    min_tp = max(global_min_tp, pair_static_tp)
 
     if not atr or not entry_price or entry_price <= 0:
-        return 8.0
+        return float(min_tp)
         
     multiplier = get_volatility_multiplier(atr, entry_price)
     target_dist = multiplier * atr

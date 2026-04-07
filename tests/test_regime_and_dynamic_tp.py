@@ -75,10 +75,15 @@ class TestComputeDynamicTpValues(unittest.TestCase):
         self.assertIn("BTC/USD", result)
         self.assertIn("ETH/USD", result)
 
-    def test_value_clamped_to_min_when_atr_tiny(self):
-        # ATR=1 on price=50000 → raw TP = (1*2/50000)*100 = 0.004% → clamped to min 5%
+    def test_value_clamped_to_pair_min_when_atr_tiny(self):
+        """
+        Given BTC/USD configured TP=8% and ATR so tiny the raw result is near 0%
+        When compute_dynamic_tp_values is called
+        Then the result is clamped to the pair's configured TP (8%), not the global min (5%)
+        """
+        # ATR=1 on price=50000 → raw TP = (1*2/50000)*100 = 0.004% → clamped to pair min 8%
         result = self._fn()([_signal("BTC/USD", atr=1.0, price=50000.0)], CONFIG)
-        self.assertEqual(result["BTC/USD"], 5.0)
+        self.assertEqual(result["BTC/USD"], 8.0)
 
     def test_value_clamped_to_max_when_atr_huge(self):
         # ATR=5000 on price=5000 → raw TP = 200% → clamped to max 20%
