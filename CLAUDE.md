@@ -48,6 +48,8 @@ src/
     nl_parser.py           — natural language CLI input parser
   reports/
     trade_report.py        — P&L and trade history reports
+    daily_report.py        — Full daily P&L report (run_daily_report)
+    review_report.py       — N-day performance review with verdict (run_review)
   utils/
     tz.py                  — Singapore timezone helpers
     timing.py              — @timed decorator, cycle_id propagation
@@ -176,6 +178,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_07a | Fix: trading hours window corrected to 06:00–04:00 SGT (22:00–20:00 UTC cross-midnight) |
 | session_2026_04_07b | Chore: migrate Claude memory files to project scope (.claude/memory/); closes #91 |
 | session_2026_04_07c | Fix: HistoricalFeed timestamp-based price lookup — shorter pairs (BNB/AVAX/UNI) were stuck at last candle price forever |
+| session_2026_04_08a | Integrate daily_report + review_report into src/reports/ and kryptos CLI (daily/review subcommands) |
 
 ---
 

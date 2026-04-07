@@ -148,6 +148,28 @@ def cmd_daily_summary(params: dict, config: Optional[dict] = None) -> None:
     d.print_daily_summary(data)
 
 
+def cmd_daily_report(params: dict, config: Optional[dict] = None) -> None:
+    """Run the full daily P&L report (from src/reports/daily_report.py)."""
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    from src.reports.daily_report import run_daily_report
+    mode      = params.get("mode", "paper")
+    days_ago  = params.get("days_ago") or 0
+    run_daily_report(mode, days_ago, config)
+
+
+def cmd_review(params: dict, config: Optional[dict] = None) -> None:
+    """Run the N-day performance review with live-trading readiness verdict."""
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    from src.reports.review_report import run_review
+    mode = params.get("mode", "paper")
+    days = params.get("days") or 14
+    run_review(mode, days, config)
+
+
 def cmd_open_positions(params: dict, config: Optional[dict] = None) -> None:
     if config is None:
         d.print_error("No config loaded.")
@@ -192,6 +214,8 @@ def dispatch(intent_obj: dict, config: Optional[dict] = None) -> bool:
         "trade_details":  lambda: cmd_trade_details(params, config),
         "llm_decisions":  lambda: cmd_llm_decisions(params, config),
         "daily_summary":  lambda: cmd_daily_summary(params, config),
+        "daily_report":   lambda: cmd_daily_report(params, config),
+        "review":         lambda: cmd_review(params, config),
         "win_rate":       lambda: cmd_win_rate(params, config),
         "open_positions": lambda: cmd_open_positions(params, config),
         "tail_log":       lambda: cmd_tail_log(params),

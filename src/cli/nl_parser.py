@@ -29,6 +29,8 @@ INTENTS = {
     "trade_details":    "Show details (incl. LLM reasoning) for specific trades",
     "llm_decisions":    "Show LLM decision patterns and reasoning",
     "daily_summary":    "Show summary of trading activity for a specific day",
+    "daily_report":     "Show the full rich daily P&L report including per-pair stats and error count",
+    "review":           "Show a multi-day performance review with win rate, drawdown, and a live-trading readiness verdict",
     "win_rate":         "Show win/loss stats and performance metrics",
     "open_positions":   "Show currently open positions",
     "tail_log":         "Show the last lines of the agent log",
@@ -53,7 +55,8 @@ Available intents:
 Parameters you can extract:
 - mode: "paper" or "live"  (default: "paper")
 - pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD  (or null)
-- days: integer number of days  (default: 7 for decisions, 30 for trades)
+- days: integer number of days  (default: 7 for decisions, 30 for trades, 14 for review)
+- days_ago: integer offset from today for daily_report (0=today, 1=yesterday, etc.)
 - count: integer number of records to show
 - date: ISO date string YYYY-MM-DD  (or null)
 - decision_type: "BUY", "SELL", or "HOLD"  (or null)
@@ -67,6 +70,7 @@ Response format (strict JSON, nothing else):
     "mode": "paper",
     "pair": null,
     "days": 7,
+    "days_ago": 0,
     "count": null,
     "date": null,
     "decision_type": null,

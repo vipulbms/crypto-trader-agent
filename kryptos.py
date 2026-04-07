@@ -20,6 +20,8 @@ Usage:
         python kryptos.py report [--days N] [--pair BTC/USD] [--mode paper|live]
         python kryptos.py decisions [--days N] [--pair BTC/USD]
         python kryptos.py metrics [--days N]
+        python kryptos.py daily [--days-ago N] [--mode paper|live]
+        python kryptos.py review [--days N] [--mode paper|live]
         python kryptos.py log [--lines N]
 """
 
@@ -159,24 +161,27 @@ def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
         "mode": mode,
         "pair": getattr(args, "pair", None),
         "days": getattr(args, "days", None),
+        "days_ago": getattr(args, "days_ago", 0),
         "count": getattr(args, "count", None),
         "lines": getattr(args, "lines", 30),
         "detail": "detailed" if getattr(args, "detailed", False) else "summary",
     }
 
     mapping = {
-        "start":     commands.cmd_start,
-        "stop":      lambda p: commands.cmd_stop(p),
-        "status":    lambda p: commands.cmd_status(p, config),
-        "schedule":  lambda p: commands.cmd_next_schedule(p, config),
-        "report":    lambda p: commands.cmd_view_report(p, config),
-        "trades":    lambda p: commands.cmd_trade_details(p, config),
-        "decisions": lambda p: commands.cmd_llm_decisions(p, config),
-        "metrics":   lambda p: commands.cmd_win_rate(p, config),
-        "summary":   lambda p: commands.cmd_daily_summary(p, config),
-        "positions": lambda p: commands.cmd_open_positions(p, config),
-        "log":       lambda p: commands.cmd_tail_log(p),
-        "help":      lambda p: commands.cmd_help(p),
+        "start":       commands.cmd_start,
+        "stop":        lambda p: commands.cmd_stop(p),
+        "status":      lambda p: commands.cmd_status(p, config),
+        "schedule":    lambda p: commands.cmd_next_schedule(p, config),
+        "report":      lambda p: commands.cmd_view_report(p, config),
+        "trades":      lambda p: commands.cmd_trade_details(p, config),
+        "decisions":   lambda p: commands.cmd_llm_decisions(p, config),
+        "metrics":     lambda p: commands.cmd_win_rate(p, config),
+        "summary":     lambda p: commands.cmd_daily_summary(p, config),
+        "daily":       lambda p: commands.cmd_daily_report(p, config),
+        "review":      lambda p: commands.cmd_review(p, config),
+        "positions":   lambda p: commands.cmd_open_positions(p, config),
+        "log":         lambda p: commands.cmd_tail_log(p),
+        "help":        lambda p: commands.cmd_help(p),
     }
 
     fn = mapping.get(subcommand)
@@ -207,6 +212,10 @@ Examples:
   python kryptos.py report --days 7 --pair BTC/USD
   python kryptos.py decisions --days 14 --detailed
   python kryptos.py metrics --days 30
+  python kryptos.py daily                    # Today's full daily P&L report
+  python kryptos.py daily --days-ago 1       # Yesterday's report
+  python kryptos.py review                   # 14-day review with live-trading verdict
+  python kryptos.py review --days 30         # 30-day review
   python kryptos.py log --lines 50
         """,
     )
@@ -272,6 +281,17 @@ Examples:
     # positions
     sp_pos = subparsers.add_parser("positions", help="Show open positions")
     sp_pos.add_argument("--mode", type=str, default="paper", choices=["paper", "live"])
+
+    # daily
+    sp_daily = subparsers.add_parser("daily", help="Full daily P&L report")
+    sp_daily.add_argument("--days-ago", dest="days_ago", type=int, default=0,
+                          help="0=today, 1=yesterday, etc.")
+    sp_daily.add_argument("--mode", type=str, default="paper", choices=["paper", "live"])
+
+    # review
+    sp_rev = subparsers.add_parser("review", help="N-day performance review with readiness verdict")
+    sp_rev.add_argument("--days", type=int, default=14, help="Look-back window in days (default: 14)")
+    sp_rev.add_argument("--mode", type=str, default="paper", choices=["paper", "live"])
 
     # log
     sp_log = subparsers.add_parser("log", help="Show recent agent log")
