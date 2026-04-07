@@ -175,6 +175,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_06e | S12.5.1: Partial take-profit (paper + live broker, 5 tests, closes #87); all 51 tests pass |
 | session_2026_04_07a | Fix: trading hours window corrected to 06:00–04:00 SGT (22:00–20:00 UTC cross-midnight) |
 | session_2026_04_07b | Chore: migrate Claude memory files to project scope (.claude/memory/); closes #91 |
+| session_2026_04_07c | Fix: HistoricalFeed timestamp-based price lookup — shorter pairs (BNB/AVAX/UNI) were stuck at last candle price forever |
 
 ---
 

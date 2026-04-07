@@ -2,6 +2,17 @@
 
 ---
 
+## Session: 2026-04-07 (Part C) — HistoricalFeed Timestamp-Based Lookup Fix
+
+### Fixed
+- **`src/exchange/historical_feed.py`** — complete rewrite to use timestamp-based candle lookup instead of position-based indexing
+  - **Root cause:** single global `_position` counter clamped via `min(pos, len-1)` always returned the last candle for shorter pairs (BNB/USD: 24k candles vs BTC/USD: 429k candles). Prices were frozen at the entry value forever — positions never hit SL or TP.
+  - **Fix:** `_ref_pair` tracks the pair with the most candles. `_current_ts` is the timestamp of the current reference candle. Each pair uses `bisect.bisect_right` on its sorted timestamp list to find the correct candle for the current cycle.
+  - Shorter pairs with no data at `_current_ts` return `None` / `[]` (guarded by `is_ready()` in main loop), so pairs like HYPE/USD with limited history are safely skipped before their data begins.
+- All 51 tests pass.
+
+---
+
 ## Session: 2026-04-07 (Part B) — Migrate Claude Memory to Project Scope
 
 ### Added
