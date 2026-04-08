@@ -101,6 +101,67 @@ class TestComputeDynamicTpValues(unittest.TestCase):
         result = self._fn()([_signal("BTC/USD")], cfg)
         self.assertEqual(result, {})
 
+    def test_bb_squeeze_clamps_tp_to_pair_min(self):
+        """
+        Given BB width 0.8% (below squeeze_threshold_pct=1.0%)
+        When compute_dynamic_tp_values is called
+        Then TP is clamped to the pair's configured minimum (8% for BTC)
+        Refs #104
+        """
+        price = 50000.0
+        # Tight bands: upper=1.004x, lower=0.996x → width=0.8%
+        tight_signal = {
+            **_signal("BTC/USD", atr=500.0, price=price),
+            "indicators": {
+                "close": price,
+                "atr_14": 500.0,
+                "bb_upper": price * 1.004,
+                "bb_lower": price * 0.996,
+                "macd_histogram": 0.01,
+            },
+        }
+        cfg = {
+            **CONFIG,
+            "dynamic_tp": {
+                **CONFIG["dynamic_tp"],
+                "bb_width_scale": True,
+                "squeeze_threshold_pct": 1.0,
+            },
+        }
+        result = self._fn()([tight_signal], cfg)
+        self.assertEqual(result["BTC/USD"], 8.0,
+                         "BB squeeze should clamp TP to BTC pair minimum (8%)")
+
+    def test_normal_bb_width_uses_atr(self):
+        """
+        Given BB width 2.4% (above squeeze_threshold_pct=1.0%)
+        When compute_dynamic_tp_values is called
+        Then TP is computed from ATR, not clamped to pair min
+        Refs #104
+        """
+        price = 50000.0
+        wide_signal = {
+            **_signal("BTC/USD", atr=500.0, price=price),
+            "indicators": {
+                "close": price,
+                "atr_14": 500.0,
+                "bb_upper": price * 1.012,
+                "bb_lower": price * 0.988,
+                "macd_histogram": 0.01,
+            },
+        }
+        cfg = {
+            **CONFIG,
+            "dynamic_tp": {
+                **CONFIG["dynamic_tp"],
+                "bb_width_scale": True,
+                "squeeze_threshold_pct": 1.0,
+            },
+        }
+        result = self._fn()([wide_signal], cfg)
+        # With normal BB width, ATR-based TP should be used — will be >= pair min (8%)
+        self.assertGreaterEqual(result["BTC/USD"], 8.0)
+
 
 # ── Fix 2b: build_ai_context exposes dynamic_tp_values ───────────────────────
 

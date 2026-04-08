@@ -150,7 +150,14 @@ def compute_dynamic_tp(
 
     if not atr or not entry_price or entry_price <= 0:
         return float(min_tp)
-        
+
+    # BB squeeze guard: if bands are compressed below threshold, clamp TP to pair floor
+    if dtp_cfg.get("bb_width_scale", False) and bb_upper and bb_lower:
+        bb_mid_calc = (bb_upper + bb_lower) / 2
+        bb_width_pct = (bb_upper - bb_lower) / bb_mid_calc * 100
+        if bb_width_pct < dtp_cfg.get("squeeze_threshold_pct", 1.0):
+            return float(min_tp)
+
     multiplier = get_volatility_multiplier(atr, entry_price)
     target_dist = multiplier * atr
     atr_tp_pct = (target_dist / entry_price) * 100

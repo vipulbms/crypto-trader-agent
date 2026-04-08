@@ -330,10 +330,13 @@ class PaperBroker:
 
             # 2a. Trailing SL update
             if trailing_cfg.get("enabled", False):
-                trail_pct = trailing_cfg.get("per_pair_overrides", {}).get(
-                    pair, trailing_cfg.get("trail_pct", 3.0)
-                )
-                activate_pct = trailing_cfg.get("activate_after_pct", 1.5)
+                pair_override = trailing_cfg.get("per_pair_overrides", {}).get(pair)
+                if isinstance(pair_override, dict):
+                    trail_pct    = pair_override.get("trail_pct",         trailing_cfg.get("trail_pct", 5.0))
+                    activate_pct = pair_override.get("activate_after_pct", trailing_cfg.get("activate_after_pct", 3.0))
+                else:
+                    trail_pct    = pair_override if pair_override is not None else trailing_cfg.get("trail_pct", 5.0)
+                    activate_pct = trailing_cfg.get("activate_after_pct", 3.0)
                 gain_pct = (current_price - pos["entry_price"]) / pos["entry_price"] * 100
                 if gain_pct >= activate_pct:
                     trailing_sl = round(highest * (1 - trail_pct / 100), 8)

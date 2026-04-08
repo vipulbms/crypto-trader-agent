@@ -124,7 +124,7 @@ paper:
 indicators:
   rsi_period: 14
   rsi_oversold: 30        # Data-backed: fires 7-11% of candles (was 35 = 13-22%, too loose)
-  rsi_overbought: 65      # Raised from 60: reduces premature SELL signals before TP targets are reached
+  rsi_overbought: 75      # Raised from 65: prevents premature SELL signals in RSI 65-75 range (score 3 alone = sell_min_score)
   macd_fast: 12
   macd_slow: 26
   macd_signal: 9
@@ -253,7 +253,7 @@ dynamic_tp:
   min_tp_pct: 5                 # Never set TP below this % (must be in allowed_take_profit_pcts)
   max_tp_pct: 20                # Never set TP above this %
   squeeze_threshold_pct: 1.0    # BB width % below which TP is reduced to min_tp_pct
-  atr_tp_min_pct: 0.3           # Min ATR-based TP% required to allow a BUY signal (decoupled from fee floor)
+  atr_tp_min_pct: 1.0           # Min ATR-based TP% required to allow a BUY signal (was 0.3 — raised to block low-ATR compressed entries)
 
 # ──────────────────────────────────────────────
 # Feature: Trailing stop-loss (S12.2.1 — #84)
@@ -262,13 +262,21 @@ dynamic_tp:
 # ──────────────────────────────────────────────
 trailing_stop:
   enabled: true
-  trail_pct: 3.0              # Trail SL by this % below highest price seen
-  activate_after_pct: 1.5     # Only activate once position is up this %
-  per_pair_overrides:         # Override trail_pct for high-volatility pairs
-    DOGE/USD: 5.0
-    RAILS/USD: 5.0
-    HYPE/USD: 5.0
-    SUI/USD: 4.0
+  trail_pct: 5.0              # Trail SL by this % below highest price seen (was 3.0)
+  activate_after_pct: 3.0     # Only activate once position is up this % (was 1.5)
+  per_pair_overrides:         # Override trail_pct and/or activate_after_pct per pair
+    DOGE/USD:
+      trail_pct: 7.0          # was scalar 5.0
+      activate_after_pct: 5.0
+    RAILS/USD:
+      trail_pct: 7.0
+      activate_after_pct: 5.0
+    HYPE/USD:
+      trail_pct: 7.0
+      activate_after_pct: 5.0
+    SUI/USD:
+      trail_pct: 6.0          # was scalar 4.0
+      activate_after_pct: 4.0
 
 # ──────────────────────────────────────────────
 # Feature: Breakeven stop (S12.3.1 — #85)

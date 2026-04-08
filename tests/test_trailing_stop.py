@@ -170,5 +170,111 @@ class TestTrailingStop(unittest.TestCase):
         self.assertAlmostEqual(_get_sl_price(self.db, pos_id), expected_sl, places=4)
 
 
+class TestTrailingStopPerPairActivation(unittest.TestCase):
+    """
+    Tests for per-pair activate_after_pct overrides (dict format in config).
+    Refs #102
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.db = self.tmp.name
+        init_paper_db(self.db, starting_balance=10000.0)
+
+    def _seed_doge(self, entry_price: float, sl_price: float, tp_price: float) -> int:
+        from src.utils.tz import now_sgt_iso
+        conn = sqlite3.connect(self.db)
+        for col in [
+            "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
+            "ALTER TABLE paper_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
+        ]:
+            try:
+                conn.execute(col)
+            except sqlite3.OperationalError:
+                pass
+        conn.execute(
+            """INSERT INTO paper_positions
+               (opened_at, pair, side, entry_price, volume, usd_value,
+                stop_loss_price, take_profit_price, stop_loss_pct, take_profit_pct,
+                status, highest_price_seen, partial_exited)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (now_sgt_iso(), "DOGE/USD", "buy", entry_price, 1000.0, entry_price * 1000,
+             sl_price, tp_price, 5.0, 20.0, "open", entry_price, 0),
+        )
+        conn.commit()
+        pos_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.close()
+        return pos_id
+
+    def test_dict_override_trailing_not_activated_below_pair_threshold(self):
+        """
+        Given DOGE/USD override {trail_pct: 7.0, activate_after_pct: 5.0}
+        When gain is +3.5% (above global 3.0% but below pair 5.0%)
+        Then trailing SL should NOT be raised (pair threshold governs)
+        """
+        entry = 0.17
+        original_sl = entry * 0.95
+        broker = _make_broker(
+            self.db,
+            trail_pct=5.0,
+            activate_pct=3.0,
+            pair_overrides={"DOGE/USD": {"trail_pct": 7.0, "activate_after_pct": 5.0}},
+        )
+        pos_id = self._seed_doge(entry_price=entry, sl_price=original_sl, tp_price=entry * 1.2)
+
+        # +3.5% — above global 3% threshold but below DOGE 5% threshold
+        current = entry * 1.035
+        broker.check_stops_and_tp("DOGE/USD", current_price=current)
+        sl_after = _get_sl_price(self.db, pos_id)
+        self.assertAlmostEqual(sl_after, original_sl, places=6,
+                               msg="Trailing SL should not move — DOGE needs 5% gain to activate")
+
+    def test_dict_override_trailing_activated_above_pair_threshold(self):
+        """
+        Given DOGE/USD override {trail_pct: 7.0, activate_after_pct: 5.0}
+        When gain is +6% (above pair 5.0% threshold)
+        Then trailing SL = highest × (1 - 7%)
+        """
+        entry = 0.17
+        original_sl = entry * 0.95
+        broker = _make_broker(
+            self.db,
+            trail_pct=5.0,
+            activate_pct=3.0,
+            pair_overrides={"DOGE/USD": {"trail_pct": 7.0, "activate_after_pct": 5.0}},
+        )
+        pos_id = self._seed_doge(entry_price=entry, sl_price=original_sl, tp_price=entry * 1.2)
+
+        # +6% — above DOGE 5% threshold
+        current = entry * 1.06
+        broker.check_stops_and_tp("DOGE/USD", current_price=current)
+        expected_sl = round(current * (1 - 7.0 / 100), 8)
+        self.assertAlmostEqual(_get_sl_price(self.db, pos_id), expected_sl, places=6,
+                               msg="Trailing SL should use DOGE trail_pct=7% once above 5% activation")
+
+    def test_global_threshold_respected_for_non_override_pair(self):
+        """
+        Given global activate_after_pct=3.0 and SOL/USD has no per-pair override
+        When gain is +1.5% (below global 3.0%)
+        Then trailing SL should NOT be raised
+        """
+        entry = 150.0
+        original_sl = entry * 0.95
+        broker = _make_broker(
+            self.db,
+            trail_pct=5.0,
+            activate_pct=3.0,
+            pair_overrides={"DOGE/USD": {"trail_pct": 7.0, "activate_after_pct": 5.0}},
+        )
+        pos_id = _seed_position(self.db, entry_price=entry, sl_price=original_sl, tp_price=entry * 1.16)
+
+        # +1.5% — below global 3% threshold
+        current = entry * 1.015
+        broker.check_stops_and_tp("BTC/USD", current_price=current)
+        sl_after = _get_sl_price(self.db, pos_id)
+        self.assertAlmostEqual(sl_after, original_sl, places=4,
+                               msg="SOL/USD should not activate trailing at +1.5% with global threshold of 3%")
+
+
 if __name__ == "__main__":
     unittest.main()
