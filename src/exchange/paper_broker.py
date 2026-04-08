@@ -6,7 +6,7 @@ No Kraken API keys required.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..storage.database import get_connection
@@ -22,6 +22,11 @@ def _now() -> str:
 
 def _ts_now() -> int:
     return int(now_sgt().timestamp())
+
+
+def _epoch_to_iso(ts: int) -> str:
+    """Convert Unix epoch (seconds, UTC) to ISO-8601 string."""
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
 class PaperBroker:
@@ -100,6 +105,7 @@ class PaperBroker:
         current_price: float,
         stop_loss_pct: float,
         take_profit_pct: float,
+        timestamp_override: Optional[str] = None,
     ) -> dict:
         """
         Simulate a Limit buy order at the current Bid.
@@ -131,13 +137,14 @@ class PaperBroker:
         )
 
         # Record position
+        opened_at = timestamp_override or _now()
         conn.execute(
             """INSERT INTO paper_positions
                (opened_at, pair, side, entry_price, volume, usd_value,
                 stop_loss_price, take_profit_price, stop_loss_pct, take_profit_pct,
                 status, highest_price_seen, partial_exited)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (_now(), pair, "buy", fill_price, volume, actual_cost,
+            (opened_at, pair, "buy", fill_price, volume, actual_cost,
              sl_price, tp_price, stop_loss_pct, take_profit_pct, "open",
              fill_price, 0),
         )
@@ -175,6 +182,7 @@ class PaperBroker:
         exit_price: float,
         exit_reason: str,
         volume_override: Optional[float] = None,
+        timestamp_override: Optional[str] = None,
     ) -> Optional[dict]:
         """
         Close an open paper position (fully or partially).
@@ -227,6 +235,7 @@ class PaperBroker:
             )
 
         # Log closed/partial trade
+        closed_at = timestamp_override or _now()
         conn.execute(
             """INSERT INTO paper_trades
                (opened_at, closed_at, pair, side, entry_price, exit_price,
@@ -234,7 +243,7 @@ class PaperBroker:
                 hold_duration_secs, fee_usd, stop_loss_pct, take_profit_pct)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                pos["opened_at"], _now(), pos["pair"], pos["side"],
+                pos["opened_at"], closed_at, pos["pair"], pos["side"],
                 pos["entry_price"], fill_price, close_volume, cost_basis,
                 pnl_usd, pnl_pct, exit_reason, hold_secs,
                 fee_usd, pos["stop_loss_pct"], pos["take_profit_pct"],
@@ -280,6 +289,7 @@ class PaperBroker:
         pair: str,
         current_price: float,
         audit_logger=None,
+        candle_ts: int = 0,
     ) -> list:
         """
         Check all open positions for the given pair.
@@ -299,6 +309,7 @@ class PaperBroker:
 
         trailing_cfg  = self._config.get("trailing_stop", {})
         breakeven_cfg = self._config.get("breakeven_stop", {})
+        ts_override   = _epoch_to_iso(candle_ts) if candle_ts else None
 
         closed = []
         for pos in positions:
@@ -374,7 +385,8 @@ class PaperBroker:
                     partial_volume = round(pos["volume"] * close_fraction, 8)
                     ptrade = self.close_position(
                         pos["id"], current_price, "partial_take_profit",
-                        volume_override=partial_volume
+                        volume_override=partial_volume,
+                        timestamp_override=ts_override,
                     )
                     if ptrade:
                         closed.append(ptrade)
@@ -414,7 +426,8 @@ class PaperBroker:
                 exit_price  = pos["take_profit_price"]
 
             if exit_reason:
-                trade = self.close_position(pos["id"], exit_price, exit_reason)
+                trade = self.close_position(pos["id"], exit_price, exit_reason,
+                                            timestamp_override=ts_override)
                 if trade and audit_logger:
                     audit_logger.log_position_event(
                         pair=pair,

@@ -179,6 +179,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_07b | Chore: migrate Claude memory files to project scope (.claude/memory/); closes #91 |
 | session_2026_04_07c | Fix: HistoricalFeed timestamp-based price lookup — shorter pairs (BNB/AVAX/UNI) were stuck at last candle price forever |
 | session_2026_04_08a | Integrate daily_report + review_report into src/reports/ and kryptos CLI (daily/review subcommands) |
+| session_2026_04_08b | Fix backtest timestamps (#98), add full chart legend (#99), charts integral to reports (#100); 80 tests passing |
 
 ---
 

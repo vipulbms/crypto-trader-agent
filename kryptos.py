@@ -165,6 +165,9 @@ def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
         "count": getattr(args, "count", None),
         "lines": getattr(args, "lines", 30),
         "detail": "detailed" if getattr(args, "detailed", False) else "summary",
+        "out": getattr(args, "out", None),
+        "window": getattr(args, "window", None),
+        "charts": getattr(args, "charts", False),
     }
 
     mapping = {
@@ -179,6 +182,7 @@ def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
         "summary":     lambda p: commands.cmd_daily_summary(p, config),
         "daily":       lambda p: commands.cmd_daily_report(p, config),
         "review":      lambda p: commands.cmd_review(p, config),
+        "charts":      lambda p: commands.cmd_charts(p, config),
         "positions":   lambda p: commands.cmd_open_positions(p, config),
         "log":         lambda p: commands.cmd_tail_log(p),
         "help":        lambda p: commands.cmd_help(p),
@@ -214,8 +218,12 @@ Examples:
   python kryptos.py metrics --days 30
   python kryptos.py daily                    # Today's full daily P&L report
   python kryptos.py daily --days-ago 1       # Yesterday's report
+  python kryptos.py daily --charts           # Report + generate candlestick charts
   python kryptos.py review                   # 14-day review with live-trading verdict
   python kryptos.py review --days 30         # 30-day review
+  python kryptos.py review --charts          # Review + generate candlestick charts
+  python kryptos.py charts                   # Generate charts for all closed trades
+  python kryptos.py charts --pair ETH/USD    # Charts for one pair only
   python kryptos.py log --lines 50
         """,
     )
@@ -287,11 +295,22 @@ Examples:
     sp_daily.add_argument("--days-ago", dest="days_ago", type=int, default=0,
                           help="0=today, 1=yesterday, etc.")
     sp_daily.add_argument("--mode", type=str, default="paper", choices=["paper", "live"])
+    sp_daily.add_argument("--charts", action="store_true", default=False,
+                          help="Generate candlestick charts after the report")
 
     # review
     sp_rev = subparsers.add_parser("review", help="N-day performance review with readiness verdict")
     sp_rev.add_argument("--days", type=int, default=14, help="Look-back window in days (default: 14)")
     sp_rev.add_argument("--mode", type=str, default="paper", choices=["paper", "live"])
+    sp_rev.add_argument("--charts", action="store_true", default=False,
+                        help="Generate candlestick charts after the review")
+
+    # charts
+    sp_charts = subparsers.add_parser("charts", help="Generate candlestick charts for all closed trades")
+    sp_charts.add_argument("--pair",    type=str, default=None, help="Filter to one pair, e.g. ETH/USD")
+    sp_charts.add_argument("--window",  type=int, default=80,   help="Candles of padding before/after each trade (default: 80)")
+    sp_charts.add_argument("--out",     type=str, default="charts", help="Output directory (default: charts/)")
+    sp_charts.add_argument("--mode",    type=str, default="paper", choices=["paper", "live"])
 
     # log
     sp_log = subparsers.add_parser("log", help="Show recent agent log")

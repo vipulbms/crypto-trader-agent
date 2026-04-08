@@ -101,6 +101,7 @@ class KrakenClient:
         current_price: float,
         stop_loss_pct: float,
         take_profit_pct: float,
+        timestamp_override: Optional[str] = None,  # ignored in live mode
     ) -> dict:
         """
         Place Limit entry order at the bid + linked SL + TP on Kraken.
@@ -181,6 +182,7 @@ class KrakenClient:
         exit_price: float,
         exit_reason: str,
         volume_override: Optional[float] = None,
+        timestamp_override: Optional[str] = None,  # ignored in live mode
     ) -> Optional[dict]:
         """
         Close an open live position (fully or partially).

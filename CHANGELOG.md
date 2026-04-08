@@ -2,6 +2,25 @@
 
 ---
 
+## Session: 2026-04-08 (Part B) — Backtest Timestamps, Chart Legend, Charts in Reports
+
+### Fixed
+- **`src/exchange/paper_broker.py`** — `place_order()` / `close_position()` accept `timestamp_override: Optional[str]`; new `_ts(override)` helper uses candle timestamp in backtest, wall clock in live — closes #98
+- **`src/exchange/historical_feed.py`** — `current_candle_time: int` property exposes the last-advanced candle epoch so `main.py` can pass it into the broker
+- **`src/agent/tools.py`** — `propose_buy()` / `propose_sell()` pass candle ISO timestamp to broker as `timestamp_override`
+- **`main.py`** — passes `candle_ts=feed.current_candle_time` to `broker.check_stops_and_tp()`
+
+### Added
+- **`src/reports/chart_generator.py`** — core charting engine (extracted from `scripts/chart_trades.py`); public API: `generate_charts()`, `render_trade_chart()`; full proxy-artists legend (BUY ▲, TP ▼, SL ▼, SELL ▼, PARTIAL TP ▼, entry/exit price dashes) — closes #99 / #100
+- **`scripts/chart_trades.py`** — reduced to thin 54-line wrapper
+- **`src/cli/commands.py`** — `cmd_charts()` added; `cmd_daily_report()` / `cmd_review()` accept `charts: bool` flag — closes #100
+- **`kryptos.py`** — `charts` subcommand; `--charts` flag on `daily` and `review`; `--pair`, `--out`, `--window` args on `charts`
+- **`tests/test_backtest_timestamps.py`** — 6 new tests for timestamp fix
+- **`tests/test_chart_generator.py`** — 23 new tests for chart engine
+- **Full test suite: 80 tests pass**
+
+---
+
 ## Session: 2026-04-07 (Part C) — HistoricalFeed Timestamp-Based Lookup Fix
 
 ### Fixed

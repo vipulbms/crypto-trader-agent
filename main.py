@@ -212,10 +212,13 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
             cycle_start = time.time()
 
             # Stop-loss / take-profit checks run FIRST — highest priority, before LLM decisions
+            # In backtest mode, pass the candle timestamp so closed trades record candle time.
+            candle_ts_for_check = ws_feed.current_candle_time if is_backtest else 0
             for pair in pairs:
                 current_price = ws_feed.get_latest_price(pair)
                 if current_price:
-                    closed = broker.check_stops_and_tp(pair, current_price, audit)
+                    closed = broker.check_stops_and_tp(pair, current_price, audit,
+                                                       candle_ts=candle_ts_for_check)
                     for trade in closed:
                         notifier.send_trade_executed(trade, mode)
                         tools._run_post_trade_analysis(trade)

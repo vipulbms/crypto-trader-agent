@@ -157,6 +157,8 @@ def cmd_daily_report(params: dict, config: Optional[dict] = None) -> None:
     mode      = params.get("mode", "paper")
     days_ago  = params.get("days_ago") or 0
     run_daily_report(mode, days_ago, config)
+    if params.get("charts"):
+        cmd_charts(params, config)
 
 
 def cmd_review(params: dict, config: Optional[dict] = None) -> None:
@@ -168,6 +170,38 @@ def cmd_review(params: dict, config: Optional[dict] = None) -> None:
     mode = params.get("mode", "paper")
     days = params.get("days") or 14
     run_review(mode, days, config)
+    if params.get("charts"):
+        cmd_charts(params, config)
+
+
+def cmd_charts(params: dict, config: Optional[dict] = None) -> None:
+    """Generate candlestick charts for all closed trades."""
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    from src.reports.chart_generator import generate_charts
+    mode    = params.get("mode", "paper")
+    storage = (config or {}).get("storage", {})
+    if mode == "live":
+        db_path = storage.get("live_db", "live_trading.db")
+    else:
+        db_path = storage.get("paper_db", "paper_trading.db")
+    out_dir     = params.get("out") or "charts"
+    pair_filter = params.get("pair")
+    window      = params.get("window") or 80
+    try:
+        paths = generate_charts(
+            db_path=db_path,
+            out_dir=out_dir,
+            pair_filter=pair_filter,
+            window=window,
+        )
+        if paths:
+            d.print_ok(f"{len(paths)} chart(s) saved to {out_dir}/")
+        else:
+            d.print_warn("No closed trades found — no charts generated.")
+    except FileNotFoundError as exc:
+        d.print_error(str(exc))
 
 
 def cmd_open_positions(params: dict, config: Optional[dict] = None) -> None:
@@ -216,6 +250,7 @@ def dispatch(intent_obj: dict, config: Optional[dict] = None) -> bool:
         "daily_summary":  lambda: cmd_daily_summary(params, config),
         "daily_report":   lambda: cmd_daily_report(params, config),
         "review":         lambda: cmd_review(params, config),
+        "charts":         lambda: cmd_charts(params, config),
         "win_rate":       lambda: cmd_win_rate(params, config),
         "open_positions": lambda: cmd_open_positions(params, config),
         "tail_log":       lambda: cmd_tail_log(params),

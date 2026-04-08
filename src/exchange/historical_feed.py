@@ -166,6 +166,11 @@ class HistoricalFeed:
         return True
 
     @property
+    def current_candle_time(self) -> int:
+        """Unix epoch (seconds, UTC) of the current reference candle."""
+        return self._current_ts
+
+    @property
     def total_tradeable(self) -> int:
         return max(0, self._total - self._start_position - 1)
 

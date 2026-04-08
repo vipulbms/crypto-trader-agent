@@ -148,6 +148,13 @@ class TradingTools:
         )
 
         try:
+            # Derive candle timestamp for backtest accuracy (wall-clock in live mode)
+            candle_ts_iso = None
+            if hasattr(self._ws, "current_candle_time") and self._ws.current_candle_time:
+                from datetime import datetime, timezone as _tz
+                candle_ts_iso = datetime.fromtimestamp(
+                    self._ws.current_candle_time, tz=_tz.utc
+                ).isoformat()
             result = self._broker.place_order(
                 pair=pair,
                 side="buy",
@@ -155,6 +162,7 @@ class TradingTools:
                 current_price=current_price,
                 stop_loss_pct=sl_pct,
                 take_profit_pct=tp_pct,
+                timestamp_override=candle_ts_iso,
             )
         except Exception as e:
             self._audit.log_error("exchange", type(e).__name__, str(e))
@@ -263,6 +271,13 @@ class TradingTools:
             return f"REJECTED: {check_reason}"
 
         results = []
+        # Derive candle timestamp for backtest accuracy (wall-clock in live mode)
+        candle_ts_iso = None
+        if hasattr(self._ws, "current_candle_time") and self._ws.current_candle_time:
+            from datetime import datetime, timezone as _tz
+            candle_ts_iso = datetime.fromtimestamp(
+                self._ws.current_candle_time, tz=_tz.utc
+            ).isoformat()
         for pos in pair_positions:
             pos_id = pos.get("id") or pos.get("position_id")
             if not pos_id:
@@ -271,6 +286,7 @@ class TradingTools:
                 position_id=pos_id,
                 exit_price=current_price,
                 exit_reason="agent_sell",
+                timestamp_override=candle_ts_iso,
             )
             if trade:
                 self._audit.log_position_event(
