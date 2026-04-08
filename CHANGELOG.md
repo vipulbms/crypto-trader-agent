@@ -2,6 +2,18 @@
 
 ---
 
+## Session: 2026-04-08 (Part C) — Trailing Stop Tuning, ATR Floor, BB Squeeze TP, Trading Hours
+
+### Fixed
+- **[#102] `config.yaml` + `paper_broker.py` + `kraken_client.py`**: Trailing stop `trail_pct` 3→5%, `activate_after_pct` 1.5→3.0%. Per-pair overrides now support dict `{trail_pct, activate_after_pct}`: DOGE/RAILS/HYPE 7%/5.0%, SUI 6%/4.0%. Prevents SOL/AVAX-style near-breakeven exits from 2% consolidations.
+- **[#103] `config.yaml`**: `atr_tp_min_pct` 0.3→1.0% — blocks entries in compressed markets where ATR% is too small to justify 5% SL risk (root cause of DOGE/UNI/INJ full -5.29% SL hits).
+- **[#104] `src/analysis/features.py:compute_dynamic_tp()`**: Implemented BB squeeze guard — when BB width < `squeeze_threshold_pct` (1.0%), TP clamps to pair floor. `bb_width_scale: true` config was previously a no-op.
+- **[#95] `src/analysis/features.py:compute_dynamic_tp()`**: Dynamic TP now uses `max(global_min, pair_static_tp)` as floor — DOGE/RAILS/HYPE no longer get 5% TP in low-ATR conditions.
+- **[#105] `config.yaml`**: Trading window narrowed to 03:00–04:00 SGT (19:00–19:59 UTC, 1 hour) for focused testing.
+- **59 tests pass** (1 pre-existing import error unrelated to these changes)
+
+---
+
 ## Session: 2026-04-08 (Part B) — Backtest Timestamps, Chart Legend, Charts in Reports
 
 ### Fixed

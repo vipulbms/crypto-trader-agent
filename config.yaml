@@ -25,8 +25,8 @@ trading:
   # Time-of-day filter to avoid low-volume false breakouts
   allowed_trading_hours:
     enabled: true
-    start_hour_utc: 22   # 06:00 SGT (UTC+8) — cross-midnight window
-    end_hour_utc: 20     # 04:00 SGT (UTC+8) — end is exclusive; allows 22:00–19:59 UTC
+    start_hour_utc: 19   # 03:00 SGT (UTC+8)
+    end_hour_utc: 20     # 04:00 SGT (UTC+8) — end is exclusive; allows 19:00–19:59 UTC only
     min_volume_ratio: 0.5 # Current volume must be at least this fraction of 20-period moving average
 
   pairs:

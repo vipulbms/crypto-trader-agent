@@ -21,3 +21,13 @@ Every change — bug fix, config tweak, feature, refactor — must have a corres
 4. When closing an issue, leave a comment summarising what was done and which files changed.
 
 This applies to ALL change types: bug fixes, config changes, documentation updates, test additions, refactors.
+
+**Strict workflow order — no exceptions:**
+1. Investigate → confirm root cause
+2. Create GitHub issue ([BUG] / [FEAT] / [CHORE])
+3. Fix / implement
+4. Run full test suite — all must pass
+5. Commit with `Closes #N` in message
+6. Confirm issue is closed on GitHub
+
+This order was violated in session_2026_04_07c (HistoricalFeed fix committed as `178d908` before issue #94 was created — retroactively corrected).

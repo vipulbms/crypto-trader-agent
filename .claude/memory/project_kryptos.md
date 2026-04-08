@@ -76,10 +76,21 @@ Fully implemented to mirror PaperBroker interface: `get_balance()` uses DB entry
 - LLM trading rules in `.claude/skills/trading-rules/SKILL.md` — keep SKILL.md in sync whenever signal logic or risk rules change.
 
 ## Trading Hours
-- Configured window: 06:00–04:00 SGT = 22:00–20:00 UTC (cross-midnight).
-- `config.yaml`: `start_hour_utc: 22`, `end_hour_utc: 20`. Cross-midnight logic in `risk_manager.py`: `allowed = hour >= 22 or hour < 20`.
-- `end_hour_utc` is EXCLUSIVE (`current_hour < end_hour_utc`) — set to 20 to include up to 19:59 UTC (03:59 SGT).
-- Blocked dead zone: 20:00–21:59 UTC (04:00–05:59 SGT).
+- Current window: 03:00–04:00 SGT = 19:00–19:59 UTC (1-hour window, narrowed for testing).
+- `config.yaml`: `start_hour_utc: 19`, `end_hour_utc: 20`.
+- `end_hour_utc` is EXCLUSIVE — set to 20 to include only 19:xx UTC (03:xx SGT).
+- Volume dead zone check (`min_volume_ratio`) in `signals.py` is always active regardless of `enabled` flag.
+
+## Trailing Stop (updated 2026-04-08)
+- Global: `trail_pct: 5.0%`, `activate_after_pct: 3.0%` (was 3%/1.5%).
+- `per_pair_overrides` now uses dict format `{trail_pct, activate_after_pct}`:
+  DOGE/RAILS/HYPE: 7%/5.0%, SUI: 6%/4.0%.
+- `paper_broker.py` and `kraken_client.py` read dict overrides (backward-compatible with scalar floats).
+
+## ATR/BB Signal Gates (updated 2026-04-08)
+- `atr_tp_min_pct: 1.0%` (was 0.3%) — blocks entries in compressed low-ATR markets.
+- `compute_dynamic_tp()` BB squeeze guard: when BB width < `squeeze_threshold_pct` (1.0%), TP clamps to pair floor.
+- `compute_dynamic_tp()` pair floor: `min_tp = max(global_min_tp, pair_static_tp)` — dynamic TP never goes below pair's configured target.
 
 ## Live Trading Limits & Async
 - Limit Orders in live (`KrakenClient`) must resolve to 'closed' before SL/TP orders are attached. `check_stops_and_tp` handles polling.
