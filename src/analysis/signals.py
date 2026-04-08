@@ -50,8 +50,13 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     ind_cfg = config.get("indicators", {})
     sig_cfg = config.get("signals", {})
 
-    rsi_oversold   = ind_cfg.get("rsi_oversold", 30)
-    rsi_overbought = ind_cfg.get("rsi_overbought", 60)
+    # Per-pair config overrides — fall back to global indicators config
+    pair_cfg = next(
+        (p for p in config.get("trading", {}).get("pairs", []) if p.get("pair") == pair),
+        {}
+    )
+    rsi_oversold   = pair_cfg.get("rsi_oversold",   ind_cfg.get("rsi_oversold", 30))
+    rsi_overbought = pair_cfg.get("rsi_overbought",  ind_cfg.get("rsi_overbought", 60))
     bb_min_width   = ind_cfg.get("bb_min_width_pct", 0.5)
     bb_buy_tol     = 1 + ind_cfg.get("bb_buy_tolerance_pct", 1.0) / 100
     bb_sell_tol    = 1 - ind_cfg.get("bb_sell_tolerance_pct", 1.0) / 100
@@ -115,11 +120,12 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         return _build_result(pair, 0, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
 
     # ── Hard blocker 2: ATR too small to cover fees ───────────────────────────
-    # Uses atr_tp_min_pct when set (allows large-cap pairs with lower ATR% to trade).
-    # Falls back to min_profit_floor_pct so the default behaviour is unchanged.
-    min_floor = config.get("dynamic_tp", {}).get(
-        "atr_tp_min_pct",
-        config.get("trading", {}).get("min_profit_floor_pct", 1.0),
+    # Priority: adaptive floor injected by main.py > per-pair static > global dynamic_tp > min_profit_floor
+    min_floor = (
+        indicators.get("adaptive_atr_floor_pct")             # injected by main.py when adaptive enabled
+        or pair_cfg.get("atr_tp_min_pct")                    # per-pair static (Fix #107)
+        or config.get("dynamic_tp", {}).get("atr_tp_min_pct")
+        or config.get("trading", {}).get("min_profit_floor_pct", 1.0)
     )
     atr_multiplier = config.get("dynamic_tp", {}).get("atr_multiplier", 2.0)
     if atr and price and price > 0:
@@ -136,13 +142,31 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
             return _build_result(pair, 0, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
 
     # ── Hard blocker 3: Volume drop-off (Dead Zones) ──────────────────────────
-    min_vol_ratio = config.get("trading", {}).get("allowed_trading_hours", {}).get("min_volume_ratio", 0.5)
-    if volume is not None and volume_sma_20 is not None and volume_sma_20 > 0:
-        if volume < (volume_sma_20 * min_vol_ratio):
-            reasons.append(
-                f"BLOCKED: Volume ({volume:.2f}) dropped below {min_vol_ratio * 100}% "
+    # Priority: adaptive rolling floor injected by main.py > per-pair static > global
+    rolling_vol_p15 = indicators.get("rolling_volume_p15")   # injected by main.py when adaptive enabled
+    min_vol_ratio = (
+        pair_cfg.get("min_volume_ratio")                      # per-pair static (Fix #111)
+        or config.get("trading", {}).get("allowed_trading_hours", {}).get("min_volume_ratio", 0.5)
+    )
+    if volume is not None:
+        # Adaptive floor (rolling p15) takes priority over ratio-based check when injected
+        if rolling_vol_p15 is not None:
+            vol_blocked = volume < rolling_vol_p15
+            vol_reason = (
+                f"BLOCKED: Volume ({volume:.2f}) below rolling p15 floor ({rolling_vol_p15:.2f})"
+                f" — dead zone detected"
+            )
+        elif volume_sma_20 is not None and volume_sma_20 > 0:
+            vol_blocked = volume < (volume_sma_20 * min_vol_ratio)
+            vol_reason = (
+                f"BLOCKED: Volume ({volume:.2f}) dropped below {min_vol_ratio * 100:.0f}% "
                 f"of average ({volume_sma_20:.2f}) — dead zone detected"
             )
+        else:
+            vol_blocked = False
+            vol_reason = ""
+        if vol_blocked:
+            reasons.append(vol_reason)
             sell_score = _score_sell(
                 rsi, rsi_overbought, macd_hist, near_upper_for_sell, near_lower,
                 w_rsi_overbought, w_macd_hist_neg, w_bb_upper, reasons

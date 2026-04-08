@@ -152,10 +152,20 @@ def compute_dynamic_tp(
         return float(min_tp)
 
     # BB squeeze guard: if bands are compressed below threshold, clamp TP to pair floor
+    # Priority: rolling p10 injected by main.py > per-pair static > global dynamic_tp threshold
     if dtp_cfg.get("bb_width_scale", False) and bb_upper and bb_lower:
         bb_mid_calc = (bb_upper + bb_lower) / 2
         bb_width_pct = (bb_upper - bb_lower) / bb_mid_calc * 100
-        if bb_width_pct < dtp_cfg.get("squeeze_threshold_pct", 1.0):
+        pair_cfg = next(
+            (p for p in config.get("trading", {}).get("pairs", []) if p.get("pair") == pair),
+            {}
+        )
+        squeeze_threshold = (
+            pair_cfg.get("_rolling_bb_p10_pct")              # injected by main.py when adaptive enabled
+            or pair_cfg.get("bb_squeeze_threshold_pct")      # per-pair static (Fix #110)
+            or dtp_cfg.get("squeeze_threshold_pct", 1.0)     # global fallback
+        )
+        if bb_width_pct < squeeze_threshold:
             return float(min_tp)
 
     multiplier = get_volatility_multiplier(atr, entry_price)

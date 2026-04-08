@@ -2,6 +2,29 @@
 
 ---
 
+## Session: 2026-04-09 (Part A) — Per-Pair Signal Parameters, Backtest Hours Fix, Analysis Scripts
+
+### Fixed
+- **[#106] `tests/test_backtest.py`**: Backtest now forces `allowed_trading_hours.enabled=False` — previously the 1-hour trading window caused only ~84 LLM calls per 2,016-candle backtest (96% suppression).
+- **[#107] `config.yaml` + `src/analysis/signals.py`**: Per-pair `atr_tp_min_pct` replaces broken global 1.0% floor. Global floor was blocking 93–99.8% of all signals with zero selectivity. Per-pair values (BTC=0.14%, TRX=0.12%, INJ=0.34%) derived from p25 ATR% × 0.8 with min cap.
+- **[#109] `config.yaml` + `src/analysis/signals.py`**: Per-pair `rsi_oversold` (BNB/XRP/LTC→28, TRX→35) and `rsi_overbought` (TRX→65, XRP/DOGE/ADA/LTC/SUI/INJ→72) — calibrated so each pair fires oversold/overbought ~5–8% of candles.
+- **[#110] `config.yaml` + `src/analysis/features.py`**: Per-pair `bb_squeeze_threshold_pct` (BTC=0.7%, INJ=2.5%) — global 1.0% was incorrectly declaring SOL/SUI/UNI/INJ in squeeze most of the time, clamping dynamic TP to minimum.
+- **[#111] `config.yaml` + `src/analysis/signals.py`**: Per-pair `min_volume_ratio` — BNB/UNI/INJ→0.30 (dead zone was blocking 57–58% of candles at global 0.50).
+
+### Added
+- **`scripts/analyse_atr_profile.py`**: ATR% distribution per pair from historical candles.
+- **`scripts/analyse_pair_params.py`**: Full statistical analysis of RSI, MACD, BB, volume per pair.
+- **`scripts/analyse_rolling_windows.py`**: Rolling-window stability (CV) + buy/sell signal win rate analysis.
+- **`docs/plan_per_pair_params.md`**: Full plan for all 12 parameter changes with data-derived recommendations.
+- **`tests/test_per_pair_params.py`**: 20 new tests covering per-pair ATR floor, RSI, BB squeeze, volume ratio, and adaptive injection overrides.
+- **GitHub issues #107–#118**: All 12 planned changes documented with What/Why/How.
+
+### Infra
+- `adaptive_atr_floor_lookback: 400` added per-pair in config — placeholder for future adaptive floor injection from `main.py` (Fix #108, pending).
+- ATR floor priority chain documented: injected adaptive → per-pair static → global fallback → min_profit_floor.
+
+---
+
 ## Session: 2026-04-08 (Part C) — Trailing Stop Tuning, ATR Floor, BB Squeeze TP, Trading Hours
 
 ### Fixed

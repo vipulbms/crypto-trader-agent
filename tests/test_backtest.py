@@ -67,6 +67,9 @@ def main():
     config["storage"]["paper_db"] = "backtest_paper.db"
     config["storage"]["audit_db"] = "backtest_audit.db"
 
+    # Disable trading hours filter — backtest must evaluate all candles regardless of time-of-day
+    config["trading"]["allowed_trading_hours"]["enabled"] = False
+
     # Clean up old backtest databases and logs before starting
     print("Cleaning up previous backtest databases and logs...")
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
