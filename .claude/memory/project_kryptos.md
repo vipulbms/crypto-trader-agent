@@ -76,9 +76,9 @@ Fully implemented to mirror PaperBroker interface: `get_balance()` uses DB entry
 - LLM trading rules in `.claude/skills/trading-rules/SKILL.md` — keep SKILL.md in sync whenever signal logic or risk rules change.
 
 ## Trading Hours
-- Current window: 03:00–04:00 SGT = 19:00–19:59 UTC (1-hour window, narrowed for testing).
-- `config.yaml`: `start_hour_utc: 19`, `end_hour_utc: 20`.
-- `end_hour_utc` is EXCLUSIVE — set to 20 to include only 19:xx UTC (03:xx SGT).
+- Time-of-day guard is **disabled** (`allowed_trading_hours.enabled: false`). Agent trades at any hour.
+- `config.yaml`: `start_hour_utc: 19`, `end_hour_utc: 20` (retained for easy re-enable, but inactive).
+- `end_hour_utc` is EXCLUSIVE when enabled.
 - Volume dead zone check (`min_volume_ratio`) in `signals.py` is always active regardless of `enabled` flag.
 
 ## Trailing Stop (updated 2026-04-08)

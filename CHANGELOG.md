@@ -2,6 +2,17 @@
 
 ---
 
+## Session: 2026-04-09 (Part C) — Disable Time-of-Day Guard
+
+### Changed
+- **[#121] `config.yaml`**: `allowed_trading_hours.enabled: false` — time-of-day guard disabled; agent now trades at any hour.
+- **[#121] `.claude/skills/trading-rules/SKILL.md`**: Updated Volume & Time-of-Day Guard rule to reflect disabled state.
+- **[#121] `.claude/memory/project_kryptos.md`**: Trading Hours section updated.
+
+Note: Volume dead zone check (`min_volume_ratio` / `rolling_volume_p15`) remains always-on in `signals.py` Hard Blocker 3.
+
+---
+
 ## Session: 2026-04-09 (Part B) — Adaptive Injections, MACD Normalisation, 90% Capital, Signal Drivers
 
 ### Fixed
