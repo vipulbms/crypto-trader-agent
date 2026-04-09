@@ -286,5 +286,115 @@ class TestAtrBasedStopLoss(unittest.TestCase):
         self.assertEqual(sl, 5)
 
 
+class TestMinOrderUsdFloor(unittest.TestCase):
+    """#126 — $5 position must be rejected when min_order_usd is $20."""
+
+    def setUp(self):
+        self.config = {
+            "trading": {
+                "stop_loss_pct": 5,
+                "take_profit_pct": 10,
+                "max_position_pct": 30,
+            },
+            "risk": {
+                "min_cash_reserve_pct": 5,
+                "min_order_usd": 20.0,
+            },
+        }
+        self.risk_mgr = RiskManager(self.config)
+
+    def test_micro_position_rejected_at_20_floor(self):
+        """A $5 proposed trade must be rejected when min_order_usd=20."""
+        approved, reason, amount = self.risk_mgr.validate_buy(
+            pair="DOGE/USD",
+            proposed_usd=5.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=100.0,
+            open_positions_count=0,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+            current_price=0.10,
+            baseline_price=0.10,
+        )
+        self.assertFalse(approved)
+        self.assertEqual(amount, 0.0)
+
+    def test_deployable_cash_below_floor_rejected(self):
+        """If deployable cash (available - reserve) < min_order_usd, reject immediately."""
+        # portfolio=$1000, reserve=5% → $50. available=$60 → deployable=$10 < $20
+        approved, reason, amount = self.risk_mgr.validate_buy(
+            pair="ADA/USD",
+            proposed_usd=10.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=60.0,
+            open_positions_count=0,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+            current_price=0.50,
+            baseline_price=0.50,
+        )
+        self.assertFalse(approved)
+        self.assertIn("min_order_usd", reason)
+        self.assertEqual(amount, 0.0)
+
+    def test_valid_position_above_floor_approved(self):
+        """A $25 proposed trade must pass the $20 floor."""
+        approved, _, amount = self.risk_mgr.validate_buy(
+            pair="DOGE/USD",
+            proposed_usd=25.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=500.0,
+            open_positions_count=0,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+            current_price=0.10,
+            baseline_price=0.10,
+        )
+        self.assertTrue(approved)
+        self.assertGreater(amount, 0.0)
+
+
+class TestPaperBrokerOverdrawGuard(unittest.TestCase):
+    """#129 — place_order() must raise ValueError if wallet would go negative."""
+
+    def _make_broker(self, starting_cash: float):
+        import tempfile
+        from src.storage.database import init_paper_db
+        from src.exchange.paper_broker import PaperBroker
+
+        tmp = tempfile.mktemp(suffix=".db")
+        init_paper_db(tmp, starting_cash)
+        return PaperBroker(paper_db=tmp, slippage_pct=0.0, maker_fee_pct=0.0, config={})
+
+    def test_place_order_raises_on_insufficient_cash(self):
+        """Wallet has $10; trying to buy $50 worth must raise ValueError."""
+        broker = self._make_broker(10.0)
+        with self.assertRaises(ValueError) as ctx:
+            broker.place_order(
+                pair="BTC/USD",
+                side="buy",
+                usd_amount=50.0,
+                current_price=50000.0,
+                stop_loss_pct=5.0,
+                take_profit_pct=8.0,
+            )
+        self.assertIn("Insufficient funds", str(ctx.exception))
+
+    def test_place_order_succeeds_within_balance(self):
+        """Wallet has $1000; buying $50 must succeed without raising."""
+        broker = self._make_broker(1000.0)
+        result = broker.place_order(
+            pair="ETH/USD",
+            side="buy",
+            usd_amount=50.0,
+            current_price=3000.0,
+            stop_loss_pct=5.0,
+            take_profit_pct=12.0,
+        )
+        self.assertIn("position_id", result)
+        balance = broker.get_balance()
+        self.assertGreater(balance["available_cash_usd"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

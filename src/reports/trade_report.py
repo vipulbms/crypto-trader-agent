@@ -491,6 +491,7 @@ def get_performance_metrics(mode: str, config: dict, days: int = 14) -> dict:
         "avg_hold_secs": avg_hold,
         "avg_hold_human": _fmt_duration(avg_hold),
         "exit_reason_counts": _count_field(trades_list, "exit_reason"),
+        "exit_reason_pnl": _sum_pnl_by_field(trades_list, "exit_reason"),
     }
 
 
@@ -514,6 +515,15 @@ def _count_field(rows: list, field: str) -> dict:
         k = r.get(field, "unknown")
         result[k] = result.get(k, 0) + 1
     return result
+
+
+def _sum_pnl_by_field(rows: list, field: str) -> dict:
+    """Sum pnl_usd per distinct value of field (e.g. per exit_reason)."""
+    result: dict = {}
+    for r in rows:
+        k = r.get(field, "unknown")
+        result[k] = result.get(k, 0.0) + r.get("pnl_usd", 0.0)
+    return {k: round(v, 2) for k, v in result.items()}
 
 
 # ──────────────────────────────────────────────────────────────

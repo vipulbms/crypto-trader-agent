@@ -214,11 +214,14 @@ LIMIT 10;
 
 | Value | Triggered by |
 |---|---|
-| `take_profit` | `check_stops_and_tp()` — price reached TP level |
-| `stop_loss` | `check_stops_and_tp()` — price dropped to SL level |
+| `take_profit` | `check_stops_and_tp()` — price reached full TP level |
+| `partial_take_profit` | `check_stops_and_tp()` — partial TP triggered (50% of position closed at 50% of TP target) |
+| `trailing_stop` | `check_stops_and_tp()` — trailing SL was raised above hard floor and then hit; typically a profitable exit |
+| `stop_loss` | `check_stops_and_tp()` — price dropped to the original hard SL floor |
 | `agent_sell` | LLM called `propose_sell` and risk manager approved |
 | `kill_switch` | Global kill switch fired (daily drawdown ≥ 7%) |
 | `fallback_stop_loss` | Live mode: native SL order failed; market sell used |
+| `backtest_end` | Backtest finished — position force-closed at final candle price (mark-to-market) |
 
 ---
 

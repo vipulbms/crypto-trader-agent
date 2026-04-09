@@ -127,10 +127,19 @@ class PaperBroker:
 
         conn = get_connection(self._db)
 
-        # Deduct cost + fee from wallet
+        # Deduct cost + fee from wallet — guard against overdraw (#129)
         row = conn.execute("SELECT cash_usd FROM paper_wallet ORDER BY id DESC LIMIT 1").fetchone()
         current_cash = float(row["cash_usd"]) if row else 0.0
         new_cash = current_cash - actual_cost - fee_usd
+        if new_cash < 0:
+            conn.close()
+            logger.error(
+                "[PAPER] OVERDRAW BLOCKED — would set cash to $%.4f for %s order $%.2f",
+                new_cash, pair, actual_cost,
+            )
+            raise ValueError(
+                f"Insufficient funds: need ${actual_cost + fee_usd:.2f}, have ${current_cash:.2f}"
+            )
         conn.execute(
             "UPDATE paper_wallet SET cash_usd=?, updated_at=?",
             (round(new_cash, 4), _now()),
@@ -461,6 +470,37 @@ class PaperBroker:
                     )
                 if trade:
                     closed.append(trade)
+        return closed
+
+    def force_close_all(self, prices: dict) -> list:
+        """
+        Mark-to-market close all open positions at the supplied end-of-backtest prices.
+        Called after the last candle is processed to realise final P&L (backtest_end).
+
+        Args:
+            prices: {pair: close_price} — typically the last candle price per pair.
+
+        Returns list of closed trade summaries.
+        """
+        conn = get_connection(self._db)
+        positions = conn.execute(
+            "SELECT * FROM paper_positions WHERE status='open'"
+        ).fetchall()
+        conn.close()
+
+        closed = []
+        for pos in positions:
+            pos = dict(pos)
+            price = prices.get(pos["pair"])
+            if price is None:
+                logger.warning("[PAPER] force_close_all: no price for %s — skipping", pos["pair"])
+                continue
+            trade = self.close_position(pos["id"], price, "backtest_end")
+            if trade:
+                closed.append(trade)
+
+        if closed:
+            logger.info("[PAPER] force_close_all: closed %d positions at backtest end", len(closed))
         return closed
 
     def get_daily_pnl(self, start_of_day_balance: float) -> dict:

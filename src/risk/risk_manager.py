@@ -294,7 +294,16 @@ class RiskManager:
             )
 
         # -- NEW ALLOCATIONS: DYNAMIC BALANCE & CRASH VALIDATION --
-        
+
+        # Guard 0.5: Deployable cash below min_order_usd — skip pair to avoid micro-trades
+        deployable = available_cash_usd - min_cash
+        if deployable < self._min_order_usd:
+            logger.info(
+                "[RISK] Skipping BUY %s — deployable cash $%.2f below min_order_usd $%.2f",
+                pair, deployable, self._min_order_usd,
+            )
+            return (False, f"Deployable cash ${deployable:.2f} below min_order_usd ${self._min_order_usd:.2f}", 0.0)
+
         # Guard 1: Minimum Order Size
         if proposed_usd < self._min_order_usd:
             return (
@@ -347,7 +356,7 @@ class RiskManager:
         tradable_cash = available_cash_usd - min_cash
         capped = min(capped, tradable_cash)
 
-        if capped < 5.0:
+        if capped < self._min_order_usd:
             return (False, "No tradable cash after min reserve deduction", 0.0)
 
         reason = "Approved"

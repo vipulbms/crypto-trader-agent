@@ -2,6 +2,26 @@
 
 ---
 
+## Session: 2026-04-09 (Part G) — trailing_stop reporting, min_order_usd $20, force_close_all, overdraw guard
+
+### Features / Fixes
+- **[#125] trailing_stop in Exit Reasons panel**: `print_performance_metrics()` now shows count **and** total P&L (green/red) per exit reason. `trade_report.py` adds `exit_reason_pnl` dict alongside `exit_reason_counts`. `docs/how_to_debug.md` updated with `trailing_stop`, `partial_take_profit`, and `backtest_end` in the exit reason table.
+- **[#126] min_order_usd raised to $20**: `config.yaml` updated. Guard 0.5 added to `validate_buy()` in `risk_manager.py` — if deployable cash < $20, rejects immediately with `[RISK] Skipping BUY {pair} — deployable cash $X below min_order_usd $Y`. Hardcoded `capped < 5.0` replaced by `capped < self._min_order_usd`. 3 new tests.
+- **[#127] Force mark-to-market close at backtest end**: `PaperBroker.force_close_all(prices)` added. Called by `tests/test_backtest.py` after `run_agent()` completes — closes all remaining open positions with `exit_reason='backtest_end'` at the last candle price and prints forced-close count + P&L.
+- **[#129] Overdraw guard in place_order()**: `PaperBroker.place_order()` now checks `new_cash >= 0` before writing to DB. Raises `ValueError("Insufficient funds: ...")` and logs `[PAPER] OVERDRAW BLOCKED`. 2 new tests.
+
+### Changed
+- `config.yaml` — `min_order_usd: 5.0` → `20.0`
+- `src/exchange/paper_broker.py` — overdraw guard + `force_close_all()`
+- `src/risk/risk_manager.py` — Guard 0.5 (deployable cash check) + `capped < self._min_order_usd`
+- `src/reports/trade_report.py` — `_sum_pnl_by_field()` helper + `exit_reason_pnl` in summary
+- `src/cli/display.py` — Exit Reasons panel shows P&L per reason
+- `tests/test_backtest.py` — `force_close_all` call + summary print
+- `tests/test_risk_manager.py` — 5 new tests (135 → 140 total)
+- `docs/how_to_debug.md` — exit_reason table expanded
+
+---
+
 ## Session: 2026-04-09 (Part E) — Trailing Stop Label Fix (#123)
 
 ### Bug Fixed

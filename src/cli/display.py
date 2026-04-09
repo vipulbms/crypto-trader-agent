@@ -463,8 +463,16 @@ def print_performance_metrics(data: dict) -> None:
         console.print(Panel("\n".join(lines), title="Best / Worst Trade", border_style="dim"))
 
     exit_counts = data.get("exit_reason_counts", {})
+    exit_pnl    = data.get("exit_reason_pnl", {})
     if exit_counts:
-        lines2 = [f"  [bold white]{k.replace('_', ' ')}:[/bold white] {v}" for k, v in exit_counts.items()]
+        lines2 = []
+        for k, v in exit_counts.items():
+            pnl_v = exit_pnl.get(k, 0.0)
+            pnl_style = "green" if pnl_v >= 0 else "red"
+            lines2.append(
+                f"  [bold white]{k.replace('_', ' ')}:[/bold white] {v}  "
+                f"[{pnl_style}]${pnl_v:+,.2f}[/{pnl_style}]"
+            )
         console.print(Panel("\n".join(lines2), title="Exit Reasons", border_style="dim"))
 
 

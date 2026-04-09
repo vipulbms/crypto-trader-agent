@@ -31,6 +31,7 @@ logging.basicConfig(
 
 from tests.backtest.loader import load_all_pairs
 from src.exchange.historical_feed import HistoricalFeed
+from src.exchange.paper_broker import PaperBroker
 from src.storage.database import get_connection, get_db_path, init_paper_db, init_audit_db
 from main import run_agent
 
@@ -109,6 +110,27 @@ def main():
     print(f"Starting backtest — {feed.total_tradeable} tradeable candle steps...\n")
 
     asyncio.run(run_agent(config, mode="paper", feed=feed))
+
+    # Force mark-to-market close of all remaining open positions at last candle price (#127)
+    paper_cfg = config.get("paper", {})
+    broker = PaperBroker(
+        paper_db=config["storage"]["paper_db"],
+        slippage_pct=paper_cfg.get("slippage_pct", 0.05),
+        maker_fee_pct=paper_cfg.get("maker_fee_pct", 0.16),
+        config=config,
+    )
+    last_prices = {
+        pair: feed.get_latest_price(pair)
+        for pair in loaded
+        if feed.get_latest_price(pair) is not None
+    }
+    force_closed = broker.force_close_all(last_prices)
+    if force_closed:
+        force_pnl = sum(t.get("pnl_usd", 0) for t in force_closed)
+        print(
+            f"\nForced closed {len(force_closed)} positions at backtest end (mark-to-market)"
+            f"  |  P&L: ${force_pnl:+,.2f}"
+        )
 
     print("\nBacktest complete. Results are in backtest_paper.db and backtest_audit.db.")
     print("Run:  python kryptos.py report  (after pointing config to backtest DBs)")
