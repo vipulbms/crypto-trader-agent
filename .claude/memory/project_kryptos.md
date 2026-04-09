@@ -87,18 +87,44 @@ Fully implemented to mirror PaperBroker interface: `get_balance()` uses DB entry
   DOGE/RAILS/HYPE: 7%/5.0%, SUI: 6%/4.0%.
 - `paper_broker.py` and `kraken_client.py` read dict overrides (backward-compatible with scalar floats).
 
-## ATR/BB Signal Gates (updated 2026-04-09)
-- `dynamic_tp.atr_tp_min_pct: 0.30` (global fallback only — was 1.0%). Per-pair `atr_tp_min_pct` in config overrides this (BTC=0.14, TRX=0.12, INJ=0.34, etc.).
+## ATR/BB Signal Gates (updated 2026-04-09b)
+- `dynamic_tp.atr_tp_min_pct: 0.30` (global fallback only). Per-pair `atr_tp_min_pct` in config overrides this (BTC=0.14, TRX=0.12, INJ=0.34, etc.).
 - ATR floor priority chain in `signals.py` Hard Blocker 2: `indicators["adaptive_atr_floor_pct"]` (injected, adaptive) → `pair_cfg["atr_tp_min_pct"]` (per-pair static) → `dynamic_tp.atr_tp_min_pct` (global) → `min_profit_floor_pct`.
 - `compute_dynamic_tp()` BB squeeze guard: threshold is per-pair `bb_squeeze_threshold_pct` → global `squeeze_threshold_pct` (1.0%). When BB width < threshold, TP clamps to pair floor.
 - BB squeeze thresholds: BTC=0.7%, ETH=1.3%, BNB=0.9%, SOL=1.8%, XRP=1.4%, TRX=0.8%, DOGE=1.8%, ADA=1.9%, LTC=1.5%, AVAX=2.0%, SUI=2.1%, UNI=2.1%, INJ=2.5%.
 - `compute_dynamic_tp()` pair floor: `min_tp = max(global_min_tp, pair_static_tp)` — dynamic TP never goes below pair's configured target.
 
-## Per-pair signal thresholds (added 2026-04-09)
+## Per-pair signal thresholds (added 2026-04-09a)
 - **RSI**: `rsi_oversold` and `rsi_overbought` per pair in config. `signals.py` reads `pair_cfg` first, then global fallback. TRX oversold=35 (noisy), BNB/XRP/LTC=28 (rare), TRX overbought=65, INJ/XRP/DOGE/ADA/LTC/SUI=72, others=75.
 - **Volume**: `min_volume_ratio` per pair. BNB/UNI/INJ=0.30 (dead zone fix), TRX/DOGE/ADA/LTC/AVAX=0.40, BTC/ETH/SOL/XRP/SUI=0.50. Hard Blocker 3 in `signals.py` also supports `rolling_volume_p15` injection (adaptive).
 - **Adaptive ATR floor lookback**: All 13 current pairs use 400-candle lookback (CV analysis: 400 gives lowest CV=0.28–0.47 vs 0.46–0.87 at 50 candles). Per-pair `adaptive_atr_floor_lookback` field exists for future RAILS/HYPE override.
 - `tests/test_per_pair_params.py` — 20 tests covering all per-pair threshold behaviours. Run after any `signals.py` or `features.py` edit.
+
+## Adaptive injections (added 2026-04-09b)
+Each cycle, `main.py run_cycle()` injects 3 adaptive values into indicators before `generate_signal()`:
+1. `adaptive_atr_floor_pct` — rolling p25 ATR% × scaling_factor (0.8), min_cap 0.10%. Config: `adaptive_atr_floor.{enabled, scaling_factor, min_cap_pct, lookback_candles}`.
+2. `_rolling_bb_p10_pct` — rolling p10 BB width%. Config: `adaptive_bb_squeeze.{enabled, lookback_candles, percentile}`.
+3. `rolling_volume_p15` — rolling p15 raw volume. Config: `adaptive_volume_floor.{enabled, lookback_candles, percentile}`.
+All three use 400-candle lookback globally; per-pair ATR lookback overrideable via `adaptive_atr_floor_lookback`.
+
+## MACD decay (updated 2026-04-09b)
+- `exit_timing.macd_decay_threshold_pct: -0.005` replaces old absolute `-0.0005`.
+- `check_exit_timing()` computes `macd_hist / price × 100` before comparing. Price-scale agnostic.
+
+## Position sizing (updated 2026-04-09b)
+- `max_open_positions: 13` (was 5), `max_position_pct: 15%` (was 30%), `max_buys_per_cycle: 5` (was 3).
+- `position_sizing.base_position_pct: 12%` (was 20%), `position_sizing.max_position_pct: 15%` (was 30%).
+- `min_cash_reserve_pct: 10%` unchanged — agent can deploy up to 90% capital.
+
+## Signal driver report (added 2026-04-09b)
+- `kryptos.py drivers [--days 30] [--top 10]` — shows top blockers and BUY drivers per pair and globally.
+- `trade_report.get_signal_driver_report()` queries `audit_signals.signal_reasons` JSON.
+- `display.print_signal_driver_report()` formats as Rich tables.
+
+## Parameter calibration utility (added 2026-04-09b)
+- `scripts/calibrate_params.py --start-date 2025-01-01 [--output rec.yaml]`
+- Loads candles from SQLite DB or Kraken REST API; computes per-pair recommendations for all 5 signal parameters.
+- Outputs YAML diff of recommended vs current config.
 
 ## Live Trading Limits & Async
 - Limit Orders in live (`KrakenClient`) must resolve to 'closed' before SL/TP orders are attached. `check_stops_and_tp` handles polling.

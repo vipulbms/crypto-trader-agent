@@ -184,6 +184,7 @@ def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
         "review":      lambda p: commands.cmd_review(p, config),
         "charts":      lambda p: commands.cmd_charts(p, config),
         "positions":   lambda p: commands.cmd_open_positions(p, config),
+        "drivers":     lambda p: commands.cmd_signal_drivers(p, config),
         "log":         lambda p: commands.cmd_tail_log(p),
         "help":        lambda p: commands.cmd_help(p),
     }
@@ -311,6 +312,11 @@ Examples:
     sp_charts.add_argument("--window",  type=int, default=80,   help="Candles of padding before/after each trade (default: 80)")
     sp_charts.add_argument("--out",     type=str, default="charts", help="Output directory (default: charts/)")
     sp_charts.add_argument("--mode",    type=str, default="paper", choices=["paper", "live"])
+
+    # drivers
+    sp_drv = subparsers.add_parser("drivers", help="Show which parameters are driving BUY/HOLD signals")
+    sp_drv.add_argument("--days",  type=int, default=30, help="Look-back window in days (default: 30)")
+    sp_drv.add_argument("--top",   type=int, default=10, dest="top_n", help="Top N reasons to show (default: 10)")
 
     # log
     sp_log = subparsers.add_parser("log", help="Show recent agent log")

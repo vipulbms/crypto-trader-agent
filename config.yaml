@@ -17,9 +17,9 @@ trading:
   # Allowed take-profit levels — validated at startup
   allowed_take_profit_pcts: [5, 8, 12, 16, 20]
 
-  max_position_pct: 30        # Max % of portfolio per single trade
-  max_open_positions: 5       # Max concurrent open positions (across all pairs)
-  max_buys_per_cycle: 3       # LLM may propose at most this many buys per cycle
+  max_position_pct: 15        # Max % of portfolio per single trade (Fix #116 — was 30)
+  max_open_positions: 13      # No effective cap — up to all 13 standard pairs (Fix #116 — was 5)
+  max_buys_per_cycle: 5       # LLM may propose at most this many buys per cycle (Fix #116 — was 3)
   cycle_interval_minutes: 15  # How often the agent runs a decision cycle
 
   # Time-of-day filter to avoid low-volume false breakouts
@@ -315,11 +315,11 @@ risk:
 # ──────────────────────────────────────────────
 position_sizing:
   enabled: true
-  base_position_pct: 20         # Base % of portfolio per trade (before scaling)
+  base_position_pct: 12         # Base % of portfolio per trade (before scaling; Fix #116 — was 20)
   strength_weight: 0.5          # How much signal strength influences size (0=ignore, 1=full)
   volatility_weight: 0.5        # How much ATR volatility reduces size (0=ignore, 1=full)
   min_position_pct: 5           # Never allocate less than this % of portfolio
-  max_position_pct: 30          # Hard cap (aligned with risk.max_position_pct)
+  max_position_pct: 15          # Hard cap (aligned with risk.max_position_pct; Fix #116 — was 30)
 
 # ──────────────────────────────────────────────
 # Feature: ATR-based stop-loss at entry (S12.4.1 — #86)
@@ -331,6 +331,40 @@ atr_stop_loss:
   atr_multiplier: 1.5       # SL distance = ATR × multiplier
   max_stop_loss_pct: 5.0    # Hard cap — never wider than 5%
   min_stop_loss_pct: 1.0    # Floor — never tighter than 1%
+
+# ──────────────────────────────────────────────
+# Feature: Adaptive ATR floor (Fix #108)
+# Per-cycle, rolling p25 ATR% per pair is injected into indicators as
+# adaptive_atr_floor_pct. Overrides static per-pair atr_tp_min_pct in
+# signals.py Hard Blocker 2. Per-pair lookback via adaptive_atr_floor_lookback.
+# ──────────────────────────────────────────────
+adaptive_atr_floor:
+  enabled: true
+  scaling_factor: 0.8   # floor = p25_atr_pct × scaling_factor
+  min_cap_pct: 0.10     # absolute minimum regardless of rolling p25
+  lookback_candles: 400 # global default; per-pair override via adaptive_atr_floor_lookback
+
+# ──────────────────────────────────────────────
+# Feature: Adaptive BB squeeze threshold (Fix #113)
+# Per-cycle, rolling p10 BB width% per pair is injected into indicators as
+# _rolling_bb_p10_pct. features.py compute_dynamic_tp() reads this first,
+# then falls back to per-pair bb_squeeze_threshold_pct, then global.
+# ──────────────────────────────────────────────
+adaptive_bb_squeeze:
+  enabled: true
+  lookback_candles: 400  # global default; per-pair override not yet exposed
+  percentile: 10         # p10 of BB width% — defines "squeezed" market baseline
+
+# ──────────────────────────────────────────────
+# Feature: Adaptive volume floor (Fix #114)
+# Per-cycle, rolling p15 raw volume per pair is injected into indicators as
+# rolling_volume_p15. signals.py Hard Blocker 3 uses this first, then falls back
+# to SMA-ratio check using per-pair min_volume_ratio.
+# ──────────────────────────────────────────────
+adaptive_volume_floor:
+  enabled: true
+  lookback_candles: 400  # global default
+  percentile: 15         # p15 of raw volume — candles below this are dead-zone
 
 # ──────────────────────────────────────────────
 # Feature 2: Dynamic take-profit targets
@@ -429,10 +463,11 @@ pattern_analysis:
 # ──────────────────────────────────────────────
 exit_timing:
   enabled: true
-  min_hold_minutes: 60          # Never exit early before this many minutes
-  macd_decay_threshold: -0.0005 # MACD histogram below this = momentum decaying
-  rsi_exit_overbought: 70       # Exit long if RSI rises above this
-  sideways_candles: 8           # Exit if price hasn't moved > ATR for this many candles
+  min_hold_minutes: 60              # Never exit early before this many minutes
+  macd_decay_threshold_pct: -0.005  # MACD histogram / price × 100 below this = decay (Fix #112)
+                                    # Replaces absolute macd_decay_threshold — works for all pairs
+  rsi_exit_overbought: 70           # Exit long if RSI rises above this
+  sideways_candles: 8               # Exit if price hasn't moved > ATR for this many candles
 
 # ──────────────────────────────────────────────
 # Feature 7: Post-trade analysis

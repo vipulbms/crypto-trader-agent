@@ -588,10 +588,10 @@ def check_exit_timing(
     if not et_cfg.get("enabled", True):
         return None
 
-    min_hold_mins    = et_cfg.get("min_hold_minutes", 60)
-    macd_decay       = et_cfg.get("macd_decay_threshold", -0.0005)
-    rsi_exit_ob      = et_cfg.get("rsi_exit_overbought", 70)
-    sideways_candles = et_cfg.get("sideways_candles", 8)
+    min_hold_mins         = et_cfg.get("min_hold_minutes", 60)
+    macd_decay_pct        = et_cfg.get("macd_decay_threshold_pct", -0.005)  # % of price (Fix #112)
+    rsi_exit_ob           = et_cfg.get("rsi_exit_overbought", 70)
+    sideways_candles      = et_cfg.get("sideways_candles", 8)
 
     # Check minimum hold time
     opened_at_str = position.get("opened_at", "")
@@ -613,9 +613,14 @@ def check_exit_timing(
     price     = indicators.get("close")
     entry_price = float(position.get("entry_price", price or 0))
 
-    # MACD histogram decay — momentum turning negative
-    if macd_hist is not None and macd_hist < macd_decay:
-        return f"MACD histogram decayed to {macd_hist:.5f} — bearish momentum on open position"
+    # MACD histogram decay — normalised to % of price so threshold is pair-agnostic (Fix #112)
+    if macd_hist is not None and price and price > 0:
+        macd_hist_pct = macd_hist / price * 100
+        if macd_hist_pct < macd_decay_pct:
+            return (
+                f"MACD histogram decayed to {macd_hist_pct:.4f}% of price "
+                f"(threshold {macd_decay_pct}%) — bearish momentum on open position"
+            )
 
     # RSI overbought exit
     if rsi is not None and rsi > rsi_exit_ob:

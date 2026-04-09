@@ -213,6 +213,17 @@ def cmd_open_positions(params: dict, config: Optional[dict] = None) -> None:
     d.print_portfolio_summary(portfolio)
 
 
+def cmd_signal_drivers(params: dict, config: Optional[dict] = None) -> None:
+    """Show which parameters are most frequently blocking or driving BUY signals (Fix #117)."""
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    days  = int(params.get("days", 30))
+    top_n = int(params.get("top_n", 10))
+    data  = rpt.get_signal_driver_report(config, days=days, top_n=top_n)
+    d.print_signal_driver_report(data)
+
+
 def cmd_tail_log(params: dict) -> None:
     lines_count = params.get("lines") or 30
     lines = am.tail_log(lines_count)
@@ -252,8 +263,9 @@ def dispatch(intent_obj: dict, config: Optional[dict] = None) -> bool:
         "review":         lambda: cmd_review(params, config),
         "charts":         lambda: cmd_charts(params, config),
         "win_rate":       lambda: cmd_win_rate(params, config),
-        "open_positions": lambda: cmd_open_positions(params, config),
-        "tail_log":       lambda: cmd_tail_log(params),
+        "open_positions":  lambda: cmd_open_positions(params, config),
+        "signal_drivers":  lambda: cmd_signal_drivers(params, config),
+        "tail_log":        lambda: cmd_tail_log(params),
         "help":           lambda: cmd_help(params),
     }
 

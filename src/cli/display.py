@@ -580,3 +580,49 @@ def _fmt_secs(secs: int) -> str:
     m = (secs % 3600) // 60
     s = secs % 60
     return f"{h}h {m}m" if h else (f"{m}m {s}s" if m else f"{s}s")
+
+
+def print_signal_driver_report(data: dict) -> None:
+    """Display parameter driver report — top blockers and BUY drivers per pair (Fix #117)."""
+    from rich.table import Table
+
+    days = data.get("period_days", 30)
+    console.print(f"\n[bold cyan]Signal Driver Report — last {days} days[/bold cyan]")
+
+    # Global blockers
+    g_blockers = data.get("global_top_blockers", [])
+    if g_blockers:
+        console.print("\n[bold yellow]Top blockers (global)[/bold yellow]")
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Reason", style="yellow", no_wrap=False)
+        t.add_column("Count", justify="right")
+        for row in g_blockers:
+            t.add_row(row["reason"][:100], str(row["count"]))
+        console.print(t)
+
+    # Global drivers
+    g_drivers = data.get("global_top_drivers", [])
+    if g_drivers:
+        console.print("\n[bold green]Top BUY drivers (global)[/bold green]")
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Reason", style="green", no_wrap=False)
+        t.add_column("Count", justify="right")
+        for row in g_drivers:
+            t.add_row(row["reason"][:100], str(row["count"]))
+        console.print(t)
+
+    # Per-pair summary
+    by_pair = data.get("by_pair", {})
+    if by_pair:
+        console.print("\n[bold]Per-pair signal summary[/bold]")
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Pair")
+        t.add_column("BUY", justify="right", style="green")
+        t.add_column("HOLD", justify="right", style="yellow")
+        t.add_column("Top blocker (count)")
+        for pair, entry in sorted(by_pair.items()):
+            top_blocker = entry["top_blockers"][0]["reason"][:60] if entry["top_blockers"] else "—"
+            top_count   = f" ({entry['top_blockers'][0]['count']})" if entry["top_blockers"] else ""
+            t.add_row(pair, str(entry["buy_count"]), str(entry["hold_count"]),
+                      f"{top_blocker}{top_count}")
+        console.print(t)

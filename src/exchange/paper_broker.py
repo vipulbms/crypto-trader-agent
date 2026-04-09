@@ -218,7 +218,13 @@ class PaperBroker:
         pnl_pct     = round(pnl_usd / cost_basis * 100, 2) if cost_basis else 0.0
 
         opened_ts   = datetime.fromisoformat(pos["opened_at"])
-        hold_secs   = int((now_sgt() - opened_ts.replace(tzinfo=opened_ts.tzinfo or SGT)).total_seconds())
+        # Use timestamp_override as "now" in backtest to avoid mixing candle/wall-clock time (#115)
+        reference_ts = (
+            datetime.fromisoformat(timestamp_override)
+            if timestamp_override
+            else now_sgt()
+        )
+        hold_secs   = int((reference_ts.replace(tzinfo=reference_ts.tzinfo or SGT) - opened_ts.replace(tzinfo=opened_ts.tzinfo or SGT)).total_seconds())
 
         if is_partial:
             # Keep position open; reduce volume and usd_value

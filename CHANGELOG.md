@@ -2,6 +2,26 @@
 
 ---
 
+## Session: 2026-04-09 (Part B) — Adaptive Injections, MACD Normalisation, 90% Capital, Signal Drivers
+
+### Fixed
+- **[#108] `main.py` + `config.yaml`**: Adaptive ATR floor — rolling p25 ATR% × 0.8 injected as `adaptive_atr_floor_pct` per cycle. Config: `adaptive_atr_floor.{enabled, scaling_factor: 0.8, min_cap_pct: 0.10, lookback_candles: 400}`.
+- **[#112] `src/analysis/features.py` + `config.yaml`**: MACD decay threshold normalised — `macd_decay_threshold_pct: -0.005` (% of price) replaces absolute `-0.0005`. Fires consistently regardless of pair price scale.
+- **[#115] `src/exchange/paper_broker.py`**: `hold_secs` in backtest computed from candle `timestamp_override`, not wall clock `now_sgt()`.
+
+### Added
+- **[#113] `main.py` + `config.yaml`**: Adaptive BB squeeze — rolling p10 BB width% injected as `_rolling_bb_p10_pct` per cycle. Config: `adaptive_bb_squeeze.{enabled, lookback_candles: 400, percentile: 10}`.
+- **[#114] `main.py` + `config.yaml`**: Adaptive volume floor — rolling p15 raw volume injected as `rolling_volume_p15` per cycle. Config: `adaptive_volume_floor.{enabled, lookback_candles: 400, percentile: 15}`.
+- **[#116] `config.yaml`**: Position cap removed — `max_open_positions: 13`, `max_position_pct: 15%`, `max_buys_per_cycle: 5`. Up to 90% capital deployment with 10% cash floor.
+- **[#117] `src/reports/trade_report.py` + `src/cli/commands.py` + `src/cli/display.py` + `kryptos.py`**: Signal driver report. `kryptos.py drivers [--days 30] [--top 10]` shows top blockers/drivers per pair.
+- **[#118] `scripts/calibrate_params.py`**: Parameter calibration utility. Analyses historical candles and outputs recommended config YAML changes for all 5 per-pair signal parameters.
+
+### Tests
+- `tests/test_adaptive_atr_floor.py`: 7 tests for adaptive ATR floor computation and signal integration.
+- `tests/test_candle_timestamps.py`: 3 tests verifying candle timestamps in opened_at, closed_at, hold_secs.
+
+---
+
 ## Session: 2026-04-09 (Part A) — Per-Pair Signal Parameters, Backtest Hours Fix, Analysis Scripts
 
 ### Fixed

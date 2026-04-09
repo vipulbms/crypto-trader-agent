@@ -435,6 +435,70 @@ async def run_cycle(
         if fear_greed_index is not None:
             indicators["fear_greed_index"] = fear_greed_index
 
+        # Inject adaptive ATR floor — rolling p25 ATR% per pair (Fix #108)
+        atr_floor_cfg = config.get("adaptive_atr_floor", {})
+        if atr_floor_cfg.get("enabled", False):
+            pair_entry = next(
+                (p for p in config.get("trading", {}).get("pairs", []) if p.get("pair") == pair),
+                {}
+            )
+            lookback       = pair_entry.get("adaptive_atr_floor_lookback",
+                                            atr_floor_cfg.get("lookback_candles", 400))
+            scaling_factor = atr_floor_cfg.get("scaling_factor", 0.8)
+            min_cap        = atr_floor_cfg.get("min_cap_pct", 0.10)
+            recent         = candles[-lookback:] if len(candles) >= lookback else candles
+            atr_pct_vals   = [
+                (c["high"] - c["low"]) / c["close"] * 100
+                for c in recent
+                if c.get("close", 0) > 0
+            ]
+            if atr_pct_vals:
+                atr_pct_vals_sorted = sorted(atr_pct_vals)
+                p25_idx  = max(0, int(len(atr_pct_vals_sorted) * 0.25) - 1)
+                p25_atr  = atr_pct_vals_sorted[p25_idx]
+                adaptive_floor = max(p25_atr * scaling_factor, min_cap)
+                indicators["adaptive_atr_floor_pct"] = round(adaptive_floor, 4)
+                logger.debug(
+                    "[ADAPTIVE_ATR] %s: lookback=%d p25_atr%%=%.4f → floor=%.4f%%",
+                    pair, lookback, p25_atr, adaptive_floor,
+                )
+
+        # Inject adaptive BB squeeze threshold — rolling p10 BB width% (Fix #113)
+        bb_squeeze_cfg = config.get("adaptive_bb_squeeze", {})
+        if bb_squeeze_cfg.get("enabled", False):
+            lookback_bb   = bb_squeeze_cfg.get("lookback_candles", 400)
+            pct_bb        = bb_squeeze_cfg.get("percentile", 10)
+            recent_bb     = candles[-lookback_bb:] if len(candles) >= lookback_bb else candles
+            bb_width_vals = [
+                (c["high"] - c["low"]) / ((c["high"] + c["low"]) / 2) * 100
+                for c in recent_bb
+                if c.get("high", 0) > 0 and c.get("low", 0) > 0
+            ]
+            if bb_width_vals:
+                bb_width_vals_sorted = sorted(bb_width_vals)
+                p10_idx = max(0, int(len(bb_width_vals_sorted) * pct_bb / 100) - 1)
+                indicators["_rolling_bb_p10_pct"] = round(bb_width_vals_sorted[p10_idx], 4)
+                logger.debug(
+                    "[ADAPTIVE_BB] %s: lookback=%d p10_bb_width%%=%.4f%%",
+                    pair, lookback_bb, indicators["_rolling_bb_p10_pct"],
+                )
+
+        # Inject adaptive volume floor — rolling p15 raw volume (Fix #114)
+        vol_floor_cfg = config.get("adaptive_volume_floor", {})
+        if vol_floor_cfg.get("enabled", False):
+            lookback_vol   = vol_floor_cfg.get("lookback_candles", 400)
+            pct_vol        = vol_floor_cfg.get("percentile", 15)
+            recent_vol     = candles[-lookback_vol:] if len(candles) >= lookback_vol else candles
+            vol_vals       = [c["volume"] for c in recent_vol if c.get("volume", 0) > 0]
+            if vol_vals:
+                vol_vals_sorted = sorted(vol_vals)
+                p15_idx = max(0, int(len(vol_vals_sorted) * pct_vol / 100) - 1)
+                indicators["rolling_volume_p15"] = vol_vals_sorted[p15_idx]
+                logger.debug(
+                    "[ADAPTIVE_VOL] %s: lookback=%d p15_volume=%.2f",
+                    pair, lookback_vol, indicators["rolling_volume_p15"],
+                )
+
         sig = generate_signal(pair, indicators, config)
         sig["indicators"] = indicators  # attach raw indicators for prompt
 

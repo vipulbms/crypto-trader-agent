@@ -633,3 +633,89 @@ def get_open_positions(mode: str, config: dict) -> list:
     ).fetchall()
     tc.close()
     return [dict(r) for r in rows]
+
+
+def get_signal_driver_report(config: dict, days: int = 30, top_n: int = 10) -> dict:
+    """
+    Analyse audit_signals to show which parameters are driving BUY/HOLD decisions.
+    Returns:
+        {
+            "by_pair": {
+                "BTC/USD": {
+                    "buy_count": int,
+                    "hold_count": int,
+                    "top_blockers": [{"reason": str, "count": int}, ...],   # top HOLD reasons
+                    "top_drivers": [{"reason": str, "count": int}, ...],    # top BUY reasons
+                }
+            },
+            "global_top_blockers": [{"reason": str, "count": int}, ...],
+            "global_top_drivers": [{"reason": str, "count": int}, ...],
+            "period_days": int,
+        }
+    """
+    from collections import Counter
+
+    ac = _audit_conn(config)
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    rows = ac.execute(
+        """SELECT pair, signal_direction, signal_reasons
+           FROM audit_signals
+           WHERE created_at >= ?
+           ORDER BY created_at ASC""",
+        (cutoff,),
+    ).fetchall()
+    ac.close()
+
+    by_pair: dict = {}
+    global_blocker_counts: Counter = Counter()
+    global_driver_counts: Counter  = Counter()
+
+    for row in rows:
+        pair      = row[0]
+        direction = row[1]
+        try:
+            reasons = json.loads(row[2]) if row[2] else []
+        except Exception:
+            reasons = []
+
+        if pair not in by_pair:
+            by_pair[pair] = {
+                "buy_count":   0,
+                "hold_count":  0,
+                "_blockers":   Counter(),
+                "_drivers":    Counter(),
+            }
+
+        entry = by_pair[pair]
+        if direction == "BUY":
+            entry["buy_count"] += 1
+            for r in reasons:
+                entry["_drivers"][r] += 1
+                global_driver_counts[r] += 1
+        else:
+            entry["hold_count"] += 1
+            for r in reasons:
+                if "BLOCKED" in r or "blocked" in r.lower() or "insufficient" in r.lower():
+                    entry["_blockers"][r] += 1
+                    global_blocker_counts[r] += 1
+
+    # Convert Counter objects to sorted lists
+    result_by_pair = {}
+    for pair, entry in by_pair.items():
+        result_by_pair[pair] = {
+            "buy_count":    entry["buy_count"],
+            "hold_count":   entry["hold_count"],
+            "top_blockers": [{"reason": r, "count": c}
+                             for r, c in entry["_blockers"].most_common(top_n)],
+            "top_drivers":  [{"reason": r, "count": c}
+                             for r, c in entry["_drivers"].most_common(top_n)],
+        }
+
+    return {
+        "by_pair":             result_by_pair,
+        "global_top_blockers": [{"reason": r, "count": c}
+                                 for r, c in global_blocker_counts.most_common(top_n)],
+        "global_top_drivers":  [{"reason": r, "count": c}
+                                 for r, c in global_driver_counts.most_common(top_n)],
+        "period_days":         days,
+    }
