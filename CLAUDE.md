@@ -184,6 +184,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_09a | Per-pair atr_tp_min_pct/RSI/BB squeeze/volume ratio; backtest hours fix (#106); 20 new tests; analysis scripts; 12 GitHub issues #107–#118 created |
 | session_2026_04_09b | Adaptive ATR floor (#108), adaptive BB/volume injection (#113,#114), MACD decay normalised (#112), candle timestamps (#115), 90% capital deployment (#116), signal driver report (#117), calibrate_params.py (#118) |
 | session_2026_04_09c | Chore: disable time-of-day trading hours guard (#121); volume floor remains always-on |
+| session_2026_04_09d | Fix: backtest clean-slate teardown — get_db_path(), pre-run validation (#122) |
 
 ---
 

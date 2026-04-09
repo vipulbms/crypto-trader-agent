@@ -2,6 +2,21 @@
 
 ---
 
+## Session: 2026-04-09 (Part D) — Backtest Clean-Slate Teardown Fix (#122)
+
+### Bug Fixed
+- **[#122] Stale DB contamination in backtest**: `test_backtest.py` teardown used a manually constructed `data_dir` path that could diverge from `database.py`'s `get_connection()` path. Also had no post-teardown validation — contaminated state could silently proceed.
+
+### Changed
+- **`src/storage/database.py`**: Added `get_db_path()` public alias for `_get_db_path()`.
+- **`tests/test_backtest.py`**:
+  - Teardown now uses `get_db_path()` — same resolution as `get_connection()`.
+  - After deletion, explicitly re-inits paper and audit DBs.
+  - Asserts 0 open positions and `cash == starting_balance` before feed starts; aborts on contamination.
+  - Logs `Validated: 0 open positions, wallet=$X.XX` at startup.
+
+---
+
 ## Session: 2026-04-09 (Part C) — Disable Time-of-Day Guard
 
 ### Changed

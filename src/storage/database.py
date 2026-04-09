@@ -18,6 +18,11 @@ def _get_db_path(db_filename: str) -> str:
     return os.path.join(data_dir, db_filename)
 
 
+def get_db_path(db_filename: str) -> str:
+    """Public alias for _get_db_path. Returns absolute path to a DB file in data/."""
+    return _get_db_path(db_filename)
+
+
 def get_connection(db_filename: str) -> sqlite3.Connection:
     """Open and return a SQLite connection with foreign keys enabled."""
     path = _get_db_path(db_filename)
