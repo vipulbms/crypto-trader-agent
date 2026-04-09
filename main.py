@@ -532,15 +532,34 @@ async def run_cycle(
         config=config,
     )
 
-    # Apply regime caution factor to max_per_trade
-    caution_factor = ai_context.get("regime_data", {}).get("caution_factor", 1.0)
-    if caution_factor < 1.0:
+    # Apply regime caution factor to max_per_trade (#124)
+    regime_data    = ai_context.get("regime_data", {})
+    regime         = regime_data.get("regime", "unknown")
+    global_caution = regime_data.get("caution_factor", 1.0)
+    trading_pairs_cfg = config.get("trading", {}).get("pairs", [])
+
+    if regime == "bearish":
+        # Per-pair caution_factor_bearish: inject pair_max_usd into each signal.
+        # Winners (ETH/BNB/DOGE) keep caution=1.0 (buy the dip);
+        # underperformers get cut harder. Global 0.5 is the fallback.
+        base_max = portfolio["max_per_trade"]
+        for sig in signals:
+            pair_cfg    = next((p for p in trading_pairs_cfg if p.get("pair") == sig["pair"]), {})
+            pair_caution = pair_cfg.get("caution_factor_bearish", global_caution)
+            sig["pair_max_usd"] = round(base_max * pair_caution, 2)
+            logger.info(
+                "[REGIME] bearish — %s caution=%.2f, pair_max=$%.2f",
+                sig["pair"], pair_caution, sig["pair_max_usd"],
+            )
+        # Set global max to the fallback-caution ceiling for the prompt header
+        portfolio["max_per_trade"] = round(base_max * global_caution, 2)
+    elif global_caution < 1.0:
+        # Non-bearish regime (e.g. volatile) — apply global caution uniformly
         original_max = portfolio["max_per_trade"]
-        portfolio["max_per_trade"] = round(original_max * caution_factor, 2)
+        portfolio["max_per_trade"] = round(original_max * global_caution, 2)
         logger.info(
             "[REGIME] %s regime — caution_factor=%.2f, max_per_trade scaled $%.2f → $%.2f",
-            ai_context["regime_data"]["regime"], caution_factor,
-            original_max, portfolio["max_per_trade"],
+            regime, global_caution, original_max, portfolio["max_per_trade"],
         )
 
     # Run LLM agent

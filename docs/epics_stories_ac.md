@@ -119,7 +119,7 @@
 
 **Acceptance Criteria:**
 - [ ] AC1: Score accumulates from documented contributors: MACD turn (+3), RSI oversold (+2), near lower BB (+2), volume confirms (+1), EMA cross bullish (+1), Fear & Greed index (+1/+2).  
-- [ ] AC2: A score ≥ `signals.buy_min_score` (default 5) is required to generate a `BUY` direction.  
+- [x] AC2: A score ≥ `signals.buy_min_score` (default 5) is required to generate a `BUY` direction. Per-pair override via `trading.pairs[].buy_min_score` — INJ=7, SOL/UNI=6. Closes #128.  
 - [ ] AC3: Two hard vetoes exist: `RSI ≥ 70` and `ATR-based TP < profit_floor`. Either veto forces `HOLD` regardless of score.  
 - [ ] AC4: All scoring decisions and veto reasons are returned as a `reasons: list[str]` alongside the signal.  
 - [ ] AC5: `generate_signal()` returns `{"direction": "BUY|SELL|HOLD", "score": int, "reasons": list}`.

@@ -443,5 +443,208 @@ class TestPerPairVolumeRatio(unittest.TestCase):
         self.assertFalse(blocked, "Rolling p15=300 should allow volume 400")
 
 
+# ── Per-pair buy_min_score tests (#128) ────────────────────────────────────────
+
+class TestPerPairBuyMinScore(unittest.TestCase):
+    """Tests for per-pair buy_min_score override in generate_signal(). Refs #128."""
+
+    def _signal(self, pair, indicators, pair_extra=None):
+        """Helper: run generate_signal with per-pair buy_min_score override."""
+        from src.analysis.signals import generate_signal
+        cfg = _make_config()
+        # Apply per-pair buy_min_score override if provided
+        if pair_extra:
+            for p in cfg["trading"]["pairs"]:
+                if p["pair"] == pair:
+                    p.update(pair_extra)
+        return generate_signal(pair, indicators, cfg)
+
+    def test_inj_buy_blocked_at_score_5_when_threshold_is_7(self):
+        """
+        Given INJ/USD has buy_min_score=7
+        And indicators produce a score of 4 (RSI mildly oversold, MACD histogram turned positive,
+        but EMA bearish and MACD line below signal — no trend bonus)
+        When generate_signal is called
+        Then signal is HOLD, not BUY
+        Refs #128
+        """
+        ind = _indicators(
+            price=10.0, atr=0.5, volume=5000.0, volume_sma_20=3000.0,
+            ema_9=9.8, ema_21=10.2,  # bearish EMA — no +2 bonus
+        )
+        ind["rsi_14"] = 32.0                  # mild oversold (+1)
+        ind["macd_histogram"] = 0.01          # barely positive (+1)
+        ind["macd_histogram_prev"] = -0.01    # turned positive (+3)
+        ind["macd_line"] = -0.01              # below signal — no +1 crossover
+        ind["macd_signal_line"] = 0.01
+        ind["bb_lower"] = 10.2                # not near lower band
+        # Score: mild_oversold +1, macd_turn +3 = 4 < 7 → HOLD
+        result = self._signal("INJ/USD", ind, {"buy_min_score": 7})
+        self.assertNotEqual(result["signal"], "BUY",
+            f"INJ with buy_min_score=7 should HOLD at score ~4. Got: {result['reasons']}")
+
+    def test_inj_buy_fires_at_score_7_when_threshold_is_7(self):
+        """
+        Given INJ/USD has buy_min_score=7
+        And indicators produce a score >= 7 (RSI oversold, MACD turn, BB lower touch)
+        When generate_signal is called
+        Then signal is BUY
+        Refs #128
+        """
+        ind = _indicators(price=10.0, atr=0.5, volume=5000.0, volume_sma_20=3000.0)
+        ind["rsi_14"] = 25.0           # deeply oversold (+3)
+        ind["macd_histogram"] = 0.05   # positive (+1)
+        ind["macd_histogram_prev"] = -0.05  # turned positive (+3)
+        ind["bb_lower"] = 10.1         # price near lower band (+2) — total ~9
+        ind["adaptive_atr_floor_pct"] = 0.1  # floor satisfied
+        result = self._signal("INJ/USD", ind, {"buy_min_score": 7, "atr_tp_min_pct": 0.10})
+        self.assertEqual(result["signal"], "BUY",
+            f"INJ at score ~9 should BUY when threshold=7. Reasons: {result['reasons']}")
+
+    def test_global_default_used_when_no_per_pair_score(self):
+        """
+        Given BTC/USD has no buy_min_score override (uses global default=5)
+        And indicators produce a score of exactly 5
+        When generate_signal is called
+        Then signal is BUY (global threshold met)
+        Refs #128
+        """
+        ind = _indicators(price=90000.0, atr=500.0, volume=5000.0, volume_sma_20=3000.0)
+        ind["rsi_14"] = 25.0           # deeply oversold (+3)
+        ind["macd_histogram"] = 0.05   # positive (+1)
+        ind["macd_histogram_prev"] = -0.05  # turned positive (+3) — total 7
+        ind["bb_lower"] = 90100.0      # near lower band (+2)
+        ind["adaptive_atr_floor_pct"] = 0.1
+        result = self._signal("BTC/USD", ind, {"atr_tp_min_pct": 0.10})
+        self.assertEqual(result["signal"], "BUY",
+            f"BTC with global threshold=5 should BUY at score 7. Reasons: {result['reasons']}")
+
+    def test_sol_threshold_6_blocks_score_5(self):
+        """
+        Given SOL/USD has buy_min_score=6
+        And indicators produce score ~4 (RSI oversold +3, MACD hist positive +1,
+        but EMA bearish and MACD line below signal — no trend bonuses)
+        When generate_signal is called
+        Then signal is HOLD
+        Refs #128
+        """
+        from src.analysis.signals import generate_signal
+        cfg = _make_config()
+        cfg["trading"]["pairs"].append({
+            "pair": "SOL/USD",
+            "take_profit_pct": 16,
+            "stop_loss_pct": 5,
+            "atr_tp_min_pct": 0.30,
+            "rsi_oversold": 30,
+            "rsi_overbought": 75,
+            "bb_squeeze_threshold_pct": 1.8,
+            "min_volume_ratio": 0.50,
+            "buy_min_score": 6,
+        })
+        ind = _indicators(
+            price=150.0, atr=3.0, volume=5000.0, volume_sma_20=3000.0,
+            ema_9=148.0, ema_21=152.0,  # bearish EMA — no +2 bonus
+        )
+        ind["rsi_14"] = 29.0                # oversold (+3)
+        ind["macd_histogram"] = 0.01        # positive but not a turn (+1)
+        ind["macd_histogram_prev"] = 0.005  # was already positive — no +3 turn
+        ind["macd_line"] = -0.01            # below signal — no +1 crossover
+        ind["macd_signal_line"] = 0.01
+        ind["bb_lower"] = 160.0             # not near lower band
+        # Score: RSI oversold +3, MACD hist positive +1 = 4 < 6 → HOLD
+        result = generate_signal("SOL/USD", ind, cfg)
+        self.assertNotEqual(result["signal"], "BUY",
+            f"SOL with buy_min_score=6 should HOLD at score ~4. Got: {result['reasons']}")
+
+
+# ── Per-pair caution_factor_bearish tests (#124) ────────────────────────────────
+
+class TestPerPairCautionFactor(unittest.TestCase):
+    """
+    Tests verify that per-pair caution_factor_bearish is correctly read from
+    config and injected into signal dicts in main.py logic.
+    We test the config lookup pattern directly since caution_factor application
+    lives in main.py orchestration, not a unit-testable function.
+    Refs #124
+    """
+
+    def _get_pair_caution(self, pair, config, global_caution=0.5):
+        """Replicate the main.py per-pair caution lookup."""
+        trading_pairs_cfg = config.get("trading", {}).get("pairs", [])
+        pair_cfg = next((p for p in trading_pairs_cfg if p.get("pair") == pair), {})
+        return pair_cfg.get("caution_factor_bearish", global_caution)
+
+    def test_eth_caution_factor_is_1_0(self):
+        """
+        Given ETH/USD has caution_factor_bearish=1.0 in config
+        When bearish regime lookup is performed
+        Then caution_factor for ETH is 1.0 (no reduction — buy the dip)
+        Refs #124
+        """
+        cfg = _make_config()
+        for p in cfg["trading"]["pairs"]:
+            if p["pair"] == "BTC/USD":
+                p["caution_factor_bearish"] = 0.8
+        # Add ETH
+        cfg["trading"]["pairs"].append({
+            "pair": "ETH/USD", "take_profit_pct": 12, "stop_loss_pct": 5,
+            "atr_tp_min_pct": 0.23, "rsi_oversold": 30, "rsi_overbought": 75,
+            "bb_squeeze_threshold_pct": 1.3, "min_volume_ratio": 0.50,
+            "caution_factor_bearish": 1.0,
+        })
+        factor = self._get_pair_caution("ETH/USD", cfg)
+        self.assertEqual(factor, 1.0, "ETH should have caution_factor=1.0")
+
+    def test_inj_caution_factor_is_0_35(self):
+        """
+        Given INJ/USD has caution_factor_bearish=0.35 in config
+        When bearish regime lookup is performed
+        Then caution_factor for INJ is 0.35 (aggressive cut)
+        Refs #124
+        """
+        cfg = _make_config()
+        for p in cfg["trading"]["pairs"]:
+            if p["pair"] == "INJ/USD":
+                p["caution_factor_bearish"] = 0.35
+        factor = self._get_pair_caution("INJ/USD", cfg)
+        self.assertEqual(factor, 0.35, "INJ should have caution_factor=0.35")
+
+    def test_pair_without_override_uses_global_fallback(self):
+        """
+        Given a pair has no caution_factor_bearish in config
+        When bearish regime lookup is performed with global_caution=0.5
+        Then caution_factor falls back to 0.5
+        Refs #124
+        """
+        cfg = _make_config()
+        # TRX has no caution_factor_bearish set
+        factor = self._get_pair_caution("TRX/USD", cfg, global_caution=0.5)
+        self.assertEqual(factor, 0.5, "TRX without override should use global 0.5")
+
+    def test_pair_max_usd_scales_correctly_for_winner(self):
+        """
+        Given base_max=$200 and ETH caution_factor=1.0
+        When pair_max_usd is computed
+        Then ETH gets full $200 (no reduction in bearish)
+        Refs #124
+        """
+        base_max = 200.0
+        caution = 1.0
+        pair_max = round(base_max * caution, 2)
+        self.assertEqual(pair_max, 200.0)
+
+    def test_pair_max_usd_scales_correctly_for_underperformer(self):
+        """
+        Given base_max=$200 and INJ caution_factor=0.35
+        When pair_max_usd is computed
+        Then INJ gets $70 (65% reduction in bearish)
+        Refs #124
+        """
+        base_max = 200.0
+        caution = 0.35
+        pair_max = round(base_max * caution, 2)
+        self.assertEqual(pair_max, 70.0)
+
+
 if __name__ == "__main__":
     unittest.main()

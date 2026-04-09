@@ -679,3 +679,17 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 
 ### Scripts Added
 - **`scripts/link_epics.sh`**: Retroactive sub-issue linker — discovers existing Epic and Story issues by label and links each Story as a GitHub Sub-Issue of its parent Epic. Idempotent (safe to re-run).
+
+## Session: 2026-04-09 (Part F) — Per-pair caution_factor, buy_min_score, aggressive sizing
+
+### Features Added
+- **Per-pair caution_factor_bearish (#124)**: In bearish regime, `main.py` now injects `sig["pair_max_usd"]` per signal using `pair_cfg.get("caution_factor_bearish", global_caution)`. Winners (ETH/BNB/DOGE)=1.0, stable pairs (BTC/LTC/TRX/XRP)=0.8, mid-vol (ADA/AVAX/SOL)=0.6, underperformers (SUI/INJ)=0.35, RAILS/HYPE=0.40. Values calibrated from 200-SMA bearish window drawdown analysis on `/history/` candle data. LLM prompt shows per-pair "Max buy size" in bearish regime.
+- **Per-pair buy_min_score (#128)**: `signals.py` reads `pair_cfg.get("buy_min_score", global)`. INJ=7, SOL/UNI=6 (30–50% win rates in backtest). ETH/BNB/DOGE=5 (explicit). Global default=5.
+- **Aggressive position sizing (#130)**: `max_position_pct` 15→20%, `base_position_pct` 12→16%, `min_cash_reserve_pct` 10→5%, `max_buys_per_cycle` 5→7. Max per trade $150→$200 on $1k portfolio.
+
+### Skills Updated
+- `trading-rules/SKILL.md`: reserve 5%, max_buys 7, growth-oriented role, per-pair bearish/score rules documented.
+- `add-pair/SKILL.md`: 13-field pair block, guidance tables for `caution_factor_bearish` and `buy_min_score`.
+
+### Tests
+- 9 new tests in `tests/test_per_pair_params.py` (`TestPerPairBuyMinScore`, `TestPerPairCautionFactor`). 98 total pass.

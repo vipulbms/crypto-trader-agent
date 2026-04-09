@@ -111,10 +111,21 @@ All three use 400-candle lookback globally; per-pair ATR lookback overrideable v
 - `exit_timing.macd_decay_threshold_pct: -0.005` replaces old absolute `-0.0005`.
 - `check_exit_timing()` computes `macd_hist / price × 100` before comparing. Price-scale agnostic.
 
-## Position sizing (updated 2026-04-09b)
-- `max_open_positions: 13` (was 5), `max_position_pct: 15%` (was 30%), `max_buys_per_cycle: 5` (was 3).
-- `position_sizing.base_position_pct: 12%` (was 20%), `position_sizing.max_position_pct: 15%` (was 30%).
-- `min_cash_reserve_pct: 10%` unchanged — agent can deploy up to 90% capital.
+## Position sizing (updated 2026-04-09c — Fix #130)
+- `max_open_positions: 13`, `max_position_pct: 20%` (was 15%), `max_buys_per_cycle: 7` (was 5).
+- `position_sizing.base_position_pct: 16%` (was 12%), `position_sizing.max_position_pct: 20%` (was 15%).
+- `min_cash_reserve_pct: 5%` (was 10%) — agent can deploy up to 95% capital.
+
+## Per-pair caution_factor_bearish (added 2026-04-09c — Fix #124)
+- In bearish regime, `main.py` injects `sig["pair_max_usd"]` per signal using `pair_cfg.get("caution_factor_bearish", global_caution)`.
+- Winners (ETH/BNB/DOGE) = 1.0 (buy the dip, full size). Underperformers (INJ/SUI) = 0.35. RAILS/HYPE = 0.40.
+- Global fallback `bearish_caution_factor: 0.5` applies for pairs without a per-pair override.
+- `pair_max_usd` is shown per-pair in the LLM prompt ("Max buy size: $X"). Volatile regime still uses global caution uniformly.
+
+## Per-pair buy_min_score (added 2026-04-09c — Fix #128)
+- `signals.py` reads `pair_cfg.get("buy_min_score", global_buy_min_score)` before scoring.
+- INJ=7, SOL/UNI=6. ETH/BNB/DOGE=5 (global default, explicitly set). All others use global 5.
+- Based on 2026-04-09 backtest win rates: INJ 30%, SOL/UNI ~44-50% at score threshold 5.
 
 ## Signal driver report (added 2026-04-09b)
 - `kryptos.py drivers [--days 30] [--top 10]` — shows top blockers and BUY drivers per pair and globally.

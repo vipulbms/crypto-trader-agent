@@ -79,7 +79,8 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     w_bb_upper       = sig_cfg.get("bb_upper_score", 2)
 
     max_score      = sig_cfg.get("max_score", 16)
-    buy_min_score  = sig_cfg.get("buy_min_score", 5)
+    # Per-pair buy_min_score overrides global — tighten for underperformers (#128)
+    buy_min_score  = pair_cfg.get("buy_min_score", sig_cfg.get("buy_min_score", 5))
     sell_min_score = sig_cfg.get("sell_min_score", 3)
 
     # Extract indicator values

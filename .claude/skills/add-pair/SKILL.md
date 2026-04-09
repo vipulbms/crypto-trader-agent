@@ -85,7 +85,7 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
 
 ### 5. Make all changes
 
-**a) `config.yaml`** — add to `trading.pairs[]` (full 11-field block required):
+**a) `config.yaml`** — add to `trading.pairs[]` (full 13-field block required):
 ```yaml
     - pair: PAIR/USD
       ws_name: WS_NAME           # from step 2 (e.g. AVAX/USD; BTC is XBT/USD)
@@ -98,7 +98,26 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
       bb_squeeze_threshold_pct: <value>  # from calibration (step 4)
       min_volume_ratio: <value>  # from calibration (step 4)
       adaptive_atr_floor_lookback: 400   # 100h window — change only if volatility spikes are extreme
+      caution_factor_bearish: <value>    # bearish regime position multiplier (#124); see table below
+      buy_min_score: <value>             # min confluence score for BUY (#128); see table below
 ```
+
+**caution_factor_bearish** — how aggressively to cut position size in bearish regime (1.0 = no cut, buy the dip; 0.30 = cut to 30%):
+| Volatility tier | Suggested value | Reasoning |
+|---|---|---|
+| Proven winner (ETH/BNB/DOGE-like) | **1.0** | Buy the dip — these outperform even in bearish |
+| Stable large-cap (BTC/LTC/TRX/XRP-like) | **0.8** | Low bearish drawdown (~1%) — slight caution only |
+| Mid-volatility (ADA/AVAX-like) | **0.6** | Moderate bearish drawdown (~1.8–1.9%) |
+| Underperformer (SOL-like) | **0.5** | Global default — mixed track record |
+| High-volatility meme (RAILS/HYPE-like) | **0.4** | Unpredictable — cut harder |
+| Highest drawdown (SUI/INJ-like) | **0.35** | Worst bearish behaviour — protect capital |
+
+**buy_min_score** — minimum confluence score to emit a BUY signal (global default = 5):
+| Win rate at score 5 | Suggested value |
+|---|---|
+| ≥ 80% | 5 (global default — don't override) |
+| 50–79% | **6** |
+| < 50% | **7** |
 
 **b) `src/agent/prompts.py`** — check if `SYSTEM_PROMPT` has a hardcoded pair count or list:
 ```bash
@@ -164,7 +183,7 @@ exec(open('tests/test_per_pair_params.py').read())
 ```
 
 **Checklist:**
-- [ ] `config.yaml`: 11-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback)
+- [ ] `config.yaml`: 13-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score)
 - [ ] `src/agent/tools.py`: propose_buy docstring updated
 - [ ] `src/cli/display.py`: welcome banner updated
 - [ ] `src/cli/nl_parser.py`: PAIRS list (both full and short) updated; _SYSTEM_PROMPT updated

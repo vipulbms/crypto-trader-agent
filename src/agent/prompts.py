@@ -69,7 +69,7 @@ def build_cycle_prompt(
         f"Available Cash:       ${portfolio['available_cash_usd']:.2f}",
         f"Open Positions:       {portfolio['open_positions_count']}",
         f"Daily P&L:            ${portfolio['daily_pnl_usd']:+.2f} ({portfolio['daily_pnl_pct']:+.2f}%)",
-        f"Max per new trade:    ${portfolio['max_per_trade']:.2f}  (30% of ${portfolio['total_usd']:.2f})",
+        f"Max per new trade:    ${portfolio['max_per_trade']:.2f}  (20% of ${portfolio['total_usd']:.2f}, regime-adjusted)",
     ]
 
     if portfolio.get("open_positions"):
@@ -109,7 +109,10 @@ def build_cycle_prompt(
         bb_l = indicators.get("bb_lower")
         bb_u = indicators.get("bb_upper")
 
-        lines += [
+        pair_max_usd = sig.get("pair_max_usd")
+        pair_max_line = f"Max buy size:  ${pair_max_usd:.2f}  (regime-adjusted for this pair)" if pair_max_usd is not None else None
+
+        pair_block = [
             "",
             f"--- {pair} ---",
             f"Price:         ${price:.4f}",
@@ -120,6 +123,9 @@ def build_cycle_prompt(
             f"Signal:        {signal}  (strength: {strength:.2f})",
             f"Reasons:       {', '.join(reasons) if reasons else 'None'}",
         ]
+        if pair_max_line:
+            pair_block.append(pair_max_line)
+        lines += pair_block
 
     # ── Ranking task instructions ─────────────────────────────────
     lines += [

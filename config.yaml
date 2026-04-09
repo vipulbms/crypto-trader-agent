@@ -17,9 +17,9 @@ trading:
   # Allowed take-profit levels — validated at startup
   allowed_take_profit_pcts: [5, 8, 12, 16, 20]
 
-  max_position_pct: 15        # Max % of portfolio per single trade (Fix #116 — was 30)
+  max_position_pct: 20        # Max % of portfolio per single trade (Fix #130 — was 15)
   max_open_positions: 13      # No effective cap — up to all 13 standard pairs (Fix #116 — was 5)
-  max_buys_per_cycle: 5       # LLM may propose at most this many buys per cycle (Fix #116 — was 3)
+  max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
   cycle_interval_minutes: 15  # How often the agent runs a decision cycle
 
   # Time-of-day filter to avoid low-volume false breakouts
@@ -44,6 +44,7 @@ trading:
       bb_squeeze_threshold_pct: 0.7   # p10 BB width from 2025 data
       min_volume_ratio: 0.50  # dead zone 44% — standard threshold appropriate
       adaptive_atr_floor_lookback: 400  # 100h rolling window — least-unstable for BTC
+      caution_factor_bearish: 0.8   # low bearish DD (0.90%) — slight caution only (#124)
     - pair: ETH/USD
       ws_name: ETH/USD
       rest_name: ETHUSD
@@ -55,6 +56,8 @@ trading:
       bb_squeeze_threshold_pct: 1.3
       min_volume_ratio: 0.50  # dead zone 47%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
+      buy_min_score: 5              # strong win rate — keep global threshold (#128)
     - pair: BNB/USD
       ws_name: BNB/USD
       rest_name: BNBUSD
@@ -66,6 +69,8 @@ trading:
       bb_squeeze_threshold_pct: 0.9
       min_volume_ratio: 0.30  # dead zone 56.6% — lower to avoid over-blocking
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
+      buy_min_score: 5              # strong win rate — keep global threshold (#128)
     - pair: SOL/USD
       ws_name: SOL/USD
       rest_name: SOLUSD
@@ -77,6 +82,8 @@ trading:
       bb_squeeze_threshold_pct: 1.8
       min_volume_ratio: 0.50  # dead zone 44%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.6   # median bearish DD 1.93% — moderate caution (#124)
+      buy_min_score: 6              # 44% win rate at score 5 — raise bar (#128)
     - pair: XRP/USD
       ws_name: XRP/USD
       rest_name: XRPUSD
@@ -88,6 +95,7 @@ trading:
       bb_squeeze_threshold_pct: 1.4
       min_volume_ratio: 0.50  # dead zone 41%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.8   # low-moderate bearish DD 1.43% (#124)
     - pair: TRX/USD
       ws_name: TRX/USD
       rest_name: TRXUSD
@@ -99,6 +107,7 @@ trading:
       bb_squeeze_threshold_pct: 0.8
       min_volume_ratio: 0.40  # dead zone 52.9%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.8   # low bearish DD 1.05% (#124)
     - pair: DOGE/USD
       ws_name: DOGE/USD
       rest_name: XDGUSD
@@ -110,6 +119,8 @@ trading:
       bb_squeeze_threshold_pct: 1.8
       min_volume_ratio: 0.40  # dead zone 51.5%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
+      buy_min_score: 5              # profitable pair — keep global threshold (#128)
     - pair: ADA/USD
       ws_name: ADA/USD
       rest_name: ADAUSD
@@ -121,6 +132,7 @@ trading:
       bb_squeeze_threshold_pct: 1.9
       min_volume_ratio: 0.40  # dead zone 52.1%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.6   # median bearish DD 1.83% (#124)
     - pair: LTC/USD
       ws_name: LTC/USD
       rest_name: LTCUSD
@@ -132,6 +144,7 @@ trading:
       bb_squeeze_threshold_pct: 1.5
       min_volume_ratio: 0.40  # dead zone 49.7%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.8   # low-moderate bearish DD 1.39% (#124)
     - pair: RAILS/USD
       ws_name: RAILS/USD
       rest_name: RAILSUSD
@@ -143,6 +156,7 @@ trading:
       bb_squeeze_threshold_pct: 1.8
       min_volume_ratio: 0.30  # thin liquidity — conservative dead zone threshold
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
     - pair: AVAX/USD
       ws_name: AVAX/USD
       rest_name: AVAXUSD
@@ -154,6 +168,7 @@ trading:
       bb_squeeze_threshold_pct: 2.0
       min_volume_ratio: 0.40  # dead zone 53.6%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.6   # median bearish DD 1.90% (#124)
     - pair: SUI/USD
       ws_name: SUI/USD
       rest_name: SUIUSD
@@ -165,6 +180,7 @@ trading:
       bb_squeeze_threshold_pct: 2.1
       min_volume_ratio: 0.50  # dead zone 47.7%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.35  # high bearish DD 2.19% — cut harder (#124)
     - pair: HYPE/USD
       ws_name: HYPE/USD
       rest_name: HYPEUSD
@@ -176,6 +192,7 @@ trading:
       bb_squeeze_threshold_pct: 2.0
       min_volume_ratio: 0.30  # thin liquidity
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
     - pair: UNI/USD
       ws_name: UNI/USD
       rest_name: UNIUSD
@@ -187,6 +204,8 @@ trading:
       bb_squeeze_threshold_pct: 2.1
       min_volume_ratio: 0.30  # dead zone 57.9%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.5   # underperformer — global default (#124)
+      buy_min_score: 6              # 50% win rate at score 5 — raise bar (#128)
     - pair: INJ/USD
       ws_name: INJ/USD
       rest_name: INJUSD
@@ -198,6 +217,8 @@ trading:
       bb_squeeze_threshold_pct: 2.5
       min_volume_ratio: 0.30  # dead zone 58.3%
       adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.35  # highest bearish DD 2.23% — cut harder (#124)
+      buy_min_score: 7              # 30% win rate at score 5 — tighten significantly (#128)
 
 # ──────────────────────────────────────────────
 # Paper trading mode
@@ -298,7 +319,7 @@ notifications:
 risk:
   daily_loss_limit_pct: 10    # Stop all trading if daily loss exceeds 10%
   global_max_daily_loss_pct: 7.0  # Kill Switch: panic-sell all open positions if total account drops by this % from start of day
-  min_cash_reserve_pct: 10    # Always keep at least 10% as cash
+  min_cash_reserve_pct: 5     # Always keep at least 5% as cash (Fix #130 — was 10%)
   min_order_usd: 5.0
   max_token_volume_per_trade: 500000
   flash_crash_tolerance_pct: 15.0
@@ -315,11 +336,11 @@ risk:
 # ──────────────────────────────────────────────
 position_sizing:
   enabled: true
-  base_position_pct: 12         # Base % of portfolio per trade (before scaling; Fix #116 — was 20)
+  base_position_pct: 16         # Base % of portfolio per trade (before scaling; Fix #130 — was 12)
   strength_weight: 0.5          # How much signal strength influences size (0=ignore, 1=full)
   volatility_weight: 0.5        # How much ATR volatility reduces size (0=ignore, 1=full)
   min_position_pct: 5           # Never allocate less than this % of portfolio
-  max_position_pct: 15          # Hard cap (aligned with risk.max_position_pct; Fix #116 — was 30)
+  max_position_pct: 20          # Hard cap (aligned with risk.max_position_pct; Fix #130 — was 15)
 
 # ──────────────────────────────────────────────
 # Feature: ATR-based stop-loss at entry (S12.4.1 — #86)
@@ -432,7 +453,7 @@ regime:
   bullish_pairs_threshold: 6    # If >= N pairs have positive MACD, classify as bullish
   volatile_atr_multiplier: 1.5  # ATR > avg_atr × multiplier = volatile regime
   ranging_macd_threshold: 0.001 # |MACD histogram| < this = ranging (no momentum)
-  bearish_caution_factor: 0.5   # Multiply proposed position size by this in bearish regime
+  bearish_caution_factor: 0.5   # Global fallback; per-pair caution_factor_bearish in trading.pairs[] overrides (#124)
   volatile_caution_factor: 0.7  # Multiply proposed position size by this in volatile regime
 
 # ──────────────────────────────────────────────
