@@ -185,6 +185,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_09b | Adaptive ATR floor (#108), adaptive BB/volume injection (#113,#114), MACD decay normalised (#112), candle timestamps (#115), 90% capital deployment (#116), signal driver report (#117), calibrate_params.py (#118) |
 | session_2026_04_09c | Chore: disable time-of-day trading hours guard (#121); volume floor remains always-on |
 | session_2026_04_09d | Fix: backtest clean-slate teardown — get_db_path(), pre-run validation (#122) |
+| session_2026_04_09e | Fix: trailing stop exits mislabelled as stop_loss — trailing_stop label + circuit breaker exclusion (#123) |
 
 ---
 
@@ -214,3 +215,4 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **Parameter calibration utility**: `scripts/calibrate_params.py --start-date 2025-01-01 --output rec.yaml` analyses historical candles and outputs recommended config YAML changes for all 5 per-pair signal parameters.
 - **Partial Take-Profit**: `partial_take_profit.enabled: false` by default. When enabled, fires once per position (guarded by `partial_exited` DB column). Closes `close_fraction` (50%) of volume at `trigger_pct_of_tp`% (50%) of the way to full TP. Remaining half continues with original SL/TP. If `move_sl_to_breakeven: true`, SL is moved to entry after partial close. `close_position(volume_override=...)` handles partial math; P&L is proportional to the fraction closed.
 - **Stop-Loss execution order** in `check_stops_and_tp()`: (1) update highest_price_seen, (2a) trailing SL raise OR (2b) breakeven SL OR none, (3) partial TP check, (4) full SL/TP check. Trailing and breakeven are mutually exclusive (ConfigError if both enabled).
+- **`trailing_stop` vs `stop_loss` exit labels**: When trailing stop is enabled and `stop_loss_price` has been raised above the original hard floor (`entry_price × (1 - sl_pct/100)`), a SL hit is labelled `trailing_stop` not `stop_loss`. Hard floor hits remain `stop_loss`. Circuit breaker only counts `stop_loss` and `fallback_stop_loss` — `trailing_stop` exits (which are often profitable) do not contribute to the consecutive-stop streak.

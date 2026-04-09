@@ -149,7 +149,7 @@ class RiskManager:
         if len(recent) < self._cb_max_consec_stops:
             return False, 0.0
 
-        all_stops = all(r["exit_reason"] == "stop_loss" for r in recent)
+        all_stops = all(r["exit_reason"] in ("stop_loss", "fallback_stop_loss") for r in recent)
         if not all_stops:
             return False, 0.0
 
@@ -189,7 +189,7 @@ class RiskManager:
             return True
         window_start = time.time() - self._cb_pause_secs
         recent = self._query_recent_exits(since_epoch=window_start)
-        stop_streak = sum(1 for r in recent if r["exit_reason"] == "stop_loss")
+        stop_streak = sum(1 for r in recent if r["exit_reason"] in ("stop_loss", "fallback_stop_loss"))
         logger.info(
             "[CIRCUIT] Stop-loss recorded for %s — consecutive stops: %d/%d",
             pair, stop_streak, self._cb_max_consec_stops,

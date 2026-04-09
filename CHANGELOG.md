@@ -2,6 +2,19 @@
 
 ---
 
+## Session: 2026-04-09 (Part E) — Trailing Stop Label Fix (#123)
+
+### Bug Fixed
+- **[#123] Trailing stop exits mislabelled as `stop_loss`**: `check_stops_and_tp()` always emitted `exit_reason = "stop_loss"` when price hit the SL level, even when the trailing stop had raised the SL above the hard floor (i.e., the exit was profitable). This inflated the apparent loss rate and could incorrectly trip the circuit breaker.
+
+### Changed
+- **`src/exchange/paper_broker.py`**: When trailing stop is enabled and `stop_loss_price > entry_price × (1 - sl_pct/100) + ε`, emit `exit_reason = "trailing_stop"`. Hard floor hits remain `"stop_loss"`. Updated `audit_logger.log_position_event()` to emit `"trailing_stop_triggered"` event type.
+- **`src/exchange/kraken_client.py`**: Same logic applied to both native Kraken order detection and price-based fallback paths.
+- **`src/risk/risk_manager.py`**: `is_circuit_open()` and `record_stop_loss()` now exclude `"trailing_stop"` from consecutive-stop counts — only `"stop_loss"` and `"fallback_stop_loss"` count as hard losses.
+- **`tests/test_trailing_stop_label.py`**: 6 new tests (94 total passing).
+
+---
+
 ## Session: 2026-04-09 (Part D) — Backtest Clean-Slate Teardown Fix (#122)
 
 ### Bug Fixed

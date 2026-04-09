@@ -428,7 +428,11 @@ class PaperBroker:
             exit_price  = current_price
 
             if current_price <= pos["stop_loss_price"]:
-                exit_reason = "stop_loss"
+                hard_sl = pos["entry_price"] * (1 - pos["stop_loss_pct"] / 100)
+                if trailing_cfg.get("enabled", False) and pos["stop_loss_price"] > hard_sl + 0.000001:
+                    exit_reason = "trailing_stop"
+                else:
+                    exit_reason = "stop_loss"
                 exit_price  = pos["stop_loss_price"]
             elif current_price >= pos["take_profit_price"]:
                 exit_reason = "take_profit"
@@ -443,6 +447,8 @@ class PaperBroker:
                         event_type=(
                             "stop_loss_triggered"
                             if exit_reason == "stop_loss"
+                            else "trailing_stop_triggered"
+                            if exit_reason == "trailing_stop"
                             else "take_profit_triggered"
                         ),
                         entry_price=pos["entry_price"],

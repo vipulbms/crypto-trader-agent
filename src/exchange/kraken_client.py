@@ -539,6 +539,8 @@ class KrakenClient:
                         logger.info("[PARTIAL_TP] %s SL moved to entry $%.4f", pair, pos["entry_price"])
 
             # 2. Check if Kraken already executed SL or TP natively
+            hard_sl = pos["entry_price"] * (1 - pos["stop_loss_pct"] / 100)
+            trailing_enabled = trailing_cfg.get("enabled", False)
             for order_id, reason, price_key in [
                 (pos.get("stop_loss_order_id"),   "stop_loss",   "stop_loss_price"),
                 (pos.get("take_profit_order_id"), "take_profit", "take_profit_price"),
@@ -548,7 +550,10 @@ class KrakenClient:
                 try:
                     order = self._exchange.fetch_order(order_id, ccxt_pair)
                     if order.get("status") == "closed":
-                        exit_reason = reason
+                        if reason == "stop_loss" and trailing_enabled and pos["stop_loss_price"] > hard_sl + 0.000001:
+                            exit_reason = "trailing_stop"
+                        else:
+                            exit_reason = reason
                         fill = order.get("average") or order.get("price")
                         exit_price  = float(fill) if fill else pos[price_key]
                         break
@@ -558,7 +563,10 @@ class KrakenClient:
             # 2. Price-based fallback (native order may not have been placed)
             if exit_reason is None:
                 if current_price <= pos["stop_loss_price"]:
-                    exit_reason = "fallback_stop_loss"
+                    if trailing_enabled and pos["stop_loss_price"] > hard_sl + 0.000001:
+                        exit_reason = "trailing_stop"
+                    else:
+                        exit_reason = "fallback_stop_loss"
                     exit_price  = pos["stop_loss_price"]
                 elif current_price >= pos["take_profit_price"]:
                     exit_reason = "fallback_take_profit"
@@ -572,6 +580,8 @@ class KrakenClient:
                         event_type=(
                             "stop_loss_triggered"
                             if "stop_loss" in exit_reason
+                            else "trailing_stop_triggered"
+                            if exit_reason == "trailing_stop"
                             else "take_profit_triggered"
                         ),
                         entry_price=pos["entry_price"],
