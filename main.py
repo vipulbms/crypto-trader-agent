@@ -338,7 +338,9 @@ async def run_cycle(
     n_positions     = len([p for p in open_positions if p.get("status", "open") == "open"])
 
     daily_pnl       = broker.get_daily_pnl(start_of_day_balance)
-    max_per_trade   = total_usd * (config.get("trading", {}).get("max_position_pct", 30) / 100)
+    # max_per_trade: cap as % of available cash (not total portfolio) so the LLM
+    # proposes sizes proportional to what can actually be deployed (#165)
+    max_per_trade   = cash_usd * (config.get("trading", {}).get("max_position_pct", 30) / 100)
 
     portfolio = {
         "total_usd":           total_usd,

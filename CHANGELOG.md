@@ -2,6 +2,26 @@
 
 ---
 
+## Session: 2026-04-11 (Part I) — Fix position gate to use remaining cash (#165)
+
+### Bug Fix
+- **[#165] `max_open_positions` count cap now cash-aware**: When caution_factor shrinks individual
+  positions (e.g. SUI at $35, JUP at $70), 5 slots could be exhausted with only ~$400 deployed,
+  leaving $594 idle and all further buys blocked by a pure count check.
+
+  **`main.py`**: `max_per_trade` now computed as `cash_usd × max_position_pct` (was `total_usd × ...`).
+  LLM prompt shows ceiling proportional to remaining cash.
+
+  **`src/risk/risk_manager.py` `validate_buy()` step 2**: count gate only fires when
+  `count >= max_open_positions` **AND** `deployable_cash < min_order_usd`. When cash is
+  available, execution falls through to existing cash guards (min reserve check, guard 0.5,
+  step 5 tradable cap), which are the correct gatekeepers.
+
+  **`tests/test_risk_manager.py`**: 2 new tests — blocked-when-no-cash, allowed-when-cash-available.
+  182 tests pass.
+
+---
+
 ## Session: 2026-04-11 (Part H) — Add reset_paper.py utility script (#163)
 
 ### New Script

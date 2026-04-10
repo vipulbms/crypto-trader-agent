@@ -368,13 +368,21 @@ class RiskManager:
                     0.0,
                 )
 
-        # 2. Max open positions
+        # 2. Max open positions — cash-aware gate (#165)
+        # Only hard-block when count is at ceiling AND there is no deployable cash
+        # for another position. When caution_factor has shrunk individual sizes,
+        # slots may be exhausted while capital remains; cash guards (step 3,
+        # guard 0.5) are the real limiters in that case.
         if open_positions_count >= self._max_open_positions:
-            return (
-                False,
-                f"Max open positions reached ({open_positions_count}/{self._max_open_positions})",
-                0.0,
-            )
+            _min_cash_check = portfolio_balance_usd * (self._min_cash_reserve_pct / 100)
+            _deployable_check = available_cash_usd - _min_cash_check
+            if _deployable_check < self._min_order_usd:
+                return (
+                    False,
+                    f"Max open positions reached ({open_positions_count}/{self._max_open_positions})",
+                    0.0,
+                )
+            # Cash available — fall through to cash guards below
 
         # 2a. Correlation cluster guard (#139) — check before any cash calculations
         cluster_penalty_factor = 1.0

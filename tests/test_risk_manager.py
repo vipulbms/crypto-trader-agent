@@ -353,6 +353,50 @@ class TestMinOrderUsdFloor(unittest.TestCase):
         self.assertTrue(approved)
         self.assertGreater(amount, 0.0)
 
+    def test_max_open_positions_blocked_when_no_cash(self):
+        """Count cap fires when count >= max AND deployable cash < min_order_usd (#165).
+        portfolio=$1000, reserve=5%→$50, available=$65 → deployable=$15 < $20."""
+        approved, reason, _ = self.risk_mgr.validate_buy(
+            pair="SOL/USD",
+            proposed_usd=25.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=65.0,    # deployable=65-50=$15 < min_order_usd=$20
+            open_positions_count=3,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+        )
+        self.assertFalse(approved)
+        self.assertIn("Max open positions reached", reason)
+
+    def test_max_open_positions_allowed_when_cash_available(self):
+        """Count cap must NOT fire when cash is available — fall through to cash guards (#165)."""
+        # Live scenario: 5 positions open but $594 cash available.
+        # max_open_positions defaults to 3 in this config; override via a fresh manager.
+        cfg = {
+            "trading": {
+                "stop_loss_pct": 5,
+                "take_profit_pct": 10,
+                "max_position_pct": 30,
+                "max_open_positions": 5,
+            },
+            "risk": {
+                "min_cash_reserve_pct": 5,
+                "min_order_usd": 20,
+            },
+        }
+        risk = RiskManager(cfg)
+        approved, reason, amount = risk.validate_buy(
+            pair="BTC/USD",
+            proposed_usd=100.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=594.0,   # deployable=$544 >> $20 — should pass count gate
+            open_positions_count=5,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+        )
+        self.assertTrue(approved, f"Expected approved but got: {reason}")
+        self.assertGreater(amount, 0.0)
+
 
 class TestPaperBrokerOverdrawGuard(unittest.TestCase):
     """#129 — place_order() must raise ValueError if wallet would go negative."""
