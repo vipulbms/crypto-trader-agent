@@ -47,6 +47,20 @@ def validate_config(config: dict) -> None:
             "trailing_stop and breakeven_stop cannot both be enabled simultaneously. "
             "Disable one in config.yaml."
         )
+    # Sanity check: max_open_positions × base_position_pct must not exceed deployable capital
+    trading = config.get("trading", {})
+    max_pos = trading.get("max_open_positions", 3)
+    base_pct = config.get("position_sizing", {}).get("base_position_pct", 16)
+    reserve_pct = config.get("risk", {}).get("min_cash_reserve_pct", 5)
+    max_deployable_pct = 100 - reserve_pct
+    if max_pos * base_pct > max_deployable_pct:
+        logger.warning(
+            "[CONFIG] max_open_positions (%d) × base_position_pct (%d%%) = %d%% exceeds "
+            "max_deployable (%d%% after %.0f%% reserve). "
+            "Suggest reducing max_open_positions to %d.",
+            max_pos, base_pct, max_pos * base_pct, max_deployable_pct, reserve_pct,
+            int(max_deployable_pct // base_pct),
+        )
     logger.info("Config validation passed — all take-profit values are valid")
 
 

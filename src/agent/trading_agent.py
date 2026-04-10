@@ -55,6 +55,7 @@ class TradingAgent:
         self._max_rsn     = llm_cfg.get("max_reasoning_chars", 500)
         self._request_delay = llm_cfg.get("request_delay_seconds", 0)
         self._max_buys    = config.get("trading", {}).get("max_buys_per_cycle", 2)
+        self._min_order_usd = config.get("risk", {}).get("min_order_usd", 20.0)
 
         if self._provider == "openai_compat":
             from openai import OpenAI
@@ -159,6 +160,7 @@ class TradingAgent:
             pair_tp_config=self._pair_tp,
             ai_context=ai_context,
             max_buys_per_cycle=self._max_buys,
+            min_order_usd=self._min_order_usd,
         )
 
         return self._run_cycle_decision(

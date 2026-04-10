@@ -196,6 +196,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11b | Feat: OBV accumulation signal +1 BUY (#136); BB squeeze release +2 BUY (#137); per-pair obv_trend_period; max_score 22→25; 96 tests |
 | session_2026_04_11c | Fix: Shorten adaptive lookback 400→200 (#141); enable partial TP (#142); correlation cluster guard (#139); graduated circuit breaker 1h/2h/4h (#143); 169 tests |
 | session_2026_04_11d | Fix: Entry slippage added to place_order() (#140); prompt "TOP 3" → dynamic max_buys_per_cycle (#144); 172 tests |
+| session_2026_04_11e | Fix: max_open_positions 13→5, compute_position_size floor at min_order_usd, config sanity warning, prompt min_order guard (#159); 180 tests |
 
 ---
 
@@ -220,7 +221,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 - **ATR floor priority chain**: `indicators["adaptive_atr_floor_pct"]` (injected by main.py, rolling p25 ATR% × 0.8) → `pair_cfg["atr_tp_min_pct"]` → `dynamic_tp.atr_tp_min_pct` (0.30% fallback) → `trading.min_profit_floor_pct`. Adaptive injection enabled by `adaptive_atr_floor.enabled: true`; lookback=**200** candles global (was 400, #141), overrideable per-pair via `adaptive_atr_floor_lookback`.
 - **MACD decay threshold is now % of price**: `exit_timing.macd_decay_threshold_pct: -0.005` replaces old absolute `-0.0005`. `check_exit_timing()` computes `macd_hist / price × 100` before comparing. This makes the threshold price-scale agnostic (works for both TRX and BTC).
 - **Adaptive BB squeeze and volume floor**: `main.py` also injects `_rolling_bb_p10_pct` (p10 BB width per pair, 400-candle lookback) and `rolling_volume_p15` (p15 raw volume, 400-candle lookback) each cycle. `features.py compute_dynamic_tp()` uses `_rolling_bb_p10_pct` first; `signals.py Hard Blocker 3` uses `rolling_volume_p15` first.
-- **Position sizing updated (Fix #130)**: `max_open_positions: 13`, `max_position_pct: 20%` (was 15%), `max_buys_per_cycle: 7` (was 5), `base_position_pct: 16%` (was 12%), `min_cash_reserve_pct: 5%` (was 10%). Agent can deploy up to 95% of portfolio. Max per trade = $200 on $1,000 portfolio.
+- **Position sizing updated (Fix #130, revised #159)**: `max_open_positions: 5` (was 13 — 13×16%=208% was impossible; floor(95/16)=5), `max_position_pct: 20%` (was 15%), `max_buys_per_cycle: 7` (was 5), `base_position_pct: 16%` (was 12%), `min_cash_reserve_pct: 5%` (was 10%). Agent can deploy up to 95% of portfolio across 5 positions. Max per trade = $200 on $1,000 portfolio.
 - **Per-pair buy_min_score (#128, updated #131)**: `signals.py` reads `pair_cfg.get("buy_min_score", global_min_score)`. INJ=7, RAILS=7 (3/4 stop-loss rate in production — #131), SOL/UNI=6 (underperformers per 2026-04-09 backtest). ETH/BNB/DOGE=5 (explicit). Global default = 5.
 - **Signal driver report**: `python kryptos.py drivers [--days 30] [--top 10]` shows top blocking reasons per pair and globally. Backed by `get_signal_driver_report()` in `trade_report.py` and `print_signal_driver_report()` in `display.py`.
 - **Parameter calibration utility**: `scripts/calibrate_params.py --start-date 2025-01-01 --output rec.yaml` analyses historical candles and outputs recommended config YAML changes for all 5 per-pair signal parameters.

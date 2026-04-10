@@ -80,7 +80,8 @@ def compute_position_size(
     
     # Hard clamp to max 30% of portfolio just to be safe
     max_usd = portfolio_total_usd * 0.30
-    return round(min(usd_size, max_usd), 2)
+    min_order = config.get("risk", {}).get("min_order_usd", 20.0)
+    return round(max(min(usd_size, max_usd), min_order), 2)
 
 
 def build_position_sizing_context(signals: list, portfolio_total_usd: float, config: dict) -> str:

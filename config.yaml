@@ -18,7 +18,7 @@ trading:
   allowed_take_profit_pcts: [5, 8, 12, 16, 20]
 
   max_position_pct: 20        # Max % of portfolio per single trade (Fix #130 — was 15)
-  max_open_positions: 13      # No effective cap — up to all 13 standard pairs (Fix #116 — was 5)
+  max_open_positions: 5       # Cap at floor(deployable% / base_position_pct) = floor(95/16) = 5 (Fix #159 — was 13)
   max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
   cycle_interval_minutes: 15  # How often the agent runs a decision cycle
 

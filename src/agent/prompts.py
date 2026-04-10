@@ -37,6 +37,7 @@ def build_cycle_prompt(
     pair_tp_config: dict = None,
     ai_context: dict = None,
     max_buys_per_cycle: int = 7,
+    min_order_usd: float = 20.0,
 ) -> str:
     """
     Build the per-cycle user message injected into the LLM context.
@@ -134,7 +135,7 @@ def build_cycle_prompt(
         "--- YOUR TASK THIS CYCLE ---",
         f"You have {len(signals)} pairs above. {len(buy_signals)} have BUY signals. {len(sell_signals)} have SELL signals.",
         "1. Rank all BUY-signalling pairs by strength (highest), RSI depth below 30, and MACD histogram magnitude.",
-        f"2. Call propose_buy for your top {max_buys_per_cycle} picks ranked by signal strength — skip weaker signals even if they are BUY.",
+        f"2. Call propose_buy for your top {max_buys_per_cycle} picks ranked by signal strength — skip weaker signals even if they are BUY. Use the suggested size from the POSITION SIZES block. Never pass less than ${min_order_usd:.0f} as usd_amount.",
         "3. Review all open positions. Call propose_sell for any with Signal=SELL and clear momentum reversal.",
         "4. Do NOT call any tool for pairs you are not acting on — they are automatically held.",
         "5. Reason briefly (1-2 sentences) before each tool call.",
