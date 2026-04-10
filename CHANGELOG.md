@@ -2,6 +2,17 @@
 
 ---
 
+## Session: 2026-04-10 (Part B) — Disable RAILS/USD + clean slate reset (#132)
+
+### Changed
+- **[#132] RAILS/USD disabled**: Commented out pair block and trailing stop override in `config.yaml`. 25% live win rate, 3/4 stop losses, net -$10.25 over 4 trades. Re-enable by uncommenting config block.
+- **Paper trading reset**: Cleared all positions, trades, and wallet; fresh $1,000 cash balance inserted.
+
+### Files
+- `config.yaml` — RAILS pair block and trailing stop override commented out
+
+---
+
 ## Session: 2026-04-10 (Part A) — RAILS over-trading fix + unambiguous propose_sell gate (#131)
 
 ### Bugs Fixed

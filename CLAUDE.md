@@ -96,7 +96,7 @@ src/
 | DOGE/USD | 20% | Meme coin |
 | ADA/USD | 12% | |
 | LTC/USD | 8% | |
-| RAILS/USD | 20% | High volatility |
+| ~~RAILS/USD~~ | ~~20%~~ | **Disabled** — 25% win rate, 3/4 stop losses (#132) |
 | AVAX/USD | 12% | |
 | SUI/USD | 16% | |
 | HYPE/USD | 20% | |
@@ -189,6 +189,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_09f | Feat: per-pair caution_factor_bearish (#124), per-pair buy_min_score (#128), aggressive position sizing 20%/5% reserve (#130) |
 | session_2026_04_09g | Fix: trailing_stop in display/reporting (#125); min_order_usd raised to $20 + Guard 0.5 (#126); force_close_all at backtest end (#127); overdraw guard in place_order() (#129) |
 | session_2026_04_10a | Fix: RAILS buy_min_score=7, caution_factor_bearish 0.40→0.25; unambiguous propose_sell gate (all three conditions required, not disjunctive); SKILL.md frontmatter fix (#131) |
+| session_2026_04_10b | Chore: disable RAILS/USD (25% win rate, 3/4 stops); reset paper trading to clean $1,000 slate (#132) |
 
 ---
 
