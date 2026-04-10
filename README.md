@@ -38,12 +38,22 @@
 | DOGE/USD | 20% | 5% | Meme-driven; can swing 20–30% in hours |
 | ADA/USD | 12% | 5% | Moderate volatility |
 | LTC/USD | 12% | 5% | Follows BTC with 1.5–2× amplification |
-| RAILS/USD | 20% | 5% | High volatility |
+| RAILS/USD | 20% | 5% | **Disabled** — 25% win rate, 3/4 stop losses |
 | AVAX/USD | 12% | 5% | High volatility L1 |
 | SUI/USD | 20% | 5% | High-beta L1, aggressive swings |
 | HYPE/USD | 20% | 5% | High volatility DeFi token |
 | UNI/USD | 12% | 5% | DeFi blue chip |
 | INJ/USD | 20% | 5% | DeFi/L1 hybrid, wide swings |
+| WIF/USD | 20% | 5% | Solana meme coin |
+| TON/USD | 16% | 5% | Telegram blockchain |
+| OP/USD | 16% | 5% | Optimism L2 |
+| ARB/USD | 16% | 5% | Arbitrum L2 |
+| JUP/USD | 20% | 5% | Jupiter DEX aggregator (Solana) |
+| PEPE/USD | 20% | 5% | Extreme meme coin |
+| TIA/USD | 20% | 5% | Celestia modular blockchain |
+| RENDER/USD | 16% | 5% | AI GPU compute network |
+| FET/USD | 16% | 5% | ASI Alliance AI token |
+| STX/USD | 16% | 5% | Bitcoin L2 (Stacks) |
 
 Take-profit is ATR-adjusted per trade (see Dynamic TP below). The values above are the static fallback.
 
@@ -228,7 +238,7 @@ Every 15 minutes:
 2. **`compute_indicators()`** — RSI(14), MACD(12/26/9), Bollinger Bands(50,2), EMA-9/21/50, ATR(14), Volume SMA(20), MACD histogram turn detection
 3. **Fear & Greed Index** fetched once per cycle and injected into each pair's indicator dict
 4. **`generate_signal()`** — confluence scoring (0–16 pts per pair); hard vetoes: RSI ≥ 70, OBI < 0, price < EMA50, volume < 50% SMA, ATR-derived TP below profit floor; `buy_min_score: 5` required
-5. **`build_cycle_prompt()`** — injects portfolio state, SKILL.md trading rules, and all pair scores into a single LLM context (~800 tokens for 15 pairs)
+5. **`build_cycle_prompt()`** — injects portfolio state, SKILL.md trading rules, and all pair scores into a single LLM context (~1,200 tokens for 24 pairs)
 6. **LLM** (Gemini/Ollama) called once per cycle; must call `propose_buy`, `propose_sell`, or `hold` tool; top-3 buy signals only
 7. **`RiskManager.validate_buy()`** — deterministic Python veto layer: circuit breaker, kill switch, time-of-day window, volume dead zone, fat finger guard ($5 min, 98% cash buffer), portfolio cap (30%), max open positions (5), cash reserve (10%)
 8. **`RiskManager.validate_sell()`** — blocks early exits below 1.0% profit floor

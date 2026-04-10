@@ -818,3 +818,25 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 - `tests/test_obv_signal.py`: 8 new tests.
 - `tests/test_bb_squeeze_breakout.py`: 8 new tests.
 - 96 tests total, all passing.
+
+## Session: 2026-04-11 (Part F) — Add 10 new trading pairs (#145–#154)
+
+### Features Added
+- **10 new tradeable pairs**: WIF/USD (Solana meme), TON/USD (Telegram chain), OP/USD (Optimism L2), ARB/USD (Arbitrum L2), JUP/USD (Jupiter DEX), PEPE/USD (extreme meme), TIA/USD (Celestia modular), RENDER/USD (AI GPU compute), FET/USD (ASI Alliance AI), STX/USD (Bitcoin L2 / Stacks). Total active pairs: 24 (was 14; RAILS/USD disabled).
+- **config.yaml**: 10 new 15-field pair blocks (TP%, SL%, atr_tp_min_pct, RSI thresholds, BB squeeze, volume ratio, ATR lookback, caution_factor_bearish, buy_min_score, rsi_divergence_lookback, obv_trend_period). Trailing-stop per_pair_overrides added for WIF, JUP, PEPE, TIA, RENDER, FET, STX.
+- **Backtest validated**: overall 55% win rate (threshold ≥45%). Post-backtest tuning: WIF/USD buy_min_score 6→7 (33% win); OP/USD buy_min_score 6→7 (47% marginal); TIA/USD buy_min_score 7→8 + atr_tp_min_pct 0.45→0.50 (39% win).
+- **RENDER rest_name confirmed**: `RENDERUSD` (not `RNDR` as tentatively noted in issue #152).
+
+### Files Changed
+- `config.yaml` — 10 new pair blocks + trailing-stop overrides
+- `tests/backtest/loader.py` — 10 new PAIR_FILE_MAP entries
+- `src/agent/tools.py` — propose_buy docstring pair list extended
+- `src/cli/display.py` — welcome banner updated (RAILS removed, 10 new pairs)
+- `src/cli/nl_parser.py` — PAIRS list + _SYSTEM_PROMPT extended
+- `docs/business_requirements.md` — v2.1, pair count 15→24, FR-01 list, pair table
+- `docs/epics_stories_ac.md` — "15 pairs" → "24 pairs" (3 occurrences)
+- `CLAUDE.md` — pairs table and session notes extended
+- `history/` — 10 new candle JSON files (721 candles each, 15-min interval)
+
+### Tests
+- 174 tests, all passing (no regressions).

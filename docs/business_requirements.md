@@ -15,6 +15,7 @@
 | 1.2 | Changed candle interval to 15-min; expanded pair list from 4 to 9 pairs (added XRP, TRX, DOGE, ADA, LTC); updated indicator parameters; added BB band-squeeze guard; all parameters externalised to `config.yaml`; added SGT timezone throughout; rotating log files |
 | 1.3 | Added RAILS/USD as 10th trading pair (TP 20%, SL 5%); added `/add-pair` Claude Code skill for onboarding new pairs; added `/commit` Claude Code skill |
 | 2.0 | **Volatility-Adaptive Quant Migration**: replaced reversal-gate signals with 10-point confluence scoring; ATR-proportional position sizing; dynamic per-order Take Profit (ATR-adjusted); EMA 9/21/50 trend + momentum filters; Order Book Imbalance (OBI) streaming; Post-Only Limit orders with 60-second chase; Minimum Profit Floor (1.0%); Time-of-Day trading window (16:00–20:00 UTC); Volume Dead Zone guard (50% SMA); Global Kill Switch (−7% daily drawdown); Circuit Breaker (3 consecutive stop-losses → 4-hour pause); Fat Finger guard (98% cash buffer / $5 minimum); Bearish-regime caution factor (0.5×); Fear & Greed Index signal injection; 2-hour Telegram heartbeat; 6-hour PNL report; 15-minute healthchecks.io webhook; full backtesting pipeline; audit-rejection analysis script; expanded to 15 trading pairs |
+| 2.1 | Added 10 new trading pairs (WIF, TON, OP, ARB, JUP, PEPE, TIA, RENDER, FET, STX) expanding to 24 active pairs (25 configured, RAILS/USD disabled); calibrated per-pair signal parameters; trailing-stop overrides for Tier 2 volatile pairs; closes #145–#154 |
 
 ---
 
@@ -60,7 +61,7 @@ In its second major version, Kryptos graduates from a signal-gate pattern to a f
 
 ### 4.1 In Scope
 
-- Automated monitoring and trading of fifteen cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD**
+- Automated monitoring and trading of twenty-four cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD** (RAILS/USD configured but disabled)
 - Technical analysis using RSI, MACD, EMA 9/21/50, ATR, Bollinger Bands, Volume SMA, and Fear & Greed Index
 - Real-time Level 2 Order Book Imbalance (OBI) streaming per pair
 - AI-assisted buy, sell, and hold decisions using a locally hosted LLM (configurable via `config.yaml`)
@@ -95,7 +96,7 @@ In its second major version, Kryptos graduates from a signal-gate pattern to a f
 
 | ID | Requirement |
 |---|---|
-| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD |
+| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD |
 | FR-02 | The system MUST receive real-time price data from the Kraken public WebSocket feed (`wss://ws.kraken.com/v2`) |
 | FR-03 | The system MUST stream Level 2 Order Book data per pair and compute Order Book Imbalance (OBI) = `(BidVol − AskVol) / (BidVol + AskVol)` on every WebSocket update |
 | FR-04 | The system MUST back-fill historical OHLCV candles from the Kraken public REST API on startup |
@@ -322,6 +323,16 @@ In its second major version, Kryptos graduates from a signal-gate pattern to a f
 | HYPE/USD | 20% | 5% | Emerging asset with extreme volatility; 20% TP reflects outsized swing potential |
 | UNI/USD | 12% | 5% | DeFi governance token; moderate volatility comparable to mid-cap alts |
 | INJ/USD | 16% | 5% | High-growth DeFi L1; frequent 15–20% swings along trend changes |
+| WIF/USD | 20% | 5% | Solana-ecosystem memecoin; DOGE-tier meme volatility; strong SOL-correlation momentum cycles |
+| TON/USD | 16% | 5% | Toncoin (Telegram blockchain); news-driven momentum spikes from 900M-user base; clean RSI cycles |
+| OP/USD | 16% | 5% | Optimism L2; amplified ETH recovery cycles; airdrop-driven volume spikes |
+| ARB/USD | 16% | 5% | Arbitrum L2 (largest ETH L2 by TVL); high absolute volume; clear technical ranges |
+| JUP/USD | 20% | 5% | Jupiter DEX aggregator (Solana); high-beta SOL; recurring Jupuary airdrop volume spikes |
+| PEPE/USD | 20% | 5% | PEPE memecoin (2nd largest meme); extreme volatility; highest buy_min_score (8) — quality-only entries |
+| TIA/USD | 20% | 5% | Celestia modular blockchain; institutional modular thesis; volatile with ecosystem announcements |
+| RENDER/USD | 16% | 5% | Render Network (decentralised GPU compute); AI narrative tailwind; Solana-migrated |
+| FET/USD | 16% | 5% | Fetch.ai / ASI Alliance (AI agent infrastructure); AI+DeFi convergence; large merged token |
+| STX/USD | 16% | 5% | Stacks Bitcoin L2; amplified BTC cycles; sBTC backed by 1:1 BTC; 5+ years price history |
 
 All dynamic TP values (when `dynamic_tp.enabled: true`) are computed as `Entry + (k × ATR)` and logged as `[DYNAMIC_TP]`. If the ATR-adjusted TP would be below the 1.0% profit floor, the pair is vetoed from buying.
 

@@ -102,6 +102,16 @@ src/
 | HYPE/USD | 20% | |
 | UNI/USD | 12% | |
 | INJ/USD | 16% | |
+| WIF/USD | 20% | Solana meme; buy_min_score=6; caution=0.40 (#145) |
+| TON/USD | 16% | Telegram blockchain; clean RSI cycles (#146) |
+| OP/USD | 16% | Optimism L2; buy_min_score=6 (#147) |
+| ARB/USD | 16% | Arbitrum L2; largest ETH L2 by TVL (#148) |
+| JUP/USD | 20% | Jupiter DEX (Solana); buy_min_score=7; caution=0.35 (#149) |
+| PEPE/USD | 20% | Extreme meme; buy_min_score=8; caution=0.25 (#150) |
+| TIA/USD | 20% | Celestia modular; buy_min_score=7; caution=0.35 (#151) |
+| RENDER/USD | 16% | AI GPU compute; caution=0.50 (#152) |
+| FET/USD | 16% | ASI Alliance AI; caution=0.45 (#153) |
+| STX/USD | 16% | Bitcoin L2 (Stacks); caution=0.50 (#154) |
 
 All pairs use 5% stop-loss.
 
@@ -197,6 +207,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11c | Fix: Shorten adaptive lookback 400→200 (#141); enable partial TP (#142); correlation cluster guard (#139); graduated circuit breaker 1h/2h/4h (#143); 169 tests |
 | session_2026_04_11d | Fix: Entry slippage added to place_order() (#140); prompt "TOP 3" → dynamic max_buys_per_cycle (#144); 172 tests |
 | session_2026_04_11e | Fix: max_open_positions 13→5, compute_position_size floor at min_order_usd, config sanity warning, prompt min_order guard (#159); 180 tests |
+| session_2026_04_11f | Feat: add 10 new trading pairs WIF/TON/OP/ARB/JUP/PEPE/TIA/RENDER/FET/STX (#145–#154); backtest 55% win; WIF+OP buy_min_score→7, TIA→8; 174 tests |
 
 ---
 

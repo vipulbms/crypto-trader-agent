@@ -596,7 +596,7 @@ trading:
       take_profit_pct: 8
     - pair: ETH/USD
       take_profit_pct: 12
-    # ... (15 pairs total)
+    # ... (24 pairs total; RAILS/USD configured but disabled)
 
 indicators:
   min_candles_to_start: 220

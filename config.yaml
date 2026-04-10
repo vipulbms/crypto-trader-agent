@@ -226,6 +226,156 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.35  # highest bearish DD 2.23% — cut harder (#124)
       buy_min_score: 7              # 30% win rate at score 5 — tighten significantly (#128)
+    - pair: WIF/USD            # Closes #145 — dogwifhat, Solana-ecosystem meme
+      ws_name: WIF/USD
+      rest_name: WIFUSD
+      take_profit_pct: 20     # Meme tier — same as DOGE/HYPE
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.30    # meme/high-vol tier — p25 ATR × 0.8 estimate
+      rsi_oversold: 32        # calibrated from 7.5-day window; meme pair oversold fires ~5%
+      rsi_overbought: 72      # meme tier — lower bar for overbought
+      bb_squeeze_threshold_pct: 2.0  # meme tier 1.8–2.5; same as DOGE
+      min_volume_ratio: 0.40  # issue spec — filters low-liquidity candles
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.40   # same as HYPE — unpredictable meme
+      buy_min_score: 7               # backtest: 33% win / 67% SL rate — tighten bar (#145)
+      rsi_divergence_lookback: 15    # meme/fast swings — shorter window
+      obv_trend_period: 7            # meme tier — capture short accumulation cycles
+    - pair: TON/USD            # Closes #146 — Toncoin (The Open Network)
+      ws_name: TON/USD
+      rest_name: TONUSD
+      take_profit_pct: 16     # Mid-high vol; Telegram-driven momentum spikes
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.28    # high-vol tier estimate; clean RSI cycles
+      rsi_oversold: 30        # issue spec — standard oversold threshold
+      rsi_overbought: 72      # mid-high vol tier
+      bb_squeeze_threshold_pct: 1.8  # high-vol tier 1.6–2.0
+      min_volume_ratio: 0.45  # issue spec
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.60   # mid-vol — moderate caution in bearish regime
+      buy_min_score: 5               # global default — strong RSI patterns expected
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+    - pair: OP/USD             # Closes #147 — Optimism L2
+      ws_name: OP/USD
+      rest_name: OPUSD
+      take_profit_pct: 16     # ETH L2 — amplified ETH recovery cycles
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.28    # high-vol tier — OP has wide intraday ranges
+      rsi_oversold: 30        # issue spec; calibrated 28 → 30 for stability
+      rsi_overbought: 72      # calibrated 70 → 72; L2 tier
+      bb_squeeze_threshold_pct: 1.6  # high-vol tier lower bound
+      min_volume_ratio: 0.35  # issue spec — lower than default (thin off-hours)
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.50   # mid-vol underperformer — global default
+      buy_min_score: 7               # backtest: 47% win (45–59% band) — raise bar (#147)
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+    - pair: ARB/USD            # Closes #148 — Arbitrum L2
+      ws_name: ARB/USD
+      rest_name: ARBUSD
+      take_profit_pct: 16     # Largest ETH L2 by TVL — high liquidity
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.28    # high-vol tier; similar profile to OP
+      rsi_oversold: 30        # issue spec; calibrated 32 → 30 for consistency with OP
+      rsi_overbought: 72      # calibrated 72 ✓
+      bb_squeeze_threshold_pct: 1.6  # high-vol tier — same as OP (L2 cluster)
+      min_volume_ratio: 0.35  # issue spec — higher absolute volume than OP
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.50   # mid-vol underperformer — global default
+      buy_min_score: 6               # require stronger confluence for L2 tokens
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+    - pair: JUP/USD            # Closes #149 — Jupiter DEX aggregator (Solana)
+      ws_name: JUP/USD
+      rest_name: JUPUSD
+      take_profit_pct: 20     # High-beta Solana DeFi — 2–3× SOL moves common
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.32    # SOL-adjacent; meme-adjacent tier
+      rsi_oversold: 32        # issue spec; Solana DeFi oversold fires ~5%
+      rsi_overbought: 72      # high-vol tier; calibrated 68 → 72
+      bb_squeeze_threshold_pct: 2.0  # high-vol tier — captures Solana momentum cycles
+      min_volume_ratio: 0.40  # issue spec
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.35   # high-beta SOL DeFi — cut harder in bearish regime
+      buy_min_score: 7               # high-beta Solana DeFi token — require strong confluence
+      rsi_divergence_lookback: 15    # Solana-adjacent fast cycles — shorter window
+      obv_trend_period: 7            # Solana-adjacent — capture short accumulation cycles
+    - pair: PEPE/USD           # Closes #150 — PEPE memecoin (Tier 2)
+      ws_name: PEPE/USD
+      rest_name: PEPEUSD
+      take_profit_pct: 20     # Extreme meme; 20% max TP tier; 25–50% moves possible
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.45    # Extreme meme — high ATR floor for quality-only entries
+      rsi_oversold: 30        # issue spec 28; calibrated 32; use 30 for stability
+      rsi_overbought: 72      # issue spec 75; calibrated 68; use 72 as consensus
+      bb_squeeze_threshold_pct: 2.5  # extreme meme — only enter during genuine compression
+      min_volume_ratio: 0.50  # issue spec — deep liquidity filter; $500M–$2B daily volume
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.25   # highest caution — extreme downside on negative news
+      buy_min_score: 8               # highest threshold in system — extreme volatility risk
+      rsi_divergence_lookback: 15    # meme/fast cycles
+      obv_trend_period: 7            # meme tier
+    - pair: TIA/USD            # Closes #151 — Celestia modular blockchain (Tier 2)
+      ws_name: TIA/USD
+      rest_name: TIAUSD
+      take_profit_pct: 20     # High-volatility newer token — wide swing range
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.50    # raised from 0.45 — backtest 39% win rate; tighten entry quality (#151)
+      rsi_oversold: 30        # calibrated 30 ✓
+      rsi_overbought: 72      # issue spec 72; calibrated 70 → 72
+      bb_squeeze_threshold_pct: 2.5  # high-vol newer token — wide squeeze threshold
+      min_volume_ratio: 0.35  # issue spec — lower off-hours liquidity
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.35   # high-vol newer token — cut harder in bearish
+      buy_min_score: 8               # raised from 7 — backtest 39% < 45% threshold (#151)
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+    - pair: RENDER/USD         # Closes #152 — Render Network (AI GPU compute, Tier 2)
+      ws_name: RENDER/USD
+      rest_name: RENDERUSD
+      take_profit_pct: 16     # AI narrative token — moderate volatility
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.30    # calibrated 0.24; issue 0.45; use 0.30 (recent low-vol period)
+      rsi_oversold: 30        # issue spec ✓
+      rsi_overbought: 70      # calibrated 64 too low; issue 72; use 70 as consensus
+      bb_squeeze_threshold_pct: 2.0  # AI token tier — sensitive to Nvidia/AI news spikes
+      min_volume_ratio: 0.35  # issue spec — lower off-hours AI-news-driven volume
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.50   # mid-vol — global default caution
+      buy_min_score: 6               # AI narrative — require stronger confluence than blue chips
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+    - pair: FET/USD            # Closes #153 — Fetch.ai / ASI Alliance (AI, Tier 2)
+      ws_name: FET/USD
+      rest_name: FETUSD
+      take_profit_pct: 16     # AI agent infrastructure token — moderate volatility
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.30    # calibrated 0.27; issue 0.45; use 0.30 (recent low-vol period)
+      rsi_oversold: 30        # issue spec; calibrated 32 → 30 for consistency
+      rsi_overbought: 70      # issue spec 72; calibrated 68; use 70 as consensus
+      bb_squeeze_threshold_pct: 2.0  # AI token tier — same as RENDER
+      min_volume_ratio: 0.40  # compromise: issue=0.35, calibrated=0.50 → 0.40
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.45   # AI token — moderate-high caution; regulatory risk
+      buy_min_score: 6               # AI narrative — require stronger confluence
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+    - pair: STX/USD            # Closes #154 — Stacks (Bitcoin L2, Tier 2)
+      ws_name: STX/USD
+      rest_name: STXUSD
+      take_profit_pct: 16     # Bitcoin L2 — amplified BTC cycles
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.32    # calibrated 0.10 too low (7.5-day window); issue 0.45; use 0.32
+      rsi_oversold: 30        # issue spec; calibrated 25 too low — snap to 30
+      rsi_overbought: 74      # calibrated 76; issue 72; use 74 as consensus
+      bb_squeeze_threshold_pct: 2.0  # BTC-adjacent — moderate squeeze threshold
+      min_volume_ratio: 0.40  # issue spec
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.50   # lower absolute liquidity — global default caution
+      buy_min_score: 6               # Tier 2 — require moderate additional confluence
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
 
 # ──────────────────────────────────────────────
 # Paper trading mode
@@ -454,6 +604,27 @@ trailing_stop:
       activate_after_pct: 5.0
     SUI/USD:
       trail_pct: 6.0          # was scalar 4.0
+      activate_after_pct: 4.0
+    WIF/USD:
+      trail_pct: 7.0          # meme tier — same as DOGE/HYPE (#145)
+      activate_after_pct: 5.0
+    JUP/USD:
+      trail_pct: 7.0          # high-beta Solana DeFi — wide trailing room (#149)
+      activate_after_pct: 5.0
+    PEPE/USD:
+      trail_pct: 8.0          # extreme meme — widest trailing room (#150)
+      activate_after_pct: 6.0
+    TIA/USD:
+      trail_pct: 7.0          # newer high-vol token (#151)
+      activate_after_pct: 5.0
+    RENDER/USD:
+      trail_pct: 6.0          # AI token — moderate trailing (#152)
+      activate_after_pct: 4.0
+    FET/USD:
+      trail_pct: 6.0          # AI token — moderate trailing (#153)
+      activate_after_pct: 4.0
+    STX/USD:
+      trail_pct: 6.0          # Bitcoin L2 — moderate trailing (#154)
       activate_after_pct: 4.0
 
 # ──────────────────────────────────────────────
