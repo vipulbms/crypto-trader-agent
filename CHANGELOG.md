@@ -840,3 +840,6 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 
 ### Tests
 - 174 tests, all passing (no regressions).
+
+### Fix (follow-up)
+- `.claude/skills/trading-rules/SKILL.md`: pair list updated 15→24 active pairs; RAILS/USD marked disabled; `Per-pair Max Buy Size`, `Per-pair Signal Threshold`, and `DECISION STYLE` bearish regime rule updated to reflect new caution tiers and buy_min_score thresholds for 10 new pairs.
