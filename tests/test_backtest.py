@@ -8,7 +8,13 @@ The only difference from live/paper mode is that candles come from files
 via HistoricalFeed instead of a live WebSocket connection.
 
 Usage:
+    # Full pipeline (LLM required — ~2h for 7-day run)
     python tests/test_backtest.py
+
+    # Fast signal-only — no LLM, runs in seconds
+    python tests/test_backtest.py --no-llm
+    python tests/test_backtest.py --no-llm --start-date 2025-12-25
+    python tests/test_backtest.py --no-llm --start-date 2025-12-25 --pairs BTC/USD ETH/USD
 """
 
 import argparse
@@ -46,11 +52,44 @@ def main():
         "--start-date", type=str, default="",
         help="Start trading from this date, e.g. 2025-07-01 (uses prior candles for warmup)",
     )
+    parser.add_argument(
+        "--no-llm", action="store_true",
+        help="Skip LLM — use deterministic signal-only rule engine. Runs in seconds.",
+    )
+    parser.add_argument(
+        "--pairs", nargs="+", default=[],
+        help="(--no-llm only) Filter to specific pairs e.g. --pairs BTC/USD ETH/USD",
+    )
     args = parser.parse_args()
 
     with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
+    # ── Fast path: signal-only, no LLM ────────────────────────────────────────
+    if args.no_llm:
+        from tests.test_backtest_fast import run_backtest, print_summary
+        all_pairs = [p["pair"] for p in config["trading"]["pairs"]]
+        print(f"\nLoading candle data for {len(all_pairs)} pairs from history/...")
+        pair_candles = load_all_pairs(all_pairs, history_dir="history")
+        if not pair_candles:
+            print("ERROR: No candle data loaded. Check history/ folder.")
+            sys.exit(1)
+        loaded  = list(pair_candles.keys())
+        skipped = [p for p in all_pairs if p not in pair_candles]
+        print(f"Loaded: {len(loaded)} pairs  |  Skipped (no data): {len(skipped)}")
+        if skipped:
+            print(f"  Skipped: {', '.join(skipped)}")
+        result = run_backtest(
+            config=config,
+            pair_candles=pair_candles,
+            start_date=args.start_date,
+            max_steps=args.candles,
+            pairs_filter=args.pairs,
+        )
+        print_summary(result)
+        return
+
+    # ── Full path: LLM pipeline ────────────────────────────────────────────────
     pairs = [p["pair"] for p in config["trading"]["pairs"]]
     print(f"\nLoading candle data for {len(pairs)} pairs from history/...")
     pair_candles = load_all_pairs(pairs, history_dir="history")

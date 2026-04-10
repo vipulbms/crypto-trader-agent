@@ -20,16 +20,22 @@ BUY score contributors (need >= buy_min_score to emit BUY):
   Price > EMA50 (medium trend)         +1   (bonus, not a blocker)
   Fear & Greed <= 40 (fear)            +1
   Fear & Greed <= 25 (extreme fear)    +1   (stacks with above)
+  ADX > 40 (strong trend)              +1   (confirms directional momentum)
+  ADX < 20 (ranging market)            -1   (soft penalty — no clear trend)
+  RSI regular bullish divergence       +2   (price LL + RSI HL → reversal likely)
+  RSI hidden bullish divergence        +1   (price HL + RSI LL → trend continuation)
 
 SELL score contributors (need >= sell_min_score to emit SELL):
   RSI > rsi_overbought                 +3
   MACD histogram < 0                   +2
   Price >= BB upper band               +2
+  RSI regular bearish divergence       +2   (price HH + RSI LH → reversal likely)
 """
 
 import logging
 from typing import Optional
 
+from src.analysis.indicators import detect_rsi_divergence
 from src.utils.timing import timed
 
 logger = logging.getLogger(__name__)
@@ -72,11 +78,18 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     w_ema_medium          = sig_cfg.get("ema_medium_trend_score", 1)
     w_fear_greed_fear     = sig_cfg.get("fear_greed_fear_score", 1)
     w_fear_greed_extreme  = sig_cfg.get("fear_greed_extreme_score", 1)
+    w_adx_strong          = sig_cfg.get("adx_trend_weight", 1)
+    w_div_bull_regular    = sig_cfg.get("rsi_divergence_bullish_weight", 2)
+    w_div_bull_hidden     = sig_cfg.get("rsi_divergence_hidden_bullish_weight", 1)
 
     # SELL score weights
-    w_rsi_overbought = sig_cfg.get("rsi_overbought_score", 3)
-    w_macd_hist_neg  = sig_cfg.get("macd_hist_negative_score", 2)
-    w_bb_upper       = sig_cfg.get("bb_upper_score", 2)
+    w_rsi_overbought  = sig_cfg.get("rsi_overbought_score", 3)
+    w_macd_hist_neg   = sig_cfg.get("macd_hist_negative_score", 2)
+    w_bb_upper        = sig_cfg.get("bb_upper_score", 2)
+    w_div_bear_regular = sig_cfg.get("rsi_divergence_bearish_weight", 2)
+
+    # Per-pair divergence lookback — shorter for fast/meme pairs, longer for slow movers
+    div_lookback = pair_cfg.get("rsi_divergence_lookback", sig_cfg.get("rsi_divergence_lookback", 20))
 
     max_score      = sig_cfg.get("max_score", 16)
     # Per-pair buy_min_score overrides global — tighten for underperformers (#128)
@@ -95,10 +108,16 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     bb_upper      = indicators.get("bb_upper")
     bb_lower      = indicators.get("bb_lower")
     atr           = indicators.get("atr_14")
+    adx           = indicators.get("adx_14")
     volume        = indicators.get("volume")
     volume_sma_20 = indicators.get("volume_sma_20")
     price         = indicators.get("close", 0.0)
     fear_greed    = indicators.get("fear_greed_index")  # injected by run_cycle
+
+    # RSI divergence — computed from series stored by indicators.py
+    rsi_series   = indicators.get("rsi_series", [])
+    close_series = indicators.get("close_series", [])
+    divergence   = detect_rsi_divergence(close_series, rsi_series, lookback=div_lookback)
 
     buy_score  = 0
     sell_score = 0
@@ -226,10 +245,28 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
             buy_score += w_fear_greed_fear
             reasons.append(f"Fear & Greed: {fear_greed} — fear (supportive for buys)")
 
+    # ADX trend strength — soft modifier (not a hard veto)
+    if adx is not None:
+        if adx > 40:
+            buy_score += w_adx_strong
+            reasons.append(f"ADX {adx:.1f} > 40 — strong trend confirmed")
+        elif adx < 20:
+            buy_score -= w_adx_strong
+            reasons.append(f"ADX {adx:.1f} < 20 — ranging market, soft penalty")
+
+    # RSI divergence — bullish signals add to BUY score
+    if divergence["bullish_regular"]:
+        buy_score += w_div_bull_regular
+        reasons.append(f"RSI regular bullish divergence (price LL + RSI HL) — reversal likely")
+    if divergence["hidden_bullish"]:
+        buy_score += w_div_bull_hidden
+        reasons.append(f"RSI hidden bullish divergence (price HL + RSI LL) — trend continuation")
+
     # ── SELL scoring ─────────────────────────────────────────────────────────
     sell_score = _score_sell(
         rsi, rsi_overbought, macd_hist, near_upper_for_sell, near_lower,
-        w_rsi_overbought, w_macd_hist_neg, w_bb_upper, reasons
+        w_rsi_overbought, w_macd_hist_neg, w_bb_upper,
+        w_div_bear_regular, divergence, reasons
     )
 
     return _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
@@ -237,8 +274,11 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
 
 def _score_sell(
     rsi, rsi_overbought, macd_hist, near_upper_for_sell, near_lower,
-    w_rsi_overbought, w_macd_hist_neg, w_bb_upper, reasons
+    w_rsi_overbought, w_macd_hist_neg, w_bb_upper,
+    w_div_bear_regular=0, divergence=None, reasons=None
 ) -> int:
+    if reasons is None:
+        reasons = []
     sell_score = 0
     if rsi is not None and rsi > rsi_overbought:
         sell_score += w_rsi_overbought
@@ -249,6 +289,9 @@ def _score_sell(
     if near_upper_for_sell and not near_lower:
         sell_score += w_bb_upper
         reasons.append("Price at/near upper Bollinger Band")
+    if divergence and divergence.get("bearish_regular"):
+        sell_score += w_div_bear_regular
+        reasons.append("RSI regular bearish divergence (price HH + RSI LH) — reversal likely")
     return sell_score
 
 

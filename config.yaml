@@ -45,6 +45,7 @@ trading:
       min_volume_ratio: 0.50  # dead zone 44% — standard threshold appropriate
       adaptive_atr_floor_lookback: 400  # 100h rolling window — least-unstable for BTC
       caution_factor_bearish: 0.8   # low bearish DD (0.90%) — slight caution only (#124)
+      rsi_divergence_lookback: 25   # slow mover — longer window gives more reliable swing confirmation (#135)
     - pair: ETH/USD
       ws_name: ETH/USD
       rest_name: ETHUSD
@@ -108,6 +109,7 @@ trading:
       min_volume_ratio: 0.40  # dead zone 52.9%
       adaptive_atr_floor_lookback: 400
       caution_factor_bearish: 0.8   # low bearish DD 1.05% (#124)
+      rsi_divergence_lookback: 15   # noisy/fast pair — shorter window avoids false divergences (#135)
     - pair: DOGE/USD
       ws_name: DOGE/USD
       rest_name: XDGUSD
@@ -121,6 +123,7 @@ trading:
       adaptive_atr_floor_lookback: 400
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # profitable pair — keep global threshold (#128)
+      rsi_divergence_lookback: 15   # meme coin — fast swings, shorter window (#135)
     - pair: ADA/USD
       ws_name: ADA/USD
       rest_name: ADAUSD
@@ -145,6 +148,7 @@ trading:
       min_volume_ratio: 0.40  # dead zone 49.7%
       adaptive_atr_floor_lookback: 400
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.39% (#124)
+      rsi_divergence_lookback: 25   # slow mover (follows BTC) — longer window (#135)
     # RAILS/USD disabled — 25% win rate, 3/4 stop losses in production (#132)
     # - pair: RAILS/USD
     #  ws_name: RAILS/USD
@@ -195,6 +199,7 @@ trading:
       min_volume_ratio: 0.30  # thin liquidity
       adaptive_atr_floor_lookback: 400
       caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
+      rsi_divergence_lookback: 15   # high-volatility DeFi — fast swings, shorter window (#135)
     - pair: UNI/USD
       ws_name: UNI/USD
       rest_name: UNIUSD
@@ -249,6 +254,7 @@ indicators:
   ema_fast: 20
   ema_slow: 200           # 200×15-min = 50 hrs (~2 days) — genuine slow trend for EMA crossover
   atr_period: 14
+  adx_period: 14               # ADX trend strength period (Wilder, standard = 14) (#134)
   candle_buffer_size: 300     # 300×15-min = 75 hrs; covers ema_slow(200) warmup + headroom
   candle_interval: 15         # 15-min candles — aligned with cycle_interval_minutes
   min_candles_to_start: 220   # Minimum candles before first decision cycle (covers ema_slow warmup)
@@ -272,7 +278,12 @@ signals:
   ema_medium_trend_score: 1       # Price > EMA50 (medium-term trend support — bonus, not a blocker)
   fear_greed_fear_score: 1        # Fear & Greed Index <= 40 (market fear = buy context)
   fear_greed_extreme_score: 1     # Fear & Greed Index <= 25 (extreme fear — stacks with above)
-  max_score: 16                   # Denominator for strength normalisation
+  adx_trend_weight: 1             # ADX > 40 → +1 BUY; ADX < 20 → -1 BUY (soft modifier) (#134)
+  rsi_divergence_bullish_weight: 2          # Regular bullish divergence (price LL + RSI HL) (#135)
+  rsi_divergence_hidden_bullish_weight: 1   # Hidden bullish divergence (price HL + RSI LL) (#135)
+  rsi_divergence_bearish_weight: 2          # Regular bearish divergence (price HH + RSI LH) (#135)
+  rsi_divergence_lookback: 20     # Candles to look back for divergence detection — per-pair override supported (#135)
+  max_score: 22                   # Updated: +6 from new signals (ADX+1, div_bull+2, div_hidden+1, div_bear+2)
 
   # ── SELL score weights ────────────────────────────────────────────────────
   rsi_overbought_score: 3         # RSI above rsi_overbought threshold
