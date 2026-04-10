@@ -208,6 +208,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11d | Fix: Entry slippage added to place_order() (#140); prompt "TOP 3" → dynamic max_buys_per_cycle (#144); 172 tests |
 | session_2026_04_11e | Fix: max_open_positions 13→5, compute_position_size floor at min_order_usd, config sanity warning, prompt min_order guard (#159); 180 tests |
 | session_2026_04_11f | Feat: add 10 new trading pairs WIF/TON/OP/ARB/JUP/PEPE/TIA/RENDER/FET/STX (#145–#154); backtest 55% win; WIF+OP buy_min_score→7, TIA→8; 174 tests |
+| session_2026_04_11g | Chore: add-pair skill updated — step 5(i) trailing_stop tier table, step 5(j) correlation_clusters review; closes #162 |
 
 ---
 

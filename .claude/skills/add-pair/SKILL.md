@@ -166,6 +166,54 @@ Update each occurrence of the count.
 **h) `CLAUDE.md`** — update the pairs table in "Pairs and Take-Profit Targets":
 Add a row for the new pair.
 
+**i) `config.yaml` — `trailing_stop.per_pair_overrides`** — add an override entry if the pair's volatility warrants wider trailing room than the global default (`trail_pct: 5.0`, `activate_after_pct: 3.0`):
+
+| Volatility tier | `trail_pct` | `activate_after_pct` | Examples |
+|---|---|---|---|
+| Standard (blue-chip, mid-vol) | *(no override — use global 5%/3%)* | | BTC, ETH, BNB, XRP, ADA, LTC |
+| High-vol L1 / DeFi | 6.0% | 4.0% | SUI, RENDER, FET, STX |
+| Meme / high-beta | 7.0% | 5.0% | DOGE, HYPE, WIF, JUP, TIA |
+| Extreme meme | 8.0% | 6.0% | PEPE |
+
+Add the entry under `trailing_stop.per_pair_overrides:` only if a non-default tier applies:
+```yaml
+    PAIR/USD:
+      trail_pct: X.0         # meme / high-vol tier — wider trailer needed
+      activate_after_pct: Y.0
+```
+If the pair uses the global default (5% / 3%), **no entry is required**.
+
+**j) `config.yaml` — `risk.correlation_clusters`** — assign the pair to an existing cluster, or create a new cluster if 2+ new correlated pairs are being added without an existing home:
+
+Current clusters (update this table as clusters evolve):
+
+| Cluster name | Members |
+|---|---|
+| `large_cap_l1` | BTC/USD, ETH/USD, BNB/USD, SOL/USD |
+| `memecoins` | DOGE/USD, HYPE/USD, WIF/USD, PEPE/USD |
+| `alt_l1` | SUI/USD, AVAX/USD, INJ/USD, TIA/USD |
+| `payment_legacy` | XRP/USD, TRX/USD, ADA/USD, LTC/USD |
+| `eth_l2` | OP/USD, ARB/USD |
+| `ai_tokens` | RENDER/USD, FET/USD |
+
+Pairs that don't fit any cluster can remain **unclustered** (e.g. JUP/USD, TON/USD, STX/USD — independent price drivers).
+
+**Decision rules:**
+- **Add to existing cluster** if the pair has strong thematic / narrative correlation (e.g. a new ETH L2 → `eth_l2`; a new Solana meme → `memecoins`).
+- **Create a new cluster** if 2+ pairs are being added that are highly correlated with each other but don't fit an existing cluster (e.g. two new BTC L2s, two new AI inference tokens).
+- **Leave unclustered** if the pair has a largely independent price driver.
+
+When adding to an existing cluster:
+```yaml
+    - name: existing_cluster_name
+      pairs: [...existing pairs..., PAIR/USD]
+```
+When creating a new cluster:
+```yaml
+    - name: new_cluster_name          # brief rationale in comment
+      pairs: [PAIR1/USD, PAIR2/USD]
+```
+
 ### 6. Run 7-day fast backtest to validate signal parameters
 
 Before committing, validate that the new pair's signal parameters produce acceptable win rates.
@@ -241,6 +289,8 @@ exec(open('tests/test_per_pair_params.py').read())
 - [ ] `docs/business_requirements.md`: scope count, FR-01 list, pair table row, version history
 - [ ] `docs/epics_stories_ac.md`: pair count references updated
 - [ ] `CLAUDE.md`: pairs table updated
+- [ ] `trailing_stop.per_pair_overrides` updated — or confirmed global default (5%/3%) is appropriate
+- [ ] `risk.correlation_clusters` reviewed — pair added to existing cluster, new cluster created, or left unclustered with rationale
 - [ ] All existing tests pass
 
 ### 8. Create a GitHub issue before committing

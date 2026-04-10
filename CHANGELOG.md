@@ -2,6 +2,17 @@
 
 ---
 
+## Session: 2026-04-11 (Part G) — add-pair skill: trailing_stop + correlation_clusters steps (#162)
+
+### Chore / Docs
+- **[#162] add-pair skill updated**: Added two missing step-5 sub-items to `.claude/skills/add-pair/SKILL.md`:
+  - **5(i) `trailing_stop.per_pair_overrides`**: volatility-tier table (standard / high-vol L1 / meme / extreme meme) with trail_pct / activate_after_pct values. Standard pairs (BTC/ETH/XRP/ADA) need no override entry; high-vol L1 = 6%/4%; meme = 7%/5%; extreme meme = 8%/6%.
+  - **5(j) `risk.correlation_clusters`**: current cluster table (6 clusters), decision rules (add-to-existing / create-new / leave-unclustered), YAML snippets for both cases.
+  - Checklist: two new items added.
+- **[#160] Closed**: `correlation_clusters` config fix was already committed in b8dbf4c (session_2026_04_11f). Issue closed retroactively with cross-reference to skill update.
+
+---
+
 ## Session: 2026-04-11 (Part D) — Entry slippage, dynamic prompt max_buys (#140, #144)
 
 ### Bugs Fixed
