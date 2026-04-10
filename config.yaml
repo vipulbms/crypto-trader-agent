@@ -505,11 +505,15 @@ risk:
     - name: large_cap_l1
       pairs: [BTC/USD, ETH/USD, BNB/USD, SOL/USD]   # ~0.85 rolling correlation
     - name: memecoins
-      pairs: [DOGE/USD, HYPE/USD]
+      pairs: [DOGE/USD, HYPE/USD, WIF/USD, PEPE/USD]  # meme sentiment co-movement
     - name: alt_l1
-      pairs: [SUI/USD, AVAX/USD, INJ/USD]
+      pairs: [SUI/USD, AVAX/USD, INJ/USD, TIA/USD]   # newer L1s — risk-off correlation
     - name: payment_legacy
       pairs: [XRP/USD, TRX/USD, ADA/USD, LTC/USD]
+    - name: eth_l2
+      pairs: [OP/USD, ARB/USD]                        # ~0.90 ETH-beta correlation
+    - name: ai_tokens
+      pairs: [RENDER/USD, FET/USD]                    # ASI/AI narrative co-movement
   max_cluster_positions: 2    # Max open positions per cluster
   cluster_size_penalty: 0.5   # Multiply position size when cluster already has 1 open
 
