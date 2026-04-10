@@ -2,6 +2,16 @@
 
 ---
 
+## Session: 2026-04-10 (Part C) — Fix stale total value in balance report (#133)
+
+### Bugs Fixed
+- **[#133] Total value showed stale audit snapshot**: `get_portfolio_summary()` read `total_usd` from `audit_balance_snapshots` (only updated during trading cycles). After a DB reset, this returned the old value while `Available` correctly showed the live wallet. Fixed: paper mode now computes `total_usd = cash + sum(open position usd_values)` live. Live mode still uses the snapshot (Kraken cash is external).
+
+### Files
+- `src/reports/trade_report.py` — live paper total_usd computation
+
+---
+
 ## Session: 2026-04-10 (Part B) — Disable RAILS/USD + clean slate reset (#132)
 
 ### Changed

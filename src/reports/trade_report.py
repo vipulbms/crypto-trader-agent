@@ -92,7 +92,13 @@ def get_portfolio_summary(mode: str, config: dict) -> dict:
         ).fetchall()
 
     daily_pnl = sum(r["pnl_usd"] for r in daily_trades)
-    total_usd  = snap["total_usd"] if snap else cash
+    # Paper: compute live from wallet + open positions (snapshot is stale between cycles)
+    # Live: cash comes from Kraken so fall back to last snapshot
+    if mode == "paper":
+        open_pos_value = sum(float(p["usd_value"]) for p in positions)
+        total_usd = round(cash + open_pos_value, 4)
+    else:
+        total_usd = snap["total_usd"] if snap else cash
 
     tc.close()
     ac.close()

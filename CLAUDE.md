@@ -190,6 +190,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_09g | Fix: trailing_stop in display/reporting (#125); min_order_usd raised to $20 + Guard 0.5 (#126); force_close_all at backtest end (#127); overdraw guard in place_order() (#129) |
 | session_2026_04_10a | Fix: RAILS buy_min_score=7, caution_factor_bearish 0.40→0.25; unambiguous propose_sell gate (all three conditions required, not disjunctive); SKILL.md frontmatter fix (#131) |
 | session_2026_04_10b | Chore: disable RAILS/USD (25% win rate, 3/4 stops); reset paper trading to clean $1,000 slate (#132) |
+| session_2026_04_10c | Fix: total value in balance report used stale audit snapshot — now computed live for paper mode (#133) |
 
 ---
 
