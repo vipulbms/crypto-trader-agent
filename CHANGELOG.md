@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-11 (Part H) — Add reset_paper.py utility script (#163)
+
+### New Script
+- **[#163] `scripts/reset_paper.py`**: Resets `paper_trading.db` (wallet, positions, trades, agent_state) and `audit.db` (all `mode='paper'` rows, FK-safe deletion order) to a clean slate. Re-seeds wallet with configurable `--balance` (default $1,000). Prints current state before acting, shows interactive `[y/N]` confirmation unless `--yes` passed, verifies clean state with assertions after reset.
+
+---
+
 ## Session: 2026-04-11 (Part G) — add-pair skill: trailing_stop + correlation_clusters steps (#162)
 
 ### Chore / Docs

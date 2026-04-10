@@ -209,6 +209,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11e | Fix: max_open_positions 13→5, compute_position_size floor at min_order_usd, config sanity warning, prompt min_order guard (#159); 180 tests |
 | session_2026_04_11f | Feat: add 10 new trading pairs WIF/TON/OP/ARB/JUP/PEPE/TIA/RENDER/FET/STX (#145–#154); backtest 55% win; WIF+OP buy_min_score→7, TIA→8; 174 tests |
 | session_2026_04_11g | Chore: add-pair skill updated — step 5(i) trailing_stop tier table, step 5(j) correlation_clusters review; closes #162 |
+| session_2026_04_11h | Chore: add scripts/reset_paper.py — reset paper_trading.db + audit.db paper rows to clean $1,000 slate; closes #163 |
 
 ---
 
