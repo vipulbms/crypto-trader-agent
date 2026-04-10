@@ -2,6 +2,24 @@
 
 ---
 
+## Session: 2026-04-11 (Part D) — Entry slippage, dynamic prompt max_buys (#140, #144)
+
+### Bugs Fixed
+- **[#140] Entry slippage added to place_order()**: `fill_price = round(current_price * (1 + self._slippage), 8)`. Reuses existing exit slippage field (0.05%). Round-trip friction model is now symmetric: entry slippage (0.05%) + entry fee (0.26%) + exit slippage (0.05%) + exit fee (0.26%) ≈ 0.62% per trade. SL/TP are anchored to the slipped fill_price.
+- **[#144] LLM prompt "TOP 3" → dynamic `max_buys_per_cycle`**: `build_cycle_prompt()` now accepts `max_buys_per_cycle: int` param (default 7); `TradingAgent.run_cycle()` passes `self._max_buys`. Prompt reads `f"top {max_buys_per_cycle} picks"` — stays in sync with config automatically. Fixed stale module docstring "default: 2" → "default: 7".
+
+### Tests
+- `tests/test_entry_slippage.py` — 3 new tests: fill_price slippage, SL/TP anchoring, zero-slippage case
+
+### Files
+- `src/exchange/paper_broker.py` — `place_order()` entry slippage
+- `src/agent/prompts.py` — `build_cycle_prompt()` new param, dynamic text
+- `src/agent/trading_agent.py` — pass `max_buys_per_cycle=self._max_buys`
+- `config.yaml` — updated `slippage_pct` comment
+- `tests/test_entry_slippage.py` — new file
+
+---
+
 ## Session: 2026-04-11 (Part C) — Adaptive lookback, partial TP, correlation guard, graduated CB (#139, #141, #142, #143)
 
 ### Features Added

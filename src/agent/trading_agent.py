@@ -4,7 +4,7 @@ Uses the Ollama Python client directly with tool/function calling.
 
 Decision model: ONE LLM call per cycle across ALL pairs.
 The LLM reviews all signals simultaneously, ranks BUY candidates, and
-selects at most max_buys_per_cycle (default: 2) to propose buying.
+selects at most max_buys_per_cycle (default: 7) to propose buying.
 Sell candidates are evaluated against open positions.
 All other pairs are implicitly held and logged as HOLD in the audit trail.
 
@@ -158,6 +158,7 @@ class TradingAgent:
             mode=self._mode,
             pair_tp_config=self._pair_tp,
             ai_context=ai_context,
+            max_buys_per_cycle=self._max_buys,
         )
 
         return self._run_cycle_decision(

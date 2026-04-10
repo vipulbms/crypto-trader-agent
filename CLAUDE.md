@@ -72,7 +72,7 @@ src/
 - Fallback model configured in `config.yaml → llm.fallback_model` if primary times out
 
 ### Paper Broker
-- `place_order()`: applies entry slippage (0.05%), deducts `actual_cost + fee_usd` from cash
+- `place_order()`: applies entry slippage (0.05%, now symmetric with exit #140), deducts `actual_cost + fee_usd` from cash
 - `usd_value` stored in `paper_positions` = `actual_cost` (entry cost, fee excluded)
 - `close_position()`: applies exit slippage (0.05%) + exit fee (0.26% hardcoded in method)
 - `get_balance()`: `total_usd = cash + Σ(usd_value of open positions)`
@@ -195,12 +195,13 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11a | Feat: ADX trend strength filter (#134); RSI divergence detection (#135); fast backtest `--no-llm` flag (signal-only, seconds vs 2h) |
 | session_2026_04_11b | Feat: OBV accumulation signal +1 BUY (#136); BB squeeze release +2 BUY (#137); per-pair obv_trend_period; max_score 22→25; 96 tests |
 | session_2026_04_11c | Fix: Shorten adaptive lookback 400→200 (#141); enable partial TP (#142); correlation cluster guard (#139); graduated circuit breaker 1h/2h/4h (#143); 169 tests |
+| session_2026_04_11d | Fix: Entry slippage added to place_order() (#140); prompt "TOP 3" → dynamic max_buys_per_cycle (#144); 172 tests |
 
 ---
 
 ## Known Behaviours / Gotchas
 
-- **Realized P&L at TP is slightly below configured %**: exit slippage (0.05%) + exit fee (0.26%) reduce net proceeds by ~0.31%. This is intentional simulation of real trading costs.
+- **Realized P&L at TP is slightly below configured %**: full round-trip friction = entry slippage (0.05%) + entry fee (0.26%) + exit slippage (0.05%) + exit fee (0.26%) ≈ 0.62% per trade. This is intentional simulation of real Kraken maker-fee trading costs (#140).
 - **`usd_value` ≠ cash deducted**: `usd_value` in DB = entry cost only; actual cash deducted = entry cost + entry fee. The fee is shown in Telegram notifications but not in `paper_positions.usd_value`.
 - **`agent_sell` vs `take_profit`**: `exit_reason` in DB distinguishes LLM-initiated sells from automatic TP hits. If you see small-gain exits, check if `exit_reason = agent_sell` — means the LLM sold early.
 - **Cycle interval**: 30 minutes. SL/TP checks happen every cycle start, not on every price tick. Price can blow past SL between cycles without firing.

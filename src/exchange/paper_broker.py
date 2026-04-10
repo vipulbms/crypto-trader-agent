@@ -115,9 +115,9 @@ class PaperBroker:
             raise ValueError("PaperBroker.place_order only supports 'buy' side for entries")
 
         # In a high-frequency quant strategy, we execute Limit Orders at the Bid.
-        # Unlike Market orders, we do not pay the spread (slippage).
-        # We assume the current_price passed in is the optimal Bid.
-        fill_price  = current_price
+        # Even limit orders incur queue position risk and small adverse selection
+        # on a 30-minute cycle. Apply entry slippage symmetrically with exit. (#140)
+        fill_price  = round(current_price * (1 + self._slippage), 8)
         volume      = round(usd_amount / fill_price, 8)
         actual_cost = round(fill_price * volume, 4)
         fee_usd     = round(actual_cost * self._maker_fee, 4)

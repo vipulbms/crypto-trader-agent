@@ -232,7 +232,7 @@ trading:
 # ──────────────────────────────────────────────
 paper:
   starting_balance_usd: 1000
-  slippage_pct: 0.05          # Simulated fill slippage (%)
+  slippage_pct: 0.05          # Simulated fill slippage (%) — applied on both entry and exit (#140)
   maker_fee_pct: 0.26         # Kraken maker fee — applied to every paper fill
   require_kraken_private_api: false
 
