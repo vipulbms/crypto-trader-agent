@@ -65,7 +65,7 @@ def _make_config(pair_overrides=None):
             "stop_loss_pct": 5,
             "take_profit_pct": 8,
             "min_profit_floor_pct": 1.0,
-            "early_sell_min_tp_proximity_pct": 80,
+            "early_sell_min_tp_proximity_pct": 60,
             "max_position_pct": 15,
             "max_open_positions": 13,
             "max_buys_per_cycle": 3,

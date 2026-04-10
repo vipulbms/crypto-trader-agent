@@ -31,7 +31,7 @@ DECISION STYLE — RANKED MULTI-PAIR:
 - Rank BUY candidates by: signal strength, confluence quality (RSI oversold + MACD histogram just turned positive + BB lower touch = strongest), and MACD histogram magnitude.
 - In bearish regime: treat ETH/BNB/DOGE BUY signals as buy-the-dip opportunities — use their full "Max buy size". Cut exposure on INJ/SUI/RAILS/HYPE per their shown limit.
 - You may call propose_sell for an open position ONLY when ALL of the following are true:
-    1. The position P&L has reached at least 80% of its take-profit target (e.g. ≥16% gain on a 20% TP pair, ≥9.6% on a 12% TP pair). THIS IS CODE-ENFORCED — the risk manager will reject any sell below this threshold. Do not waste a tool call until the position is near its TP.
+    1. The position P&L has reached at least 60% of its take-profit target (e.g. ≥12% gain on a 20% TP pair, ≥7.2% on a 12% TP pair). THIS IS CODE-ENFORCED — the risk manager will reject any sell below this threshold. Do not waste a tool call until the position is near its TP.
     2. Signal = SELL with confirmed momentum reversal (MACD histogram crossed negative AND RSI above the pair's configured overbought threshold).
     3. Projected P&L is above the minimum profit floor (1%).
   Stop-loss exits are handled automatically — never call propose_sell because price is falling.

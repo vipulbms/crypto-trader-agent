@@ -68,7 +68,7 @@ src/
 ### LLM Decision Cycle
 - Single LLM call per cycle covering all pairs (ranked multi-pair prompt)
 - Agent may call `propose_buy` for top-3 signals only; `propose_sell` only with strong conditions
-- **Early sell guardrails (critical):** agent cannot call `propose_sell` unless P&L > +2%; for early TP capture, position must be at ≥80% of TP target with confirmed reversal
+- **Early sell guardrails (critical):** agent cannot call `propose_sell` unless P&L > +2%; for early TP capture, position must be at ≥60% of TP target with confirmed reversal
 - Fallback model configured in `config.yaml → llm.fallback_model` if primary times out
 
 ### Paper Broker
@@ -191,6 +191,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_10a | Fix: RAILS buy_min_score=7, caution_factor_bearish 0.40→0.25; unambiguous propose_sell gate (all three conditions required, not disjunctive); SKILL.md frontmatter fix (#131) |
 | session_2026_04_10b | Chore: disable RAILS/USD (25% win rate, 3/4 stops); reset paper trading to clean $1,000 slate (#132) |
 | session_2026_04_10c | Fix: total value in balance report used stale audit snapshot — now computed live for paper mode (#133) |
+| session_2026_04_10d | Fix: early-sell TP proximity guard reduced from 80% to 60% — avoids asymmetric trap; configurable via `early_sell_min_tp_proximity_pct` (#138) |
 
 ---
 

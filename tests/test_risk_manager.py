@@ -145,7 +145,7 @@ class TestValidateSellTPProximityGuard(unittest.TestCase):
 
     Given a position with a configured take_profit_pct
     When propose_sell is called at various P&L levels
-    Then validate_sell() enforces the 80% TP proximity rule (BRD FR-20)
+    Then validate_sell() enforces the 60% TP proximity rule (BRD FR-20)
     """
 
     def setUp(self):
@@ -154,7 +154,7 @@ class TestValidateSellTPProximityGuard(unittest.TestCase):
                 "stop_loss_pct": 5,
                 "take_profit_pct": 12,
                 "min_profit_floor_pct": 1.0,
-                "early_sell_min_tp_proximity_pct": 80,
+                "early_sell_min_tp_proximity_pct": 60,
                 "max_position_pct": 30,
             },
             "risk": {
@@ -167,7 +167,7 @@ class TestValidateSellTPProximityGuard(unittest.TestCase):
     def _pos(self, entry_price: float, take_profit_pct: float) -> list:
         return [{"entry_price": entry_price, "take_profit_pct": take_profit_pct}]
 
-    def test_sell_blocked_below_80_pct_of_tp(self):
+    def test_sell_blocked_below_60_pct_of_tp(self):
         """
         Given TP=12% and entry=$100
         When current price is $105 (+5% P&L — only 42% of 12% TP)
@@ -181,16 +181,16 @@ class TestValidateSellTPProximityGuard(unittest.TestCase):
         self.assertFalse(approved)
         self.assertIn("Early Exit Guard", reason)
 
-    def test_sell_allowed_at_85_pct_of_tp(self):
+    def test_sell_allowed_at_65_pct_of_tp(self):
         """
         Given TP=12% and entry=$100
-        When current price is $110.20 (+10.2% P&L — 85% of 12% TP)
+        When current price is $107.80 (+7.8% P&L — 65% of 12% TP, above 60% gate)
         Then validate_sell() returns True
         """
         approved, reason, _ = self.rm.validate_sell(
             pair="ETH/USD",
             open_positions=self._pos(entry_price=100.0, take_profit_pct=12.0),
-            current_price=110.20,
+            current_price=107.80,
         )
         self.assertTrue(approved)
         self.assertIn("Approved", reason)

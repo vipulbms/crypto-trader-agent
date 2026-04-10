@@ -72,7 +72,7 @@ Fully implemented to mirror PaperBroker interface: `get_balance()` uses DB entry
 ## Minimum Profit Floor & Quant Constraints
 - `min_profit_floor_pct = 1.0` enforced in `validate_sell` (risk_manager) as the sell floor.
 - ATR signal gate in `signals.py` uses `dynamic_tp.atr_tp_min_pct: 0.3` (NOT `min_profit_floor_pct`) — decoupled to allow large-cap pairs (BTC ATR% ~0.625%) to pass.
-- `validate_sell()` code-enforces the 80% TP proximity guard (BRD FR-20): LLM cannot exit until P&L ≥ 80% of the position's `take_profit_pct`. Automatic SL/TP exits bypass this.
+- `validate_sell()` code-enforces the 60% TP proximity guard (BRD FR-20, reduced from 80% in #138): LLM cannot exit until P&L ≥ 60% of the position's `take_profit_pct`. Configurable via `trading.early_sell_min_tp_proximity_pct`. Automatic SL/TP exits bypass this.
 - LLM trading rules in `.claude/skills/trading-rules/SKILL.md` — keep SKILL.md in sync whenever signal logic or risk rules change.
 
 ## Trading Hours

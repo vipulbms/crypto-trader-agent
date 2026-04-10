@@ -2,6 +2,22 @@
 
 ---
 
+## Session: 2026-04-10 (Part D) — Reduce early-sell TP proximity guard 80% → 60% (#138)
+
+### Bugs Fixed
+- **[#138] Asymmetric early-sell trap**: On a TP=12% pair, the 80% guard prevented the LLM from selling until +9.6% while SL fires at -5% — a 14.6% swing from peak. Reduced to 60%: early sell now allowed at ≥7.2% on a 12% TP pair, ≥12% on a 20% TP pair.
+
+### Config
+- `trading.early_sell_min_tp_proximity_pct`: `80` → `60`
+
+### Files
+- `config.yaml`
+- `.claude/skills/trading-rules/SKILL.md` — updated guard examples
+- `tests/test_risk_manager.py` — renamed tests, updated boundary price
+- `tests/test_per_pair_params.py` — fixture updated
+
+---
+
 ## Session: 2026-04-10 (Part C) — Fix stale total value in balance report (#133)
 
 ### Bugs Fixed

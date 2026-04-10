@@ -8,7 +8,7 @@
 trading:
   stop_loss_pct: 5            # Fixed — not recommended to change
   min_profit_floor_pct: 1.0   # Min PNL needed to close a position (covers fees/slippage)
-  early_sell_min_tp_proximity_pct: 80  # LLM cannot propose_sell until P&L >= this % of TP target (code-enforced BRD FR-20)
+  early_sell_min_tp_proximity_pct: 60  # LLM cannot propose_sell until P&L >= this % of TP target (code-enforced BRD FR-20)
 
   # Global default take-profit. Overridden per pair below.
   # Allowed values: 5 | 8 | 12 | 16 | 20
