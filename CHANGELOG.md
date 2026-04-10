@@ -2,7 +2,28 @@
 
 ---
 
-## Session: 2026-04-10 (Part D) — Reduce early-sell TP proximity guard 80% → 60% (#138)
+## Session: 2026-04-11 (Part C) — Adaptive lookback, partial TP, correlation guard, graduated CB (#139, #141, #142, #143)
+
+### Features Added
+- **[#139] Correlation cluster guard**: `validate_buy()` Guard 2a — if pair belongs to a cluster (large_cap_l1/memecoins/alt_l1/payment_legacy) and ≥ 2 positions in that cluster are already open, BUY rejected. If 1 open in cluster, position size penalised 50% (`cluster_size_penalty`). Config: `risk.correlation_clusters`, `max_cluster_positions: 2`, `cluster_size_penalty: 0.5`.
+- **[#143] Graduated circuit breaker**: Replaces flat 4h pause with exponential backoff — 1st fire → 1h, 2nd → 2h, 3rd+ → 4h. Fire count derived from 24h trade history via `_count_circuit_fires_in_window()`. Backward compat: `pause_hours` still accepted as flat override. Config: `pause_tiers_hours: [1, 2, 4]`, `tier_reset_hours: 24`.
+
+### Config Changes
+- **[#141]** `adaptive_atr_floor_lookback: 400 → 200` for all 14 pairs and 3 global defaults (`adaptive_atr_floor`, `adaptive_bb_squeeze`, `adaptive_volume_floor`). 200 candles = 50h — responsive to regime shifts within 2 trading days.
+- **[#142]** `partial_take_profit.enabled: false → true` — now active in production.
+
+### Bugs Fixed
+- **[#143]** `is_circuit_open()` used `self._cb_pause_secs` (max tier = 4h) for `resume_in` instead of the tier-appropriate `pause_secs`. This caused all tiers to always report 4h pause duration regardless of tier.
+
+### Files
+- `config.yaml`
+- `src/risk/risk_manager.py` — new helpers `_count_circuit_fires_in_window`, `_get_correlation_cluster`, `_get_open_pairs`; `is_circuit_open()` graduated logic; `validate_buy()` Guard 2a
+- `tests/test_circuit_breaker.py` — 3 new graduated tests
+- `tests/test_correlation_guard.py` — new file, 3 tests
+
+---
+
+
 
 ### Bugs Fixed
 - **[#138] Asymmetric early-sell trap**: On a TP=12% pair, the 80% guard prevented the LLM from selling until +9.6% while SL fires at -5% — a 14.6% swing from peak. Reduced to 60%: early sell now allowed at ≥7.2% on a 12% TP pair, ≥12% on a 20% TP pair.

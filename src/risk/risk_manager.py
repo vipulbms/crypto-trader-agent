@@ -91,7 +91,20 @@ class RiskManager:
         cb_cfg = risk.get("circuit_breaker", {})
         self._cb_enabled          = cb_cfg.get("enabled", True)
         self._cb_max_consec_stops = cb_cfg.get("consecutive_stops", 3)
-        self._cb_pause_secs       = cb_cfg.get("pause_hours", 4) * 3600
+        # Graduated backoff (#143): pause_tiers_hours takes priority over flat pause_hours
+        if "pause_tiers_hours" in cb_cfg:
+            self._cb_pause_tiers  = [h * 3600 for h in cb_cfg["pause_tiers_hours"]]
+        else:
+            flat = cb_cfg.get("pause_hours", 4) * 3600
+            self._cb_pause_tiers  = [flat, flat, flat]
+        self._cb_tier_reset_hours = cb_cfg.get("tier_reset_hours", 24)
+        # Keep _cb_pause_secs for record_stop_loss logging (max tier)
+        self._cb_pause_secs       = max(self._cb_pause_tiers)
+
+        # Correlation guard (#139)
+        self._correlation_clusters   = risk.get("correlation_clusters", [])
+        self._max_cluster_positions  = risk.get("max_cluster_positions", 2)
+        self._cluster_size_penalty   = risk.get("cluster_size_penalty", 0.5)
 
         # DB path — used to query trade history for circuit breaker
         self._db_path = db_path
@@ -132,18 +145,83 @@ class RiskManager:
             logger.warning("[CIRCUIT] Failed to query trade history: %s", e)
             return []
 
+    def _count_circuit_fires_in_window(self, window_hours: float) -> int:
+        """
+        Count how many times the circuit breaker has fired (completed N consecutive stop-losses)
+        within the last window_hours. Used to determine graduated pause tier (#143).
+        """
+        if not self._db_path:
+            return 0
+        try:
+            from src.storage.database import get_connection
+            from datetime import datetime, timezone
+            conn = get_connection(self._db_path)
+            trades_table = "paper_trades" if "paper" in self._db_path else "live_trades"
+            since_iso = datetime.fromtimestamp(
+                time.time() - window_hours * 3600, tz=timezone.utc
+            ).isoformat()
+            rows = conn.execute(
+                f"SELECT exit_reason FROM {trades_table} "
+                f"WHERE closed_at >= ? ORDER BY closed_at ASC",
+                (since_iso,),
+            ).fetchall()
+            conn.close()
+            # Walk through exits: count complete streaks of N consecutive stop-losses
+            fires = 0
+            streak = 0
+            for row in rows:
+                if row["exit_reason"] in ("stop_loss", "fallback_stop_loss"):
+                    streak += 1
+                    if streak >= self._cb_max_consec_stops:
+                        fires += 1
+                        streak = 0  # reset after each complete fire
+                else:
+                    streak = 0
+            return fires
+        except Exception as e:
+            logger.warning("[CIRCUIT] Failed to count fires: %s", e)
+            return 0
+
+    def _get_correlation_cluster(self, pair: str) -> Optional[dict]:
+        """Return cluster info {name, pairs} if pair belongs to a configured cluster, else None."""
+        for cluster in self._correlation_clusters:
+            if pair in cluster.get("pairs", []):
+                return cluster
+        return None
+
+    def _get_open_pairs(self) -> list:
+        """Return list of currently open pair names from DB. Returns [] if DB unavailable."""
+        if not self._db_path:
+            return []
+        try:
+            from src.storage.database import get_connection
+            conn = get_connection(self._db_path)
+            positions_table = "paper_positions" if "paper" in self._db_path else "live_positions"
+            rows = conn.execute(
+                f"SELECT pair FROM {positions_table} WHERE status='open'"
+            ).fetchall()
+            conn.close()
+            return [r["pair"] for r in rows]
+        except Exception as e:
+            logger.warning("[RISK] Failed to query open positions: %s", e)
+            return []
+
     def is_circuit_open(self) -> tuple:
         """
         Returns (tripped: bool, resume_in_secs: float).
 
-        Tripped when: the last N trades within the pause window are ALL stop_loss.
-        The time window is passed into the SQL query — an old streak (outside the
-        window) is ignored and trading resumes automatically.
+        Tripped when: the last N trades within the current tier's pause window are ALL stop_loss.
+        Pause duration is graduated (#143): 1st fire→1h, 2nd→2h, 3rd+→4h (within tier_reset_hours).
         """
         if not self._cb_enabled:
             return False, 0.0
 
-        window_start = time.time() - self._cb_pause_secs
+        # --- #143: Determine pause duration based on fires in last tier_reset_hours ---
+        fires = self._count_circuit_fires_in_window(self._cb_tier_reset_hours)
+        tier_idx = min(max(fires - 1, 0), len(self._cb_pause_tiers) - 1)
+        pause_secs = self._cb_pause_tiers[tier_idx]
+
+        window_start = time.time() - pause_secs
         recent = self._query_recent_exits(since_epoch=window_start)
 
         if len(recent) < self._cb_max_consec_stops:
@@ -161,13 +239,13 @@ class RiskManager:
         except Exception:
             most_recent_ts = time.time()
 
-        resume_in = (most_recent_ts + self._cb_pause_secs) - time.time()
+        resume_in = (most_recent_ts + pause_secs) - time.time()
         if resume_in <= 0:
             return False, 0.0
 
         logger.debug(
-            "[CIRCUIT] Active — %d consecutive stop-losses within last %.0fh, resumes in %.0f min",
-            self._cb_max_consec_stops, self._cb_pause_secs / 3600, resume_in / 60,
+            "[CIRCUIT] Active (tier %d, pause %.0fh) — %d consecutive stop-losses, resumes in %.0f min",
+            tier_idx + 1, pause_secs / 3600, self._cb_max_consec_stops, resume_in / 60,
         )
         return True, resume_in
 
@@ -284,6 +362,26 @@ class RiskManager:
                 0.0,
             )
 
+        # 2a. Correlation cluster guard (#139) — check before any cash calculations
+        cluster_penalty_factor = 1.0
+        cluster = self._get_correlation_cluster(pair)
+        if cluster and self._correlation_clusters:
+            open_pairs = self._get_open_pairs()
+            cluster_open = [p for p in open_pairs if p in cluster["pairs"] and p != pair]
+            if len(cluster_open) >= self._max_cluster_positions:
+                return (
+                    False,
+                    f"Cluster '{cluster['name']}' already has {len(cluster_open)} open "
+                    f"({', '.join(cluster_open)}) — max {self._max_cluster_positions}.",
+                    0.0,
+                )
+            if len(cluster_open) == 1:
+                cluster_penalty_factor = self._cluster_size_penalty
+                logger.info(
+                    "[RISK] Cluster '%s' has 1 open (%s) — sizing penalised %.0f%%",
+                    cluster["name"], cluster_open[0], self._cluster_size_penalty * 100,
+                )
+
         # 3. Min cash reserve
         min_cash = portfolio_balance_usd * (self._min_cash_reserve_pct / 100)
         if available_cash_usd <= min_cash:
@@ -358,6 +456,12 @@ class RiskManager:
 
         if capped < self._min_order_usd:
             return (False, "No tradable cash after min reserve deduction", 0.0)
+
+        # Apply cluster size penalty if applicable (#139)
+        if cluster_penalty_factor < 1.0:
+            capped = round(capped * cluster_penalty_factor, 2)
+            if capped < self._min_order_usd:
+                return (False, f"Post-cluster-penalty size ${capped:.2f} below min_order_usd ${self._min_order_usd:.2f}", 0.0)
 
         reason = "Approved"
         if capped < proposed_usd:

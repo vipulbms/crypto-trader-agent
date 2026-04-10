@@ -118,9 +118,135 @@ def test_validate_buy_blocked():
     _cleanup()
 
 
+# ── Graduated circuit breaker tests (#143) ────────────────────────────────────
+
+TIERED_CONFIG = {
+    "trading": {
+        "stop_loss_pct": 5, "take_profit_pct": 8, "min_profit_floor_pct": 1.0,
+        "max_position_pct": 30, "max_open_positions": 3, "pairs": [],
+        "early_sell_min_tp_proximity_pct": 60,
+    },
+    "risk": {
+        "daily_loss_limit_pct": 10, "min_cash_reserve_pct": 10,
+        "circuit_breaker": {
+            "enabled": True,
+            "consecutive_stops": 3,
+            "pause_tiers_hours": [1, 2, 4],
+            "tier_reset_hours": 24,
+        },
+    },
+}
+
+# Use a dedicated clean DB for graduated tests to avoid contamination from production data
+DB_TIERED = "test_paper_cb_graduated.db"
+
+
+def _setup_tiered_db():
+    """Create / clean the tiered test DB — truncates all paper_trades."""
+    from src.storage.database import init_paper_db, get_connection
+    init_paper_db(DB_TIERED, 10000)
+    conn = get_connection(DB_TIERED)
+    conn.execute("DELETE FROM paper_trades")
+    conn.commit()
+    conn.close()
+
+
+def _seed_tiered_trades(rows: list) -> None:
+    """Insert test trades into the clean tiered test DB."""
+    from src.storage.database import get_connection
+    conn = get_connection(DB_TIERED)
+    for closed_at, exit_reason in rows:
+        conn.execute(
+            "INSERT INTO paper_trades "
+            "(opened_at, closed_at, pair, side, entry_price, exit_price, volume, "
+            " usd_invested, pnl_usd, pnl_pct, exit_reason, hold_duration_secs, "
+            " fee_usd, stop_loss_pct, take_profit_pct) "
+            "VALUES (?, ?, 'TEST/USD', 'buy', 100, 95, 1, 100, -5, -5, ?, 3600, 0.26, 5, 8)",
+            (closed_at, closed_at, exit_reason),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_first_fire_pauses_1h():
+    """Circuit fired once today → pause is 1h."""
+    _setup_tiered_db()
+    now = datetime.now(timezone.utc)
+    _seed_tiered_trades([
+        ((now - timedelta(minutes=25)).isoformat(), "stop_loss"),
+        ((now - timedelta(minutes=20)).isoformat(), "stop_loss"),
+        ((now - timedelta(minutes=15)).isoformat(), "stop_loss"),
+    ])
+    rm = RiskManager(TIERED_CONFIG, db_path=DB_TIERED)
+    fires = rm._count_circuit_fires_in_window(24)
+    assert fires == 1, f"Expected 1 fire, got {fires}"
+    open_, resume = rm.is_circuit_open()
+    assert open_ is True, f"Expected circuit open (1st fire), got {open_}"
+    # Pause should be ≤ 1h (3600s)
+    assert resume <= 3600 + 5, f"Expected pause ≤ 1h, got {resume/60:.0f} min"
+    print(f"PASS test_first_fire_pauses_1h — resume in {resume/60:.0f} min (≤60 min)")
+
+
+def test_second_fire_pauses_2h():
+    """Circuit fired twice today → pause is 2h for the second trip."""
+    _setup_tiered_db()
+    now = datetime.now(timezone.utc)
+    _seed_tiered_trades([
+        # Fire 1 (3h ago — resolved, outside 1h window but within 24h)
+        ((now - timedelta(hours=3, minutes=30)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=3, minutes=20)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=3, minutes=10)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=3)).isoformat(), "take_profit"),  # breaks streak
+        # Fire 2 (30 min ago — within 2h window)
+        ((now - timedelta(minutes=90)).isoformat(), "stop_loss"),
+        ((now - timedelta(minutes=60)).isoformat(), "stop_loss"),
+        ((now - timedelta(minutes=30)).isoformat(), "stop_loss"),
+    ])
+    rm = RiskManager(TIERED_CONFIG, db_path=DB_TIERED)
+    fires = rm._count_circuit_fires_in_window(24)
+    assert fires == 2, f"Expected 2 fires in 24h, got {fires}"
+    open_, resume = rm.is_circuit_open()
+    assert open_ is True, f"Expected circuit open (2nd fire), got {open_}"
+    # Pause = 2h → most recent stop was 30min ago → resume ≈ 90min
+    assert resume <= 7200 + 5, f"Expected pause ≤ 2h, got {resume/60:.0f} min"
+    print(f"PASS test_second_fire_pauses_2h — resume in {resume/60:.0f} min (≤120 min)")
+
+
+def test_third_plus_fire_pauses_4h():
+    """Circuit fired 3+ times today → pause is 4h."""
+    _setup_tiered_db()
+    now = datetime.now(timezone.utc)
+    _seed_tiered_trades([
+        # Fire 1 (7h ago)
+        ((now - timedelta(hours=7, minutes=30)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=7, minutes=20)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=7, minutes=10)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=7)).isoformat(), "take_profit"),
+        # Fire 2 (5h ago)
+        ((now - timedelta(hours=5, minutes=30)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=5, minutes=20)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=5, minutes=10)).isoformat(), "stop_loss"),
+        ((now - timedelta(hours=5)).isoformat(), "take_profit"),
+        # Fire 3 (30min ago — within 4h window)
+        ((now - timedelta(minutes=90)).isoformat(), "stop_loss"),
+        ((now - timedelta(minutes=60)).isoformat(), "stop_loss"),
+        ((now - timedelta(minutes=30)).isoformat(), "stop_loss"),
+    ])
+    rm = RiskManager(TIERED_CONFIG, db_path=DB_TIERED)
+    fires = rm._count_circuit_fires_in_window(24)
+    assert fires >= 3, f"Expected ≥3 fires in 24h, got {fires}"
+    open_, resume = rm.is_circuit_open()
+    assert open_ is True, f"Expected circuit open (3rd+ fire), got {open_}"
+    assert resume <= 14400 + 5, f"Expected pause ≤ 4h, got {resume/60:.0f} min"
+    print(f"PASS test_third_plus_fire_pauses_4h — resume in {resume/60:.0f} min (≤240 min)")
+
+
 if __name__ == "__main__":
     test_recent_stops_trip_circuit()
     test_old_stops_do_not_trip()
     test_profit_breaks_streak()
     test_validate_buy_blocked()
+    test_first_fire_pauses_1h()
+    test_second_fire_pauses_2h()
+    test_third_plus_fire_pauses_4h()
     print("\nAll circuit breaker tests passed.")

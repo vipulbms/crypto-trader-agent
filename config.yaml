@@ -43,7 +43,7 @@ trading:
       rsi_overbought: 75      # >70 fires 4.39% — 75 keeps signal selective
       bb_squeeze_threshold_pct: 0.7   # p10 BB width from 2025 data
       min_volume_ratio: 0.50  # dead zone 44% — standard threshold appropriate
-      adaptive_atr_floor_lookback: 400  # 100h rolling window — least-unstable for BTC
+      adaptive_atr_floor_lookback: 200  # 50h rolling window — faster regime adaptation (#141)
       caution_factor_bearish: 0.8   # low bearish DD (0.90%) — slight caution only (#124)
       rsi_divergence_lookback: 25   # slow mover — longer window gives more reliable swing confirmation (#135)
     - pair: ETH/USD
@@ -56,7 +56,7 @@ trading:
       rsi_overbought: 75
       bb_squeeze_threshold_pct: 1.3
       min_volume_ratio: 0.50  # dead zone 47%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # strong win rate — keep global threshold (#128)
     - pair: BNB/USD
@@ -69,7 +69,7 @@ trading:
       rsi_overbought: 75
       bb_squeeze_threshold_pct: 0.9
       min_volume_ratio: 0.30  # dead zone 56.6% — lower to avoid over-blocking
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # strong win rate — keep global threshold (#128)
     - pair: SOL/USD
@@ -82,7 +82,7 @@ trading:
       rsi_overbought: 75
       bb_squeeze_threshold_pct: 1.8
       min_volume_ratio: 0.50  # dead zone 44%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.93% — moderate caution (#124)
       buy_min_score: 6              # 44% win rate at score 5 — raise bar (#128)
     - pair: XRP/USD
@@ -95,7 +95,7 @@ trading:
       rsi_overbought: 72      # >70 only 3.43% — lower to 72 for more sensitivity
       bb_squeeze_threshold_pct: 1.4
       min_volume_ratio: 0.50  # dead zone 41%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.43% (#124)
     - pair: TRX/USD
       ws_name: TRX/USD
@@ -107,7 +107,7 @@ trading:
       rsi_overbought: 65      # >70 fires 6.65% — lower bar to 65
       bb_squeeze_threshold_pct: 0.8
       min_volume_ratio: 0.40  # dead zone 52.9%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low bearish DD 1.05% (#124)
       rsi_divergence_lookback: 15   # noisy/fast pair — shorter window avoids false divergences (#135)
     - pair: DOGE/USD
@@ -120,7 +120,7 @@ trading:
       rsi_overbought: 72      # >70 only 3.78% — lower to 72
       bb_squeeze_threshold_pct: 1.8
       min_volume_ratio: 0.40  # dead zone 51.5%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # profitable pair — keep global threshold (#128)
       rsi_divergence_lookback: 15   # meme coin — fast swings, shorter window (#135)
@@ -134,7 +134,7 @@ trading:
       rsi_overbought: 72      # >70 only 3.72% — lower to 72
       bb_squeeze_threshold_pct: 1.9
       min_volume_ratio: 0.40  # dead zone 52.1%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.83% (#124)
     - pair: LTC/USD
       ws_name: LTC/USD
@@ -146,7 +146,7 @@ trading:
       rsi_overbought: 72      # >70 only 3.66% — lower to 72
       bb_squeeze_threshold_pct: 1.5
       min_volume_ratio: 0.40  # dead zone 49.7%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.39% (#124)
       rsi_divergence_lookback: 25   # slow mover (follows BTC) — longer window (#135)
     # RAILS/USD disabled — 25% win rate, 3/4 stop losses in production (#132)
@@ -173,7 +173,7 @@ trading:
       rsi_overbought: 75      # >70 fires 4.33% — 75 appropriate
       bb_squeeze_threshold_pct: 2.0
       min_volume_ratio: 0.40  # dead zone 53.6%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.90% (#124)
     - pair: SUI/USD
       ws_name: SUI/USD
@@ -185,7 +185,7 @@ trading:
       rsi_overbought: 72      # >70 only 3.95% — lower to 72
       bb_squeeze_threshold_pct: 2.1
       min_volume_ratio: 0.50  # dead zone 47.7%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.35  # high bearish DD 2.19% — cut harder (#124)
     - pair: HYPE/USD
       ws_name: HYPE/USD
@@ -197,7 +197,7 @@ trading:
       rsi_overbought: 72
       bb_squeeze_threshold_pct: 2.0
       min_volume_ratio: 0.30  # thin liquidity
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
       rsi_divergence_lookback: 15   # high-volatility DeFi — fast swings, shorter window (#135)
     - pair: UNI/USD
@@ -210,7 +210,7 @@ trading:
       rsi_overbought: 75      # >70 fires 4.03% — 75 appropriate
       bb_squeeze_threshold_pct: 2.1
       min_volume_ratio: 0.30  # dead zone 57.9%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.5   # underperformer — global default (#124)
       buy_min_score: 6              # 50% win rate at score 5 — raise bar (#128)
     - pair: INJ/USD
@@ -223,7 +223,7 @@ trading:
       rsi_overbought: 72      # >70 only 3.84% — lower to 72
       bb_squeeze_threshold_pct: 2.5
       min_volume_ratio: 0.30  # dead zone 58.3%
-      adaptive_atr_floor_lookback: 400
+      adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.35  # highest bearish DD 2.23% — cut harder (#124)
       buy_min_score: 7              # 30% win rate at score 5 — tighten significantly (#128)
 
@@ -346,7 +346,22 @@ risk:
   circuit_breaker:
     enabled: true
     consecutive_stops: 3      # Trip after this many stop-losses in a row
-    pause_hours: 4            # Pause all buys for this many hours after tripping
+    pause_hours: 4            # Backward compat flat override; ignored when pause_tiers_hours is set
+    pause_tiers_hours: [1, 2, 4]  # Graduated backoff: 1st fire→1h, 2nd→2h, 3rd+→4h (#143)
+    tier_reset_hours: 24          # Reset fire count if no new fires for this many hours
+
+  # Correlation guard — block stacking highly-correlated pairs (#139)
+  correlation_clusters:
+    - name: large_cap_l1
+      pairs: [BTC/USD, ETH/USD, BNB/USD, SOL/USD]   # ~0.85 rolling correlation
+    - name: memecoins
+      pairs: [DOGE/USD, HYPE/USD]
+    - name: alt_l1
+      pairs: [SUI/USD, AVAX/USD, INJ/USD]
+    - name: payment_legacy
+      pairs: [XRP/USD, TRX/USD, ADA/USD, LTC/USD]
+  max_cluster_positions: 2    # Max open positions per cluster
+  cluster_size_penalty: 0.5   # Multiply position size when cluster already has 1 open
 
 # ──────────────────────────────────────────────
 # Feature 1: Multi-pair context awareness
@@ -381,7 +396,7 @@ adaptive_atr_floor:
   enabled: true
   scaling_factor: 0.8   # floor = p25_atr_pct × scaling_factor
   min_cap_pct: 0.10     # absolute minimum regardless of rolling p25
-  lookback_candles: 400 # global default; per-pair override via adaptive_atr_floor_lookback
+  lookback_candles: 200 # global default; per-pair override via adaptive_atr_floor_lookback
 
 # ──────────────────────────────────────────────
 # Feature: Adaptive BB squeeze threshold (Fix #113)
@@ -391,7 +406,7 @@ adaptive_atr_floor:
 # ──────────────────────────────────────────────
 adaptive_bb_squeeze:
   enabled: true
-  lookback_candles: 400  # global default; per-pair override not yet exposed
+  lookback_candles: 200  # global default; per-pair override not yet exposed
   percentile: 10         # p10 of BB width% — defines "squeezed" market baseline
 
 # ──────────────────────────────────────────────
@@ -402,7 +417,7 @@ adaptive_bb_squeeze:
 # ──────────────────────────────────────────────
 adaptive_volume_floor:
   enabled: true
-  lookback_candles: 400  # global default
+  lookback_candles: 200  # global default
   percentile: 15         # p15 of raw volume — candles below this are dead-zone
 
 # ──────────────────────────────────────────────
@@ -456,7 +471,7 @@ breakeven_stop:
 # partial_exited DB flag prevents double-fire.
 # ──────────────────────────────────────────────
 partial_take_profit:
-  enabled: false              # Off by default; turn on when backtested
+  enabled: true               # Enabled (#142) — locks in 50% profit mid-TP; SL raised to breakeven
   trigger_pct_of_tp: 50       # Fire when price is 50% of the way to full TP
   close_fraction: 0.5         # Close 50% of remaining volume
   move_sl_to_breakeven: true  # After partial exit, move SL to entry_price
