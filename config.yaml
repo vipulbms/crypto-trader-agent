@@ -156,7 +156,8 @@ trading:
       bb_squeeze_threshold_pct: 1.8
       min_volume_ratio: 0.30  # thin liquidity — conservative dead zone threshold
       adaptive_atr_floor_lookback: 400
-      caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
+      caution_factor_bearish: 0.25  # 3/4 stop losses — cut harder (#131)
+      buy_min_score: 7              # poor track record — require strong confluence (#131)
     - pair: AVAX/USD
       ws_name: AVAX/USD
       rest_name: AVAXUSD

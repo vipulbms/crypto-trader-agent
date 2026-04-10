@@ -2,6 +2,20 @@
 
 ---
 
+## Session: 2026-04-10 (Part A) — RAILS over-trading fix + unambiguous propose_sell gate (#131)
+
+### Bugs Fixed
+- **[#131] RAILS buy_min_score raised to 7**: Was defaulting to global 5 despite 3/4 stop-loss rate in production (~40% price decline since entries). `config.yaml` now explicitly sets `buy_min_score: 7` for RAILS — same bar as INJ.
+- **[#131] RAILS caution_factor_bearish 0.40 → 0.25**: Halves max position size in bearish regime (~$49 vs $78 on $1,000 portfolio). RAILS contributed -$21.18 in 3 stop losses overnight.
+- **[#131] propose_sell prompt ambiguity**: `SKILL.md` conditions (a) and (b) were disjunctive — LLM could infer a sell at 1% P&L when Signal=SELL fired. Replaced with a single unified gate requiring ALL three conditions: 80% TP proximity (code-enforced), confirmed SELL signal, P&L above floor.
+- **SKILL.md missing frontmatter**: Added `name: trading-rules` YAML frontmatter block to fix IDE diagnostic error.
+
+### Changed
+- `config.yaml` — RAILS `caution_factor_bearish: 0.25`, `buy_min_score: 7`
+- `.claude/skills/trading-rules/SKILL.md` — unified propose_sell gate, updated per-pair threshold docs, added frontmatter
+
+---
+
 ## Session: 2026-04-09 (Part G) — trailing_stop reporting, min_order_usd $20, force_close_all, overdraw guard
 
 ### Features / Fixes
