@@ -764,3 +764,18 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 
 ### Tests
 - 9 new tests in `tests/test_per_pair_params.py` (`TestPerPairBuyMinScore`, `TestPerPairCautionFactor`). 98 total pass.
+
+## Session: 2026-04-11b
+
+### Features
+- **OBV accumulation signal (#136)**: `indicators.py` computes OBV series (last 30 values). `signals.py` computes trend via `_compute_obv_trend()` — OBV rising +1 BUY; OBV falling adds distribution warning to reasons. Per-pair `obv_trend_period` override (global default 10).
+- **BB squeeze release (#137)**: `indicators.py` computes `bb_width_series` (last 10 values, % of price) and adds `detect_bb_squeeze_release()`. `signals.py` awards +2 BUY on upward squeeze breakout (prior candles in squeeze → current expands to threshold × 1.2 with price > midband). `max_score` updated 22 → 25.
+
+### Skills
+- `trading-rules/SKILL.md`: OBV and BB squeeze release rules added.
+- `add-pair/SKILL.md`: `obv_trend_period` added to pair block template, estimation table, checklist, and backtest interpretation guide. Field count now 15.
+
+### Tests
+- `tests/test_obv_signal.py`: 8 new tests.
+- `tests/test_bb_squeeze_breakout.py`: 8 new tests.
+- 96 tests total, all passing.

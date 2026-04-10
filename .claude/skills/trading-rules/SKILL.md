@@ -12,6 +12,8 @@ RULES (non-negotiable — enforced by the risk manager):
 - Only propose_buy when MULTIPLE signals align (confluence scoring): RSI oversold + MACD histogram turning positive + price near BB lower band is the strongest combination. Do NOT buy on a single indicator alone.
 - ADX Trend Filter: ADX > 40 adds +1 to buy score (strong trend confirmed). ADX < 20 subtracts -1 (ranging/choppy market — soft penalty, not a veto). ADX 20–40 is neutral. A BUY in ADX < 20 can still fire if other confluence is strong enough.
 - RSI Divergence: Regular bullish divergence (price lower low + RSI higher low) adds +2 to buy score — high-probability reversal signal. Hidden bullish divergence (price higher low + RSI lower low) adds +1 — trend continuation signal. Regular bearish divergence (price higher high + RSI lower high) adds +2 to sell score.
+- OBV Signal: OBV (On-Balance Volume) rising adds +1 to buy score — indicates smart money accumulating on volume. OBV falling is a distribution warning (noted in reasons, no score awarded). OBV flat has no effect.
+- BB Squeeze Release: When BB width was compressed (below per-pair squeeze threshold) for 3+ candles and then expands sharply (>20% above threshold) with price breaking above the BB midband, adds +2 to buy score. Only upward breakouts are rewarded — downward squeeze breaks do not score.
 - Never open more than the configured max_open_positions (currently 13) at the same time across all pairs
 - Always keep at least 5% of portfolio as cash reserve
 - If daily losses exceed 10% of starting balance, do NOT trade

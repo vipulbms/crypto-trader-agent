@@ -255,6 +255,7 @@ indicators:
   ema_slow: 200           # 200×15-min = 50 hrs (~2 days) — genuine slow trend for EMA crossover
   atr_period: 14
   adx_period: 14               # ADX trend strength period (Wilder, standard = 14) (#134)
+  obv_trend_period: 10         # Candles to look back for OBV trend comparison — per-pair override supported (#136)
   candle_buffer_size: 300     # 300×15-min = 75 hrs; covers ema_slow(200) warmup + headroom
   candle_interval: 15         # 15-min candles — aligned with cycle_interval_minutes
   min_candles_to_start: 220   # Minimum candles before first decision cycle (covers ema_slow warmup)
@@ -283,7 +284,11 @@ signals:
   rsi_divergence_hidden_bullish_weight: 1   # Hidden bullish divergence (price HL + RSI LL) (#135)
   rsi_divergence_bearish_weight: 2          # Regular bearish divergence (price HH + RSI LH) (#135)
   rsi_divergence_lookback: 20     # Candles to look back for divergence detection — per-pair override supported (#135)
-  max_score: 22                   # Updated: +6 from new signals (ADX+1, div_bull+2, div_hidden+1, div_bear+2)
+  obv_accumulation_weight: 1      # OBV rising (smart money accumulating) → +1 BUY (#136)
+  bb_squeeze_release_weight: 2    # BB squeeze release (price breaks above midband after compression) → +2 BUY (#137)
+  bb_squeeze_release_expansion_factor: 1.2  # BB width must expand to threshold × 1.2 to qualify as release (#137)
+  bb_squeeze_release_lookback: 3  # Number of prior candles that must all be in squeeze (#137)
+  max_score: 25                   # Updated: +3 from new signals (OBV+1, BB squeeze release+2)
 
   # ── SELL score weights ────────────────────────────────────────────────────
   rsi_overbought_score: 3         # RSI above rsi_overbought threshold

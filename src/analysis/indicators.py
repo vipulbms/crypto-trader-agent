@@ -102,6 +102,15 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         # Add volume moving average to detect dry volume (dead zones)
         volume_sma_20 = df["volume"].rolling(window=20).mean()
 
+        # OBV — On-Balance Volume: cumulative directional volume
+        # Rising OBV = accumulation (smart money buying); falling = distribution
+        direction = df["close"].diff().apply(lambda d: 1 if d > 0 else (-1 if d < 0 else 0))
+        obv_series_full = (direction * df["volume"]).cumsum()
+
+        # BB width series — needed by signals.py for squeeze release detection
+        # Expressed as % of price so it is price-scale agnostic
+        bb_width_series_full = ((bb_upper - bb_lower) / df["close"] * 100).fillna(0)
+
     except Exception as e:
         logger.error("Indicator calculation error: %s", e)
         return None
@@ -118,6 +127,15 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     _series_len = min(30, len(rsi_clean))
     rsi_series   = [safe(v) for v in rsi_clean.iloc[-_series_len:]]
     close_series = [safe(v) for v in close_clean.iloc[-_series_len:]]
+
+    # OBV series — last 30 values for trend computation in signals.py (per-pair period)
+    obv_clean = obv_series_full.dropna()
+    _obv_len = min(30, len(obv_clean))
+    obv_series = [safe(v) for v in obv_clean.iloc[-_obv_len:]]
+
+    # BB width series — last 10 values for squeeze release detection in signals.py
+    _bb_len = min(10, len(bb_width_series_full))
+    bb_width_series = [safe(v) for v in bb_width_series_full.iloc[-_bb_len:]]
 
     return {
         "rsi_14":               safe(rsi.iloc[-1]),
@@ -140,7 +158,54 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         # Series for divergence detection (signals.py) — last 30 candles
         "rsi_series":           rsi_series,
         "close_series":         close_series,
+        # OBV series — last 30 values; trend computed per-pair in signals.py (#136)
+        "obv_series":           obv_series,
+        # BB width series (% of price) — last 10 values; squeeze release in signals.py (#137)
+        "bb_width_series":      bb_width_series,
     }
+
+
+def detect_bb_squeeze_release(
+    bb_width_series: list,
+    threshold: float,
+    lookback: int = 3,
+    expansion_factor: float = 1.2,
+    bb_mid: float = None,
+    price: float = None,
+) -> bool:
+    """
+    Detect Bollinger Band squeeze release — the candle where BB width expands sharply
+    after a period of compression, with price breaking above the midband (upward only).
+
+    Conditions (all must be true):
+      1. The previous `lookback` candles all had BB width < threshold (squeeze)
+      2. Current candle BB width > threshold × expansion_factor (20% above threshold)
+      3. If price and bb_mid provided: price > bb_mid (upward breakout, not downward)
+
+    Returns True if all conditions are met, False otherwise.
+    """
+    if not bb_width_series or len(bb_width_series) < lookback + 1:
+        return False
+
+    prior = bb_width_series[-(lookback + 1):-1]  # `lookback` candles before current
+    current_width = bb_width_series[-1]
+
+    if any(v is None for v in prior) or current_width is None:
+        return False
+
+    # All prior candles must be in squeeze
+    if not all(w < threshold for w in prior):
+        return False
+
+    # Current candle must expand sharply above the threshold
+    if current_width <= threshold * expansion_factor:
+        return False
+
+    # Only reward upward breakouts (price above midband)
+    if price is not None and bb_mid is not None and price <= bb_mid:
+        return False
+
+    return True
 
 
 def detect_rsi_divergence(prices: list, rsi_values: list, lookback: int = 20) -> dict:

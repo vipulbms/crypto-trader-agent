@@ -75,6 +75,7 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
 | `min_volume_ratio` | 0.50 | 0.40–0.50 | 0.40 | 0.40 |
 | `adaptive_atr_floor_lookback` | 400 | 400 | 400 | 400 |
 | `rsi_divergence_lookback` | 25 | 20 | 20 | 15 |
+| `obv_trend_period` | 14 | 10 | 10 | 7 |
 
 `adx_period` is always 14 (Wilder standard) — no per-pair override needed at launch unless the pair is unusually noisy.
 
@@ -104,6 +105,7 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
       caution_factor_bearish: <value>    # bearish regime position multiplier (#124); see table below
       buy_min_score: <value>             # min confluence score for BUY (#128); see table below
       rsi_divergence_lookback: <value>   # from calibration table (step 4): 25=slow, 20=mid, 15=fast/meme (#135)
+      obv_trend_period: <value>          # candles back to compare OBV for trend (#136); see table below
 ```
 
 **caution_factor_bearish** — how aggressively to cut position size in bearish regime (1.0 = no cut, buy the dip; 0.30 = cut to 30%):
@@ -203,6 +205,8 @@ print(f'Saved {len(data[\"result\"][key])} candles')
 | ADX < 20 in majority of signals | Pair is a chop pair — set `caution_factor_bearish` ≤ 0.4 |
 | RSI divergence fires > 20% of BUYs | Shorten `rsi_divergence_lookback` by 5 |
 | RSI divergence fires < 5% of BUYs | Lengthen `rsi_divergence_lookback` by 5 |
+| OBV trend rarely rising (< 10% of candles) | Shorten `obv_trend_period` by 3 (captures shorter cycles) |
+| OBV trend always rising (> 60% of candles) | Lengthen `obv_trend_period` by 3 (requires more conviction) |
 
 Re-run the backtest after any parameter adjustment before committing.
 
@@ -229,7 +233,7 @@ exec(open('tests/test_per_pair_params.py').read())
 ```
 
 **Checklist:**
-- [ ] `config.yaml`: 15-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score, rsi_divergence_lookback)
+- [ ] `config.yaml`: 15-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score, rsi_divergence_lookback, obv_trend_period)
 - [ ] Fast backtest run and win rate acceptable (step 6)
 - [ ] `src/agent/tools.py`: propose_buy docstring updated
 - [ ] `src/cli/display.py`: welcome banner updated

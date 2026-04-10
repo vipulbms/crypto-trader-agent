@@ -24,6 +24,8 @@ BUY score contributors (need >= buy_min_score to emit BUY):
   ADX < 20 (ranging market)            -1   (soft penalty — no clear trend)
   RSI regular bullish divergence       +2   (price LL + RSI HL → reversal likely)
   RSI hidden bullish divergence        +1   (price HL + RSI LL → trend continuation)
+  OBV rising (accumulation)            +1   (smart money buying on volume) (#136)
+  BB squeeze release (upward break)    +2   (high-probability breakout setup) (#137)
 
 SELL score contributors (need >= sell_min_score to emit SELL):
   RSI > rsi_overbought                 +3
@@ -35,7 +37,7 @@ SELL score contributors (need >= sell_min_score to emit SELL):
 import logging
 from typing import Optional
 
-from src.analysis.indicators import detect_rsi_divergence
+from src.analysis.indicators import detect_bb_squeeze_release, detect_rsi_divergence
 from src.utils.timing import timed
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,8 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     w_adx_strong          = sig_cfg.get("adx_trend_weight", 1)
     w_div_bull_regular    = sig_cfg.get("rsi_divergence_bullish_weight", 2)
     w_div_bull_hidden     = sig_cfg.get("rsi_divergence_hidden_bullish_weight", 1)
+    w_obv_accumulation    = sig_cfg.get("obv_accumulation_weight", 1)       # OBV rising (#136)
+    w_bb_squeeze_release  = sig_cfg.get("bb_squeeze_release_weight", 2)     # BB breakout (#137)
 
     # SELL score weights
     w_rsi_overbought  = sig_cfg.get("rsi_overbought_score", 3)
@@ -90,6 +94,9 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
 
     # Per-pair divergence lookback — shorter for fast/meme pairs, longer for slow movers
     div_lookback = pair_cfg.get("rsi_divergence_lookback", sig_cfg.get("rsi_divergence_lookback", 20))
+
+    # Per-pair OBV trend period — how many candles back to compare OBV for trend (#136)
+    obv_trend_period = pair_cfg.get("obv_trend_period", ind_cfg.get("obv_trend_period", 10))
 
     max_score      = sig_cfg.get("max_score", 16)
     # Per-pair buy_min_score overrides global — tighten for underperformers (#128)
@@ -118,6 +125,28 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     rsi_series   = indicators.get("rsi_series", [])
     close_series = indicators.get("close_series", [])
     divergence   = detect_rsi_divergence(close_series, rsi_series, lookback=div_lookback)
+
+    # OBV trend — rising = accumulation (+1 BUY), falling = distribution (#136)
+    obv_series    = indicators.get("obv_series", [])
+    obv_trend     = _compute_obv_trend(obv_series, obv_trend_period)
+
+    # BB squeeze release — high-probability breakout setup (+2 BUY) (#137)
+    bb_width_series = indicators.get("bb_width_series", [])
+    bb_squeeze_threshold = (
+        pair_cfg.get("bb_squeeze_threshold_pct")
+        or config.get("dynamic_tp", {}).get("squeeze_threshold_pct", 1.0)
+    )
+    bb_squeeze_release_expansion = sig_cfg.get("bb_squeeze_release_expansion_factor", 1.2)
+    bb_squeeze_release_lookback  = sig_cfg.get("bb_squeeze_release_lookback", 3)
+    bb_mid = indicators.get("bb_mid")
+    squeeze_released = detect_bb_squeeze_release(
+        bb_width_series,
+        threshold=bb_squeeze_threshold,
+        lookback=bb_squeeze_release_lookback,
+        expansion_factor=bb_squeeze_release_expansion,
+        bb_mid=bb_mid,
+        price=price,
+    )
 
     buy_score  = 0
     sell_score = 0
@@ -262,6 +291,20 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         buy_score += w_div_bull_hidden
         reasons.append(f"RSI hidden bullish divergence (price HL + RSI LL) — trend continuation")
 
+    # OBV trend — accumulation adds to BUY score (#136)
+    if obv_trend == "rising":
+        buy_score += w_obv_accumulation
+        reasons.append(f"OBV rising — volume accumulation detected (smart money buying)")
+    elif obv_trend == "falling":
+        reasons.append(f"OBV falling — volume distribution detected (smart money selling)")
+
+    # BB squeeze release — high-probability breakout after compression (#137)
+    if squeeze_released:
+        buy_score += w_bb_squeeze_release
+        reasons.append(
+            f"BB squeeze release — BB width expanded from squeeze, price broke above midband"
+        )
+
     # ── SELL scoring ─────────────────────────────────────────────────────────
     sell_score = _score_sell(
         rsi, rsi_overbought, macd_hist, near_upper_for_sell, near_lower,
@@ -270,6 +313,27 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     )
 
     return _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
+
+
+def _compute_obv_trend(obv_series: list, period: int = 10) -> str:
+    """
+    Compare OBV now vs `period` candles ago to determine trend direction.
+
+    Returns "rising", "falling", or "flat".
+    A small noise threshold (0.1%) avoids labelling micro-fluctuations as trends.
+    """
+    if not obv_series or len(obv_series) < period + 1:
+        return "flat"
+    current = obv_series[-1]
+    prior   = obv_series[-(period + 1)]
+    if current is None or prior is None or prior == 0:
+        return "flat"
+    change_pct = (current - prior) / abs(prior)
+    if change_pct > 0.001:
+        return "rising"
+    elif change_pct < -0.001:
+        return "falling"
+    return "flat"
 
 
 def _score_sell(
