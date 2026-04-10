@@ -74,6 +74,9 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
 | `bb_squeeze_threshold_pct` | 0.7–1.0 | 1.2–1.5 | 1.6–2.0 | 1.8–2.5 |
 | `min_volume_ratio` | 0.50 | 0.40–0.50 | 0.40 | 0.40 |
 | `adaptive_atr_floor_lookback` | 400 | 400 | 400 | 400 |
+| `rsi_divergence_lookback` | 25 | 20 | 20 | 15 |
+
+`adx_period` is always 14 (Wilder standard) — no per-pair override needed at launch unless the pair is unusually noisy.
 
 **How to interpret calibration output:**
 - `atr_tp_min_pct` = p25 ATR% × 0.8, rounded to 2dp. Min cap: 0.10%. This is the minimum expected move needed to justify entry.
@@ -85,21 +88,22 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
 
 ### 5. Make all changes
 
-**a) `config.yaml`** — add to `trading.pairs[]` (full 13-field block required):
+**a) `config.yaml`** — add to `trading.pairs[]` (full 15-field block required):
 ```yaml
     - pair: PAIR/USD
-      ws_name: WS_NAME           # from step 2 (e.g. AVAX/USD; BTC is XBT/USD)
-      rest_name: KRAKENRESTNAME  # e.g. HYPEUSD, AVAXUSD, XBTUSD
-      take_profit_pct: <value>   # from step 3
-      stop_loss_pct: 5           # fixed — never change
-      atr_tp_min_pct: <value>    # from calibration (step 4)
-      rsi_oversold: <value>      # from calibration (step 4)
-      rsi_overbought: <value>    # from calibration (step 4)
+      ws_name: WS_NAME                   # from step 2 (e.g. AVAX/USD; BTC is XBT/USD)
+      rest_name: KRAKENRESTNAME          # e.g. HYPEUSD, AVAXUSD, XBTUSD
+      take_profit_pct: <value>           # from step 3
+      stop_loss_pct: 5                   # fixed — never change
+      atr_tp_min_pct: <value>            # from calibration (step 4)
+      rsi_oversold: <value>              # from calibration (step 4)
+      rsi_overbought: <value>            # from calibration (step 4)
       bb_squeeze_threshold_pct: <value>  # from calibration (step 4)
-      min_volume_ratio: <value>  # from calibration (step 4)
+      min_volume_ratio: <value>          # from calibration (step 4)
       adaptive_atr_floor_lookback: 400   # 100h window — change only if volatility spikes are extreme
       caution_factor_bearish: <value>    # bearish regime position multiplier (#124); see table below
       buy_min_score: <value>             # min confluence score for BUY (#128); see table below
+      rsi_divergence_lookback: <value>   # from calibration table (step 4): 25=slow, 20=mid, 15=fast/meme (#135)
 ```
 
 **caution_factor_bearish** — how aggressively to cut position size in bearish regime (1.0 = no cut, buy the dip; 0.30 = cut to 30%):
@@ -160,7 +164,49 @@ Update each occurrence of the count.
 **h) `CLAUDE.md`** — update the pairs table in "Pairs and Take-Profit Targets":
 Add a row for the new pair.
 
-### 6. Verify consistency
+### 6. Run 7-day fast backtest to validate signal parameters
+
+Before committing, validate that the new pair's signal parameters produce acceptable win rates.
+
+**Fetch historical candles if not already in `history/`:**
+```bash
+python3.11 -c "
+import requests, json
+rest = 'KRAKENRESTNAME'
+resp = requests.get('https://api.kraken.com/0/public/OHLC',
+    params={'pair': rest, 'interval': 15}, timeout=30)
+data = resp.json()
+key = [k for k in data['result'] if k != 'last'][0]
+with open(f'history/{rest}_candle.json', 'w') as f:
+    json.dump(data, f)
+print(f'Saved {len(data[\"result\"][key])} candles')
+"
+```
+
+**Run the fast backtest (no LLM, ~30 seconds):**
+```bash
+~/.pyenv/versions/3.11.15/bin/python3 tests/test_backtest.py \
+    --no-llm \
+    --start-date $(date -v-7d +%Y-%m-%d) \
+    --pairs PAIR/USD
+```
+
+**Interpret results and adjust parameters:**
+
+| Metric | Action |
+|--------|--------|
+| Win rate ≥ 60% | Parameters are good — proceed |
+| Win rate 45–59% | Raise `buy_min_score` by 1 |
+| Win rate < 45% | Raise `buy_min_score` by 2 AND raise `atr_tp_min_pct` by +0.05 |
+| Zero BUY signals | `min_volume_ratio` or `atr_tp_min_pct` too aggressive — lower slightly |
+| SL rate > 60% of exits | Entry quality poor — raise `buy_min_score` or `rsi_oversold` threshold |
+| ADX < 20 in majority of signals | Pair is a chop pair — set `caution_factor_bearish` ≤ 0.4 |
+| RSI divergence fires > 20% of BUYs | Shorten `rsi_divergence_lookback` by 5 |
+| RSI divergence fires < 5% of BUYs | Lengthen `rsi_divergence_lookback` by 5 |
+
+Re-run the backtest after any parameter adjustment before committing.
+
+### 7. Verify consistency
 
 After making all changes, run these checks:
 
@@ -183,7 +229,8 @@ exec(open('tests/test_per_pair_params.py').read())
 ```
 
 **Checklist:**
-- [ ] `config.yaml`: 13-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score)
+- [ ] `config.yaml`: 15-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score, rsi_divergence_lookback)
+- [ ] Fast backtest run and win rate acceptable (step 6)
 - [ ] `src/agent/tools.py`: propose_buy docstring updated
 - [ ] `src/cli/display.py`: welcome banner updated
 - [ ] `src/cli/nl_parser.py`: PAIRS list (both full and short) updated; _SYSTEM_PROMPT updated
@@ -192,14 +239,14 @@ exec(open('tests/test_per_pair_params.py').read())
 - [ ] `CLAUDE.md`: pairs table updated
 - [ ] All existing tests pass
 
-### 7. Create a GitHub issue before committing
+### 8. Create a GitHub issue before committing
 ```bash
 gh issue create --repo vipulbms/crypto-trader-agent \
   --title "[FEAT] Add PAIR/USD trading pair" \
   --body "## What\nAdd PAIR/USD (KRAKENRESTNAME) to the agent.\n\n## Why\n<user-provided rationale>\n\n## How to fix\n- config.yaml: 11-field pair block (tp=TP%, sl=5%)\n- atr_tp_min_pct=X, rsi_oversold=X, rsi_overbought=X, bb_squeeze=X, min_volume_ratio=X\n- nl_parser, tools.py, display.py updated\n- docs updated"
 ```
 
-### 8. Commit
+### 9. Commit
 Use the `/commit` skill after all changes are verified and tests pass.
 
 Commit message format:
@@ -214,7 +261,7 @@ feat: add PAIR/USD trading pair (tp=TP%, sl=5%)
 Closes #N
 ```
 
-### 9. Report to user
+### 10. Report to user
 Tell the user:
 - Pair added with WS name, REST name, TP rationale
 - Calibration source (calibrate_params.py result OR estimation fallback with reason)

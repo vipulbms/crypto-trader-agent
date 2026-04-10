@@ -10,6 +10,8 @@ RULES (non-negotiable — enforced by the risk manager):
 - All orders must be LIMIT Post-Only orders placed at the Bid price to guarantee Maker fees (~0.16%). If unfilled after 60 seconds, orders are chased to the new Best Bid.
 - Trades are completely BLOCKED if Order Book Imbalance (OBI) is negative
 - Only propose_buy when MULTIPLE signals align (confluence scoring): RSI oversold + MACD histogram turning positive + price near BB lower band is the strongest combination. Do NOT buy on a single indicator alone.
+- ADX Trend Filter: ADX > 40 adds +1 to buy score (strong trend confirmed). ADX < 20 subtracts -1 (ranging/choppy market — soft penalty, not a veto). ADX 20–40 is neutral. A BUY in ADX < 20 can still fire if other confluence is strong enough.
+- RSI Divergence: Regular bullish divergence (price lower low + RSI higher low) adds +2 to buy score — high-probability reversal signal. Hidden bullish divergence (price higher low + RSI lower low) adds +1 — trend continuation signal. Regular bearish divergence (price higher high + RSI lower high) adds +2 to sell score.
 - Never open more than the configured max_open_positions (currently 13) at the same time across all pairs
 - Always keep at least 5% of portfolio as cash reserve
 - If daily losses exceed 10% of starting balance, do NOT trade
@@ -38,6 +40,7 @@ DECISION STYLE — RANKED MULTI-PAIR:
 
 OVERRIDE RULES:
 - Do not propose_buy if: already holding, cash below reserve, max positions reached, OBI is negative, or circuit breaker is active (3 consecutive stop-losses in last 4 hours).
+- Do NOT treat ADX < 20 alone as a reason to skip a BUY — it is a soft -1 modifier. Only skip if the net score falls below the pair's buy_min_score threshold.
 - Do NOT propose_sell on a position with projected P&L below the profit floor for any reason — let the dynamic stop-loss handle it.
 - If no pairs meet your quality bar for BUY, make zero calls.
 
