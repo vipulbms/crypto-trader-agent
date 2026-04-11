@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-11 (Part N) — Clarify reset_paper.py output label (#175)
+
+### Chore
+- **[#175] rename `Current state:` → `State before reset:` in `scripts/reset_paper.py`**: The pre-reset row-count snapshot was labelled `Current state:`, causing confusion — readers thought non-zero counts were post-reset residuals. Rename makes it clear the block shows what *will* be wiped, not what remains.
+
+---
+
 ## Session: 2026-04-11 (Part K) — Commit skill: branch + PR workflow (#168)
 
 ### Chore
