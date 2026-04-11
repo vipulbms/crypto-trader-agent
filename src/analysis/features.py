@@ -372,6 +372,75 @@ def build_regime_context(regime: dict, config: dict) -> str:
     return f"--- MARKET REGIME ---\n{regime['summary']}"
 
 
+def compute_pair_regime_caps(
+    signals: list,
+    portfolio_max_per_trade: float,
+    regime_data: dict,
+    config: dict,
+) -> dict:
+    """
+    Compute per-pair tier metadata and regime-adjusted max buy sizes.
+
+    #203 adds sector tiers so rising BTC dominance can cut speculative tiers
+    harder than majors. This function is intentionally independent from the
+    fetch path — if `btc_dominance_trend` is absent, no tier overlay is applied.
+
+    Returns:
+        {
+            "PAIR/USD": {
+                "pair_tier": int,
+                "pair_max_usd": Optional[float],
+                "pair_caution": float,
+                "dominance_multiplier": float,
+            },
+            ...
+        }
+    """
+    trading_pairs_cfg = config.get("trading", {}).get("pairs", [])
+    pair_cfg_map = {p.get("pair"): p for p in trading_pairs_cfg}
+    reg_cfg = config.get("regime", {})
+
+    regime = regime_data.get("regime", "unknown")
+    global_caution = regime_data.get("caution_factor", 1.0)
+    btc_dom_trend = regime_data.get("btc_dominance_trend", "unknown")
+
+    dom_general_mult = reg_cfg.get("btc_dominance_rising_caution_multiplier", 0.7)
+    tier3_mult = reg_cfg.get("tier3_dominance_rising_multiplier", 0.5)
+    tier4_mult = reg_cfg.get("tier4_dominance_rising_multiplier", 0.3)
+
+    pair_caps = {}
+    for sig in signals:
+        pair = sig.get("pair")
+        pair_cfg = pair_cfg_map.get(pair, {})
+        pair_tier = int(pair_cfg.get("pair_tier", 0) or 0)
+        pair_caution = pair_cfg.get("caution_factor_bearish", global_caution)
+
+        dominance_multiplier = 1.0
+        if regime == "bearish" and btc_dom_trend == "rising":
+            if pair_tier == 3:
+                dominance_multiplier = tier3_mult
+            elif pair_tier == 4:
+                dominance_multiplier = tier4_mult
+            elif pair not in ("BTC/USD", "ETH/USD", "BNB/USD"):
+                dominance_multiplier = dom_general_mult
+
+        pair_max_usd = None
+        if regime == "bearish":
+            pair_max_usd = round(
+                portfolio_max_per_trade * pair_caution * dominance_multiplier,
+                2,
+            )
+
+        pair_caps[pair] = {
+            "pair_tier": pair_tier,
+            "pair_max_usd": pair_max_usd,
+            "pair_caution": pair_caution,
+            "dominance_multiplier": dominance_multiplier,
+        }
+
+    return pair_caps
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Feature 4: News & sentiment (Fear & Greed Index)
 # ──────────────────────────────────────────────────────────────────────────────

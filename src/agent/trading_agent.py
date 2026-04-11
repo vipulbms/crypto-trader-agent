@@ -152,6 +152,11 @@ class TradingAgent:
         set_cycle_id(cycle_id)
         self._tools.set_cycle_context(cycle_id)
         self._tools.set_dynamic_tp_values((ai_context or {}).get("dynamic_tp_values", {}))
+        self._tools.set_pair_max_usd({
+            sig["pair"]: sig.get("pair_max_usd")
+            for sig in signals
+            if sig.get("pair_max_usd") is not None
+        })
         cycle_time = now_sgt().strftime("%Y-%m-%d %H:%M:%S")
 
         cycle_prompt = build_cycle_prompt(

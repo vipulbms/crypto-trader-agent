@@ -112,7 +112,15 @@ def build_cycle_prompt(
         bb_u = indicators.get("bb_upper")
 
         pair_max_usd = sig.get("pair_max_usd")
+        pair_tier = sig.get("pair_tier")
+        tier_label = {
+            1: "macro reserve",
+            2: "core infrastructure",
+            3: "speculative altcoin",
+            4: "meme/momentum",
+        }.get(pair_tier)
         pair_max_line = f"Max buy size:  ${pair_max_usd:.2f}  (regime-adjusted for this pair)" if pair_max_usd is not None else None
+        pair_tier_line = f"Tier:          {pair_tier} ({tier_label})" if pair_tier and tier_label else None
 
         pair_block = [
             "",
@@ -122,9 +130,11 @@ def build_cycle_prompt(
             f"MACD Hist:     {f'{macd:.4f}' if macd else 'N/A'}",
             f"BB Lower/Upper: ${f'{bb_l:.2f}' if bb_l else 'N/A'} / ${f'{bb_u:.2f}' if bb_u else 'N/A'}",
             f"ATR(14):       {f'{atr:.4f}' if atr else 'N/A'}",
+            pair_tier_line,
             f"Signal:        {signal}  (strength: {strength:.2f})",
             f"Reasons:       {', '.join(reasons) if reasons else 'None'}",
         ]
+        pair_block = [line for line in pair_block if line is not None]
         if pair_max_line:
             pair_block.append(pair_max_line)
         lines += pair_block

@@ -633,7 +633,7 @@ async def run_cycle(
         return
 
     # Build AI context (regime, sentiment, patterns, exit timing, sizing, dynamic TP)
-    from src.analysis.features import build_ai_context
+    from src.analysis.features import build_ai_context, compute_pair_regime_caps
     ai_context = build_ai_context(
         signals=signals,
         portfolio=portfolio,
@@ -647,18 +647,32 @@ async def run_cycle(
     global_caution = regime_data.get("caution_factor", 1.0)
     trading_pairs_cfg = config.get("trading", {}).get("pairs", [])
 
+    pair_caps = compute_pair_regime_caps(
+        signals=signals,
+        portfolio_max_per_trade=portfolio["max_per_trade"],
+        regime_data=regime_data,
+        config=config,
+    )
+
+    for sig in signals:
+        cap_data = pair_caps.get(sig["pair"], {})
+        sig["pair_tier"] = cap_data.get("pair_tier", 0)
+
     if regime == "bearish":
         # Per-pair caution_factor_bearish: inject pair_max_usd into each signal.
         # Winners (ETH/BNB/DOGE) keep caution=1.0 (buy the dip);
         # underperformers get cut harder. Global 0.5 is the fallback.
         base_max = portfolio["max_per_trade"]
         for sig in signals:
-            pair_cfg    = next((p for p in trading_pairs_cfg if p.get("pair") == sig["pair"]), {})
-            pair_caution = pair_cfg.get("caution_factor_bearish", global_caution)
-            sig["pair_max_usd"] = round(base_max * pair_caution, 2)
+            cap_data = pair_caps.get(sig["pair"], {})
+            sig["pair_max_usd"] = cap_data.get("pair_max_usd")
             logger.info(
-                "[REGIME] bearish — %s caution=%.2f, pair_max=$%.2f",
-                sig["pair"], pair_caution, sig["pair_max_usd"],
+                "[REGIME] bearish — %s tier=%s caution=%.2f dom_mult=%.2f pair_max=$%.2f",
+                sig["pair"],
+                cap_data.get("pair_tier", 0),
+                cap_data.get("pair_caution", global_caution),
+                cap_data.get("dominance_multiplier", 1.0),
+                sig["pair_max_usd"],
             )
         # Set global max to the fallback-caution ceiling for the prompt header
         portfolio["max_per_trade"] = round(base_max * global_caution, 2)

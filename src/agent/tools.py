@@ -45,6 +45,7 @@ class TradingTools:
         self._current_llm_decision_id: Optional[int] = None
         self._dynamic_tp_values: dict = {}
         self._dynamic_sl_values: dict = {}
+        self._pair_max_usd: dict = {}
 
     def set_cycle_context(self, cycle_id: int) -> None:
         self._current_cycle_id = cycle_id
@@ -57,6 +58,9 @@ class TradingTools:
 
     def set_dynamic_sl_values(self, values: dict) -> None:
         self._dynamic_sl_values = values or {}
+
+    def set_pair_max_usd(self, values: dict) -> None:
+        self._pair_max_usd = values or {}
 
     # ──────────────────────────────────────────────
     # Tool: propose_buy
@@ -77,6 +81,14 @@ class TradingTools:
             String describing the outcome.
         """
         logger.info("[TOOL] propose_buy(%s, $%.2f)", pair, usd_amount)
+
+        pair_cap = self._pair_max_usd.get(pair)
+        if pair_cap is not None and usd_amount > pair_cap:
+            logger.info(
+                "[TIER_CAP] %s requested $%.2f capped to pair_max_usd $%.2f",
+                pair, usd_amount, pair_cap,
+            )
+            usd_amount = pair_cap
 
         current_price = self._ws.get_latest_price(pair)
         if not current_price:

@@ -2,6 +2,35 @@
 
 ---
 
+## Session: 2026-04-11 (Part Y) — Sector rotation tier caps in rising BTC dominance (#203)
+
+### Features
+- **[#203] Runtime pair-tier sizing**: added `compute_pair_regime_caps()` in `src/analysis/features.py` to turn configured `pair_tier` values into per-pair regime caps.
+- **Bearish + rising BTC dominance overlay**: `main.py` now applies additional multipliers on top of `caution_factor_bearish`:
+  - Tier 3 speculative alts → `0.5×`
+  - Tier 4 meme pairs → `0.3×`
+  - non-core Tier 2 alts → `0.7×`
+  - BTC / ETH / BNB unaffected
+- **Prompt visibility**: `src/agent/prompts.py` now shows `Tier: N (label)` in each pair block.
+- **Tool-side enforcement**: `src/agent/tools.py` + `src/agent/trading_agent.py` now enforce `pair_max_usd` before `validate_buy()` so the cap is not prompt-only.
+- **Skill updates**: `add-pair` now includes `pair_tier`; `trading-rules` documents the concrete tiered dominance overlay.
+
+### Tests
+- Added `tests/test_sector_tiers.py` — cap math, prompt tier display, and tool cap enforcement.
+- Re-ran `tests/test_regime_and_dynamic_tp.py` to confirm no regression in related regime/prompt flow.
+
+### Files Changed
+- `src/analysis/features.py`
+- `main.py`
+- `src/agent/prompts.py`
+- `src/agent/tools.py`
+- `src/agent/trading_agent.py`
+- `.claude/skills/add-pair/SKILL.md`
+- `.claude/skills/trading-rules/SKILL.md`
+- `tests/test_sector_tiers.py`
+
+---
+
 ## Session: 2026-04-11 (Part X) — Skill docs synced with #204 and #206 (#212)
 
 ### Docs
