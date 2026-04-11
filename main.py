@@ -463,6 +463,34 @@ async def run_cycle(
             loop_state["daily_loss_notified_date"] = today
         return
 
+    # Drawdown recovery mode state tracking (#182)
+    recovery_cfg = risk_cfg.get("drawdown_recovery", {})
+    if recovery_cfg.get("enabled", False) and loop_state is not None:
+        was_in_recovery = loop_state.get("drawdown_recovery_active", False)
+        trigger_pct = recovery_cfg.get("trigger_pct", 3.0)
+        exit_pct    = recovery_cfg.get("exit_pct", 1.5)
+        now_in_recovery = (
+            daily_pnl["pnl_pct"] <= -trigger_pct
+            or (was_in_recovery and daily_pnl["pnl_pct"] <= -exit_pct)
+        )
+        if now_in_recovery and not was_in_recovery:
+            logger.warning(
+                "[RECOVERY] Drawdown recovery mode activated — daily P&L %.1f%%",
+                daily_pnl["pnl_pct"],
+            )
+            notifier.send_drawdown_recovery_entered(
+                daily_pnl["pnl_pct"],
+                recovery_cfg.get("allowed_pairs", ["BTC/USD", "ETH/USD", "BNB/USD"]),
+            )
+            loop_state["drawdown_recovery_active"] = True
+        elif not now_in_recovery and was_in_recovery:
+            logger.info(
+                "[RECOVERY] Drawdown recovery mode lifted — daily P&L %.1f%%",
+                daily_pnl["pnl_pct"],
+            )
+            notifier.send_drawdown_recovery_exited(daily_pnl["pnl_pct"])
+            loop_state["drawdown_recovery_active"] = False
+
     # Fetch Fear & Greed once per cycle — injected into each pair's indicators dict
     from src.analysis.features import fetch_fear_greed
     fear_greed_data = fetch_fear_greed(config)

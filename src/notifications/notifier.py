@@ -186,6 +186,23 @@ class Notifier:
         )
         self._send(msg)
 
+    def send_drawdown_recovery_entered(self, daily_pnl_pct: float, allowed_pairs: list) -> None:
+        """Alert when drawdown recovery mode is activated."""
+        pairs_str = ", ".join(allowed_pairs)
+        msg = (
+            f"{self._prefix}⚠️ <b>Drawdown Recovery Mode Activated</b>\n"
+            f"Daily P&amp;L: {daily_pnl_pct:.1f}%. Only {pairs_str} at half size until recovery."
+        )
+        self._send(msg)
+
+    def send_drawdown_recovery_exited(self, daily_pnl_pct: float) -> None:
+        """Alert when drawdown recovery mode is lifted."""
+        msg = (
+            f"{self._prefix}✅ <b>Recovery Mode Lifted</b>\n"
+            f"Daily P&amp;L recovered to {daily_pnl_pct:.1f}%. Full trading resumed."
+        )
+        self._send(msg)
+
     def send_heartbeat(self, summary: dict) -> None:
         """Hourly 'still alive' message with last-hour activity summary."""
         balance    = summary.get("balance_usd", 0)
