@@ -2,7 +2,29 @@
 
 ---
 
-## Session: 2026-04-11 (Part P) — SOD balance DB-persisted in live mode (#178)
+## Session: 2026-04-11 (Part R) — Candlestick pattern signals (#184)
+
+### Feature
+- **[#184] Candlestick pattern signals — hammer +1, bullish engulfing +2, doji at BB lower +1**:
+  - `detect_candlestick_patterns(opens, highs, lows, closes, atr)` added to `src/analysis/indicators.py`. Returns `{"hammer", "bullish_engulfing", "doji_at_support"}`.
+  - Hammer: lower_wick > 2×body AND upper_wick < 0.3×body AND bullish close.
+  - Bullish engulfing: current body engulfs prior bearish body.
+  - Doji: body < 10% of ATR (scale-agnostic). Scores only when `near_lower` is True in signals.py.
+  - Called in `compute_indicators()`; result returned as `"candlestick_patterns"` in indicators dict.
+  - `signals.py` reads weights from config and adds score/reason for each detected pattern.
+  - `config.yaml`: `hammer_weight: 1`, `engulfing_weight: 2`, `doji_support_weight: 1`. `max_score: 25 → 28`.
+
+### Files Changed
+- `src/analysis/indicators.py` — `detect_candlestick_patterns()` function; wired into `compute_indicators()`
+- `src/analysis/signals.py` — weights, BUY scoring block, score table comment updated; unused import removed
+- `config.yaml` — 3 pattern weights added; `max_score` updated to 28
+- `tests/test_candlestick_patterns.py` — 7 new tests (5 unit + 2 integration)
+
+### Tests
+- 209 tests, all passing (was 202 before this session).
+
+---
+
 
 ### Fix
 - **[#178] `_get_or_set_sod_balance` generalised to paper + live mode**: Previously only called for `mode == "paper"`. Live mode relied on a stale in-memory SOD balance set once at startup, ignoring midnight UTC rollovers and `reset_paper.py` invocations.

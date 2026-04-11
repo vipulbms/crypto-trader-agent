@@ -26,6 +26,9 @@ BUY score contributors (need >= buy_min_score to emit BUY):
   RSI hidden bullish divergence        +1   (price HL + RSI LL → trend continuation)
   OBV rising (accumulation)            +1   (smart money buying on volume) (#136)
   BB squeeze release (upward break)    +2   (high-probability breakout setup) (#137)
+  Hammer candle                        +1   (long lower wick reversal at lows) (#184)
+  Bullish engulfing candle             +2   (current body engulfs prior bearish body) (#184)
+  Doji at BB lower band                +1   (indecision at support — body < 10% ATR) (#184)
 
 SELL score contributors (need >= sell_min_score to emit SELL):
   RSI > rsi_overbought                 +3
@@ -85,6 +88,9 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     w_div_bull_hidden     = sig_cfg.get("rsi_divergence_hidden_bullish_weight", 1)
     w_obv_accumulation    = sig_cfg.get("obv_accumulation_weight", 1)       # OBV rising (#136)
     w_bb_squeeze_release  = sig_cfg.get("bb_squeeze_release_weight", 2)     # BB breakout (#137)
+    w_hammer              = sig_cfg.get("hammer_weight", 1)                  # Hammer candle (#184)
+    w_engulfing           = sig_cfg.get("engulfing_weight", 2)              # Bullish engulfing (#184)
+    w_doji_support        = sig_cfg.get("doji_support_weight", 1)           # Doji at support (#184)
 
     # SELL score weights
     w_rsi_overbought  = sig_cfg.get("rsi_overbought_score", 3)
@@ -306,6 +312,18 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         reasons.append(
             f"BB squeeze release — BB width expanded from squeeze, price broke above midband"
         )
+
+    # Candlestick reversal patterns — additive bonuses, never standalone signals (#184)
+    patterns = indicators.get("candlestick_patterns", {})
+    if patterns.get("hammer"):
+        buy_score += w_hammer
+        reasons.append("Hammer candle — long lower wick bullish reversal pattern")
+    if patterns.get("bullish_engulfing"):
+        buy_score += w_engulfing
+        reasons.append("Bullish engulfing — current body engulfs prior bearish candle (strong reversal)")
+    if patterns.get("doji_at_support") and near_lower:
+        buy_score += w_doji_support
+        reasons.append("Doji at BB lower — indecision at support level (body < 10% ATR)")
 
     # ── SELL scoring ─────────────────────────────────────────────────────────
     sell_score = _score_sell(
