@@ -2,6 +2,21 @@
 
 ---
 
+## Session: 2026-04-11 (Part X) — Skill docs synced with #204 and #206 (#212)
+
+### Docs
+- Updated `.claude/skills/add-pair/SKILL.md` to include `slippage_pct` in the new-pair template and added tier-based guidance for selecting the value after #204.
+- Updated `.claude/skills/trading-rules/SKILL.md` to document the BTC dominance macro overlay introduced by #206 and its effect on altcoin risk appetite.
+- Corrected the touched field-count/checklist text in `add-pair` so the onboarding workflow stays internally consistent.
+
+### Files Changed
+- `.claude/skills/add-pair/SKILL.md`
+- `.claude/skills/trading-rules/SKILL.md`
+- `docs/sessions/session_2026_04_11x.md`
+- `CLAUDE.md`
+
+---
+
 ## Session: 2026-04-11 (Part W) — Tiered per-pair slippage in paper broker (#204)
 
 ### Features
