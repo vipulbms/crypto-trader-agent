@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 from src.risk.risk_manager import RiskManager
 from src.storage.database import get_connection
 
-DB_PATH = "paper_trading.db"
+DB_PATH = "test_paper_cb_basic.db"
 
 CONFIG = {
     "trading": {
@@ -32,6 +32,8 @@ CONFIG = {
 
 def _seed_trades(rows: list) -> None:
     """Insert test trades. rows = list of (closed_at_iso, exit_reason)."""
+    from src.storage.database import init_paper_db
+    init_paper_db(DB_PATH, 10000)
     conn = get_connection(DB_PATH)
     conn.execute("DELETE FROM paper_trades WHERE pair='TEST/USD'")
     for closed_at, exit_reason in rows:
