@@ -294,6 +294,8 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
                     mode=mode,
                     start_of_day_balance=start_of_day_bal,
                     loop_state=loop_state,
+                    is_backtest=is_backtest,
+                    trading_db_path=_trading_db,
                 )
                 loop_state["cycles_since_heartbeat"] += 1
                 if cycle_result:
@@ -368,7 +370,8 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
 
 async def run_cycle(
     broker, agent, ws_feed, audit, notifier, risk, config,
-    pairs, mode, start_of_day_balance, loop_state=None
+    pairs, mode, start_of_day_balance, loop_state=None,
+    is_backtest=False, trading_db_path=None,
 ) -> None:
     """Execute one decision cycle: collect data → build signals → run LLM → execute."""
     from src.analysis.indicators import compute_indicators
@@ -492,12 +495,33 @@ async def run_cycle(
             loop_state["drawdown_recovery_active"] = False
 
     # Fetch Fear & Greed once per cycle — injected into each pair's indicators dict
-    from src.analysis.features import fetch_fear_greed, fetch_btc_dominance
+    from src.analysis.features import (
+        fetch_fear_greed,
+        fetch_btc_dominance,
+        fetch_cycle_top_indicators,
+    )
     fear_greed_data = fetch_fear_greed(config)
     fear_greed_index = fear_greed_data["value"] if fear_greed_data else None
 
     # Fetch BTC dominance trend once per cycle (#206)
-    btc_dom_data = fetch_btc_dominance(config, db_path=_trading_db) if not is_backtest else None
+    btc_dom_data = fetch_btc_dominance(config, db_path=trading_db_path) if not is_backtest else None
+    cycle_top_data = fetch_cycle_top_indicators(config, db_path=trading_db_path) if not is_backtest else None
+    cycle_top_active = bool(cycle_top_data and cycle_top_data.get("cycle_top_active"))
+    risk.set_cycle_top_state(cycle_top_active, cycle_top_data)
+
+    if loop_state is not None and cycle_top_data is not None:
+        was_cycle_top_active = loop_state.get("cycle_top_guard_active", False)
+        if cycle_top_active and not was_cycle_top_active:
+            notifier.send_cycle_top_guard_activated(
+                cycle_top_data.get("mvrv_z_score", 0.0),
+                cycle_top_data.get("nupl", 0.0),
+            )
+        elif was_cycle_top_active and not cycle_top_active:
+            notifier.send_cycle_top_guard_deactivated(
+                cycle_top_data.get("mvrv_z_score", 0.0),
+                cycle_top_data.get("nupl", 0.0),
+            )
+        loop_state["cycle_top_guard_active"] = cycle_top_active
 
     # Compute indicators and signals for each pair
     signals = []
@@ -614,35 +638,21 @@ async def run_cycle(
         sig = generate_signal(pair, indicators, config)
         sig["indicators"] = indicators  # attach raw indicators for prompt
 
-        # Audit signal
-        audit.log_signal(
-            cycle_id=cycle_id,
-            pair=pair,
-            price=indicators.get("close", 0.0),
-            indicators=indicators,
-            signal_direction=sig["signal"],
-            signal_strength=sig["strength"],
-            signal_reasons=sig["reasons"],
-        )
-
         signals.append(sig)
-        logger.info(
-            "Signal [%s]: %s (strength=%.2f) @ $%.4f",
-            pair, sig["signal"], sig["strength"], sig["price"],
-        )
 
     if not signals:
         logger.warning("No signals computed this cycle")
         return
 
     # Build AI context (regime, sentiment, patterns, exit timing, sizing, dynamic TP)
-    from src.analysis.features import build_ai_context, compute_pair_regime_caps
+    from src.analysis.features import build_ai_context, compute_pair_regime_caps, apply_cycle_top_guard
     ai_context = build_ai_context(
         signals=signals,
         portfolio=portfolio,
         open_positions=open_positions,
         config=config,
         btc_dominance=btc_dom_data,
+        cycle_top_data=cycle_top_data,
     )
 
     # Apply regime caution factor to max_per_trade (#124)
@@ -687,6 +697,28 @@ async def run_cycle(
         logger.info(
             "[REGIME] %s regime — caution_factor=%.2f, max_per_trade scaled $%.2f → $%.2f",
             regime, global_caution, original_max, portfolio["max_per_trade"],
+        )
+
+    suppressed_buys = apply_cycle_top_guard(signals, config, cycle_top_data)
+    if suppressed_buys:
+        logger.warning(
+            "[CYCLE_TOP] Suppressed %d Tier 3/4 BUY signals due to macro cycle-top guard",
+            suppressed_buys,
+        )
+
+    for sig in signals:
+        audit.log_signal(
+            cycle_id=cycle_id,
+            pair=sig["pair"],
+            price=sig.get("price", sig.get("indicators", {}).get("close", 0.0)),
+            indicators=sig.get("indicators", {}),
+            signal_direction=sig["signal"],
+            signal_strength=sig["strength"],
+            signal_reasons=sig["reasons"],
+        )
+        logger.info(
+            "Signal [%s]: %s (strength=%.2f) @ $%.4f",
+            sig["pair"], sig["signal"], sig["strength"], sig["price"],
         )
 
     # Run LLM agent

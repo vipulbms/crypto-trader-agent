@@ -203,6 +203,26 @@ class Notifier:
         )
         self._send(msg)
 
+    def send_cycle_top_guard_activated(self, mvrv_z_score: float, nupl: float) -> None:
+        """Alert when the on-chain cycle-top guard turns on."""
+        msg = (
+            f"{self._prefix}⚠️ <b>Cycle Top Guard Activated</b>\n"
+            f"MVRV Z-Score: {mvrv_z_score:.2f}\n"
+            f"NUPL: {nupl:.2f}\n"
+            f"New Tier 3 / Tier 4 BUYs blocked. Prefer BTC/USD, ETH/USD, and BNB/USD."
+        )
+        self._send(msg)
+
+    def send_cycle_top_guard_deactivated(self, mvrv_z_score: float, nupl: float) -> None:
+        """Alert when the on-chain cycle-top guard turns off."""
+        msg = (
+            f"{self._prefix}✅ <b>Cycle Top Guard Cleared</b>\n"
+            f"MVRV Z-Score: {mvrv_z_score:.2f}\n"
+            f"NUPL: {nupl:.2f}\n"
+            f"Tier 3 / Tier 4 BUYs may resume if other guards allow them."
+        )
+        self._send(msg)
+
     def send_heartbeat(self, summary: dict) -> None:
         """Hourly 'still alive' message with last-hour activity summary."""
         balance    = summary.get("balance_usd", 0)

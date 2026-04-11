@@ -128,6 +128,16 @@ class RiskManager:
         self._recovery_allowed_pairs = recovery_cfg.get("allowed_pairs", ["BTC/USD", "ETH/USD", "BNB/USD"])
         self._recovery_max_pos_pct   = recovery_cfg.get("max_position_pct_override", 10)
 
+        # Cycle-top guard (#205)
+        cycle_top_cfg = risk.get("cycle_top_guard", {})
+        self._cycle_top_guard_enabled = cycle_top_cfg.get("enabled", False)
+        self._cycle_top_active = False
+        self._cycle_top_data: dict = {}
+        self._pair_tiers = {
+            pair_cfg["pair"]: int(pair_cfg.get("pair_tier", 0) or 0)
+            for pair_cfg in trading.get("pairs", [])
+        }
+
         # DB path — used to query trade history for circuit breaker
         self._db_path = db_path
 
@@ -135,6 +145,11 @@ class RiskManager:
         self._pair_tp: dict = {}
         for p in trading.get("pairs", []):
             self._pair_tp[p["pair"]] = p.get("take_profit_pct", self._global_tp_pct)
+
+    def set_cycle_top_state(self, active: bool, data: Optional[dict] = None) -> None:
+        """Update the current cycle-top guard state for validate_buy()."""
+        self._cycle_top_active = bool(active and self._cycle_top_guard_enabled)
+        self._cycle_top_data = data or {}
 
     # ── Circuit breaker — derived from trade history ──────────────────────────
     # Queries the last N trades that closed within the pause window.
@@ -386,6 +401,16 @@ class RiskManager:
                     f"Daily loss limit reached: {daily_loss_pct:.1f}% >= {self._daily_loss_limit_pct}%",
                     0.0,
                 )
+        # Guard 1.1 — Macro cycle-top guard: block new Tier 3 / 4 BUYs (#205)
+        if self._cycle_top_active and self._pair_tiers.get(pair, 0) in (3, 4):
+            mvrv = self._cycle_top_data.get("mvrv_z_score")
+            nupl = self._cycle_top_data.get("nupl")
+            return (
+                False,
+                f"Cycle top guard active — Tier {self._pair_tiers.get(pair, 0)} BUYs blocked "
+                f"(MVRV {mvrv:.2f}, NUPL {nupl:.2f})",
+                0.0,
+            )
         # Guard 1.2 — Drawdown recovery mode: restrict to major pairs at reduced size (#182)
         if starting_balance_usd > 0:
             daily_pnl_pct = daily_loss_usd / starting_balance_usd * 100
