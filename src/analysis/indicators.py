@@ -111,6 +111,15 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         # Expressed as % of price so it is price-scale agnostic
         bb_width_series_full = ((bb_upper - bb_lower) / df["close"] * 100).fillna(0)
 
+        # Candlestick patterns — computed from raw OHLC arrays (#184)
+        candlestick_patterns = detect_candlestick_patterns(
+            opens=df["open"].tolist(),
+            highs=df["high"].tolist(),
+            lows=df["low"].tolist(),
+            closes=df["close"].tolist(),
+            atr=safe(atr.iloc[-1]),
+        )
+
     except Exception as e:
         logger.error("Indicator calculation error: %s", e)
         return None
@@ -162,6 +171,8 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         "obv_series":           obv_series,
         # BB width series (% of price) — last 10 values; squeeze release in signals.py (#137)
         "bb_width_series":      bb_width_series,
+        # Candlestick reversal patterns — hammer, bullish_engulfing, doji_at_support (#184)
+        "candlestick_patterns": candlestick_patterns,
     }
 
 
@@ -282,3 +293,59 @@ def detect_rsi_divergence(prices: list, rsi_values: list, lookback: int = 20) ->
         result["bearish_regular"] = True
 
     return result
+
+
+def detect_candlestick_patterns(
+    opens: list, highs: list, lows: list, closes: list, atr: Optional[float]
+) -> dict:
+    """
+    Detect three high-probability candlestick reversal patterns on the most recent candle.
+
+    Patterns:
+      - hammer:           Lower wick > 2× body, upper wick < 30% of body,
+                          bullish close (close > open), non-zero body.
+                          Signals potential reversal after a downtrend.
+      - bullish_engulfing: Current bullish candle body fully engulfs the prior bearish
+                          candle body (current open < prior close AND current close > prior open).
+                          Strong reversal signal requiring two candles.
+      - doji_at_support:  Body (|close - open|) is less than 10% of ATR — extreme indecision.
+                          The "at support" gate (price near BB lower band) is applied in
+                          signals.py to award the score.
+
+    All three are additive bonus signals — never enough alone to trigger a BUY.
+
+    Returns dict with bool values; all False if fewer than 2 candles supplied.
+    """
+    empty = {"hammer": False, "bullish_engulfing": False, "doji_at_support": False}
+    if len(closes) < 2:
+        return empty
+
+    c, o, h, l = closes[-1], opens[-1], highs[-1], lows[-1]
+    pc, po = closes[-2], opens[-2]  # previous candle
+
+    body       = abs(c - o)
+    lower_wick = min(c, o) - l
+    upper_wick = h - max(c, o)
+
+    hammer = (
+        body > 0
+        and lower_wick > 2 * body
+        and upper_wick < 0.3 * body
+        and c > o  # bullish close
+    )
+
+    # Up candle fully engulfs prior down candle body
+    bullish_engulfing = (
+        c > o           # current candle is bullish
+        and pc < po     # previous candle was bearish
+        and o < pc      # current open below prior close (engulfs from below)
+        and c > po      # current close above prior open (engulfs to above)
+    )
+
+    doji_at_support = (body < 0.1 * atr) if atr else False
+
+    return {
+        "hammer":            hammer,
+        "bullish_engulfing": bullish_engulfing,
+        "doji_at_support":   doji_at_support,
+    }

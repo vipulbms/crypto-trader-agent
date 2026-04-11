@@ -463,7 +463,10 @@ signals:
   bb_squeeze_release_weight: 2    # BB squeeze release (price breaks above midband after compression) → +2 BUY (#137)
   bb_squeeze_release_expansion_factor: 1.2  # BB width must expand to threshold × 1.2 to qualify as release (#137)
   bb_squeeze_release_lookback: 3  # Number of prior candles that must all be in squeeze (#137)
-  max_score: 25                   # Updated: +3 from new signals (OBV+1, BB squeeze release+2)
+  hammer_weight: 1                # Hammer candle (long lower wick) → +1 BUY (#184)
+  engulfing_weight: 2             # Bullish engulfing (current engulfs prior bearish body) → +2 BUY (#184)
+  doji_support_weight: 1          # Doji at BB lower band (indecision at support, body < 10% ATR) → +1 BUY (#184)
+  max_score: 28                   # Updated: +3 from candlestick patterns (hammer+1, engulfing+2, doji+1 max)
 
   # ── SELL score weights ────────────────────────────────────────────────────
   rsi_overbought_score: 3         # RSI above rsi_overbought threshold
