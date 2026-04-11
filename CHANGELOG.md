@@ -2,6 +2,33 @@
 
 ---
 
+## Session: 2026-04-11 (Part X) — BTC dominance trend macro input (#206)
+
+### Features
+- **[#206] BTC dominance trend fetch**: Added `fetch_btc_dominance(config, db_path=None)` in `src/analysis/features.py` using CoinGecko `/api/v3/global` with in-memory TTL caching.
+- **DB-backed trend calculation**: Daily dominance values are persisted in `agent_state` as `btc_dom_YYYY-MM-DD`; trend compares current value vs `trend_lookback_days` ago and classifies `rising/falling/flat` using `trend_min_change_pp`.
+- **Regime context enrichment**: `detect_market_regime(..., btc_dominance=...)` now appends dominance interpretation to regime summary and returns `btc_dominance_trend` + `btc_dominance_pct`.
+- **AI context propagation**: `build_ai_context(..., btc_dominance=...)` forwards dominance fields to the cycle prompt context.
+- **Main loop integration**: `main.py` fetches BTC dominance once per cycle (skipped in backtest) and passes it into AI context.
+
+### Tests
+- Added `tests/test_btc_dominance.py` with **15 test cases**:
+  - fetch structure + failure handling
+  - trend classification (rising/falling/flat)
+  - cache behavior
+  - regime payload and summary augmentation
+  - AI context propagation
+- Result: **15/15 passing**.
+
+### Files Changed
+- `config.yaml` — new `regime.btc_dominance` block (`enabled`, `url`, `cache_minutes`, `trend_min_change_pp`, `trend_lookback_days`)
+- `src/analysis/features.py` — `fetch_btc_dominance` + regime/context integration
+- `main.py` — per-cycle dominance fetch and `build_ai_context` wiring
+- `tests/test_btc_dominance.py` — new test suite
+- `CLAUDE.md` — session and gotchas updated
+
+---
+
 ## Session: 2026-04-11 (Part S) — Add PENDLE/USD, ONDO/USD, BONK/USD (#186–#188)
 
 ### Features

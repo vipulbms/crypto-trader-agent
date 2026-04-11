@@ -780,6 +780,12 @@ regime:
   ranging_macd_threshold: 0.001 # |MACD histogram| < this = ranging (no momentum)
   bearish_caution_factor: 0.5   # Global fallback; per-pair caution_factor_bearish in trading.pairs[] overrides (#124)
   volatile_caution_factor: 0.7  # Multiply proposed position size by this in volatile regime
+  btc_dominance:
+    enabled: true
+    url: "https://api.coingecko.com/api/v3/global"
+    cache_minutes: 60             # Re-fetch at most once per hour
+    trend_min_change_pp: 0.5      # Min change in percentage-points to call rising/falling
+    trend_lookback_days: 3        # Compare current vs N days ago
 
 # ──────────────────────────────────────────────
 # Feature 4: News & sentiment integration
