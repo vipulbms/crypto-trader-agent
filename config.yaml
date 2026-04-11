@@ -470,6 +470,7 @@ llm:
   timeout_seconds: 30
   max_reasoning_chars: 1000
   request_delay_seconds: 3     # Rate limit: 6,000 TPM free tier; 30-min cycle interval is safe
+  disable_thinking: true        # qwen3 on Groq: suppress <think> blocks to protect tool dispatch (#177)
 
 # Gemini fallback (swap back if Groq quota exhausted)
 # llm:
