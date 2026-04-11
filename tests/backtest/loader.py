@@ -97,7 +97,10 @@ def load_pair_candles(pair: str, history_dir: str = "history") -> Optional[list]
         logger.error("Failed to load %s: %s", path, e)
         return None
 
-    raw_candles = data.get("result", {}).get(inner_key)
+    if isinstance(data, list):
+        raw_candles = data
+    else:
+        raw_candles = data.get("result", {}).get(inner_key)
     if not raw_candles:
         logger.error("No candle data at result[%r] in %s", inner_key, path)
         return None
