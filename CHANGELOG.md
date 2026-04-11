@@ -2,6 +2,34 @@
 
 ---
 
+## Session: 2026-04-11 (Part J) — Cash guards as primary gate, count ceiling raised to 10 (#167)
+
+### Bug Fix
+- **[#167] `max_open_positions` count gate replaced with cash-first architecture**:
+  The #165 soft-gate was correct in direction but wrong in architecture. The count gate was
+  still primary; cash guards were secondary. With `caution_factor_bearish` reducing positions
+  to $35–$70 each, 5 slots exhausted at ~$376 leaving $624 stranded.
+
+  **`config.yaml`**: `max_open_positions: 5` → `10`. At $20 min-order, 10 slots on a $1,000
+  portfolio equates to $200 total investment — cash depletes before count ceiling is reached.
+  Comment updated to explain it is a safety net only.
+
+  **`src/risk/risk_manager.py` `validate_buy()` guard reorder**: moved "min cash reserve" and
+  "Guard 0.5 deployable < min_order_usd" to run **before** the count ceiling. Removed the #165
+  dual-condition soft peek; count gate is now a simple hard block at 10. New guard order:
+  cash reserve → deployable → count ceiling (10) → cluster guard → size checks.
+
+  **`src/risk/risk_manager.py` `validate_config()` sanity warning**: formula updated from
+  `base_position_pct` (in `position_sizing`) to `max_position_pct` (in `trading`), consistent
+  with the sizing parameter used in `main.py`.
+
+  **Tests**: 3 tests updated/added — blocked-when-no-cash now asserts Guard 0.5 reason;
+  allowed-when-cash uses `max_open_positions=10`; new `test_max_open_positions_ceiling_hard_blocks_at_10`.
+
+  **All 183 tests pass.**
+
+---
+
 ## Session: 2026-04-11 (Part I) — Fix position gate to use remaining cash (#165)
 
 ### Bug Fix

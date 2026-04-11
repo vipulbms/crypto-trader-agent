@@ -47,15 +47,15 @@ def validate_config(config: dict) -> None:
             "trailing_stop and breakeven_stop cannot both be enabled simultaneously. "
             "Disable one in config.yaml."
         )
-    # Sanity check: max_open_positions × base_position_pct must not exceed deployable capital
+    # Sanity check: max_open_positions × max_position_pct must not exceed deployable capital
     trading = config.get("trading", {})
     max_pos = trading.get("max_open_positions", 3)
-    base_pct = config.get("position_sizing", {}).get("base_position_pct", 16)
+    base_pct = trading.get("max_position_pct", 20)
     reserve_pct = config.get("risk", {}).get("min_cash_reserve_pct", 5)
     max_deployable_pct = 100 - reserve_pct
     if max_pos * base_pct > max_deployable_pct:
         logger.warning(
-            "[CONFIG] max_open_positions (%d) × base_position_pct (%d%%) = %d%% exceeds "
+            "[CONFIG] max_open_positions (%d) × max_position_pct (%d%%) = %d%% exceeds "
             "max_deployable (%d%% after %.0f%% reserve). "
             "Suggest reducing max_open_positions to %d.",
             max_pos, base_pct, max_pos * base_pct, max_deployable_pct, reserve_pct,
@@ -368,23 +368,36 @@ class RiskManager:
                     0.0,
                 )
 
-        # 2. Max open positions — cash-aware gate (#165)
-        # Only hard-block when count is at ceiling AND there is no deployable cash
-        # for another position. When caution_factor has shrunk individual sizes,
-        # slots may be exhausted while capital remains; cash guards (step 3,
-        # guard 0.5) are the real limiters in that case.
-        if open_positions_count >= self._max_open_positions:
-            _min_cash_check = portfolio_balance_usd * (self._min_cash_reserve_pct / 100)
-            _deployable_check = available_cash_usd - _min_cash_check
-            if _deployable_check < self._min_order_usd:
-                return (
-                    False,
-                    f"Max open positions reached ({open_positions_count}/{self._max_open_positions})",
-                    0.0,
-                )
-            # Cash available — fall through to cash guards below
+        # 3. Min cash reserve — PRIMARY gate: runs before count ceiling (#167)
+        min_cash = portfolio_balance_usd * (self._min_cash_reserve_pct / 100)
+        if available_cash_usd <= min_cash:
+            return (
+                False,
+                f"Insufficient cash reserve (${available_cash_usd:.2f} <= min ${min_cash:.2f})",
+                0.0,
+            )
 
-        # 2a. Correlation cluster guard (#139) — check before any cash calculations
+        # Guard 0.5: Deployable cash below min_order_usd — primary gate, before count ceiling (#167)
+        deployable = available_cash_usd - min_cash
+        if deployable < self._min_order_usd:
+            logger.info(
+                "[RISK] Skipping BUY %s — deployable cash $%.2f below min_order_usd $%.2f",
+                pair, deployable, self._min_order_usd,
+            )
+            return (False, f"Deployable cash ${deployable:.2f} below min_order_usd ${self._min_order_usd:.2f}", 0.0)
+
+        # 2. Max open positions — hard safety ceiling (#167)
+        # Cash guards above are the primary gate. This ceiling only fires when caution-factor
+        # positions have consumed all slots before cash is exhausted. At max_open_positions=10
+        # with min_order_usd=$20, this is a safety net — not the routine blocker.
+        if open_positions_count >= self._max_open_positions:
+            return (
+                False,
+                f"Max open positions reached ({open_positions_count}/{self._max_open_positions})",
+                0.0,
+            )
+
+        # 2a. Correlation cluster guard (#139)
         cluster_penalty_factor = 1.0
         cluster = self._get_correlation_cluster(pair)
         if cluster and self._correlation_clusters:
@@ -404,25 +417,7 @@ class RiskManager:
                     cluster["name"], cluster_open[0], self._cluster_size_penalty * 100,
                 )
 
-        # 3. Min cash reserve
-        min_cash = portfolio_balance_usd * (self._min_cash_reserve_pct / 100)
-        if available_cash_usd <= min_cash:
-            return (
-                False,
-                f"Insufficient cash reserve (${available_cash_usd:.2f} <= min ${min_cash:.2f})",
-                0.0,
-            )
-
-        # -- NEW ALLOCATIONS: DYNAMIC BALANCE & CRASH VALIDATION --
-
-        # Guard 0.5: Deployable cash below min_order_usd — skip pair to avoid micro-trades
-        deployable = available_cash_usd - min_cash
-        if deployable < self._min_order_usd:
-            logger.info(
-                "[RISK] Skipping BUY %s — deployable cash $%.2f below min_order_usd $%.2f",
-                pair, deployable, self._min_order_usd,
-            )
-            return (False, f"Deployable cash ${deployable:.2f} below min_order_usd ${self._min_order_usd:.2f}", 0.0)
+        # -- DYNAMIC BALANCE & CRASH VALIDATION --
 
         # Guard 1: Minimum Order Size
         if proposed_usd < self._min_order_usd:

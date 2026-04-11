@@ -4,8 +4,8 @@ Tests for position sizing floor guard and config sanity warning (issue #159).
 Ensures:
   1. compute_position_size() never returns below min_order_usd, even when the
      ATR-math produces a tiny value (e.g. high-price / low-ATR assets).
-  2. validate_config() emits a WARNING when max_open_positions × base_position_pct
-     exceeds the deployable capital band.
+  2. validate_config() emits a WARNING when max_open_positions × max_position_pct
+     exceeds the deployable capital band (#167).
 """
 
 import logging
@@ -40,6 +40,7 @@ def _full_config(
     return {
         "trading": {
             "max_open_positions": max_open_positions,
+            "max_position_pct": base_position_pct,   # sanity check reads this (#167)
             "take_profit_pct": 12,
         },
         "position_sizing": {
@@ -128,7 +129,7 @@ class TestComputePositionSizeFloor:
 # ---------------------------------------------------------------------------
 
 class TestValidateConfigSanityWarning:
-    """validate_config must warn when max_open_positions × base_position_pct > deployable."""
+    """validate_config must warn when max_open_positions × max_position_pct > deployable (#167)."""
 
     def test_warns_when_overshoot(self, caplog):
         """13 × 16% = 208% > 95% deployable → warning logged."""

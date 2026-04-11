@@ -354,8 +354,9 @@ class TestMinOrderUsdFloor(unittest.TestCase):
         self.assertGreater(amount, 0.0)
 
     def test_max_open_positions_blocked_when_no_cash(self):
-        """Count cap fires when count >= max AND deployable cash < min_order_usd (#165).
-        portfolio=$1000, reserve=5%→$50, available=$65 → deployable=$15 < $20."""
+        """Deployable cash guard fires before count ceiling (#167).
+        portfolio=$1000, reserve=5%→$50, available=$65 → deployable=$15 < $20.
+        Blocked by Guard 0.5 (not count gate) regardless of open_positions_count."""
         approved, reason, _ = self.risk_mgr.validate_buy(
             pair="SOL/USD",
             proposed_usd=25.0,
@@ -366,18 +367,18 @@ class TestMinOrderUsdFloor(unittest.TestCase):
             starting_balance_usd=1000.0,
         )
         self.assertFalse(approved)
-        self.assertIn("Max open positions reached", reason)
+        self.assertIn("Deployable cash", reason)
 
     def test_max_open_positions_allowed_when_cash_available(self):
-        """Count cap must NOT fire when cash is available — fall through to cash guards (#165)."""
-        # Live scenario: 5 positions open but $594 cash available.
+        """Cash guards pass then count ceiling (10) not reached — buy approved (#167).
+        5 positions open, $594 cash: cash guards pass, count 5 < 10 → approved."""
         # max_open_positions defaults to 3 in this config; override via a fresh manager.
         cfg = {
             "trading": {
                 "stop_loss_pct": 5,
                 "take_profit_pct": 10,
                 "max_position_pct": 30,
-                "max_open_positions": 5,
+                "max_open_positions": 10,
             },
             "risk": {
                 "min_cash_reserve_pct": 5,
@@ -389,13 +390,40 @@ class TestMinOrderUsdFloor(unittest.TestCase):
             pair="BTC/USD",
             proposed_usd=100.0,
             portfolio_balance_usd=1000.0,
-            available_cash_usd=594.0,   # deployable=$544 >> $20 — should pass count gate
+            available_cash_usd=594.0,   # deployable=$544 >> $20 — cash guards pass
             open_positions_count=5,
             daily_loss_usd=0.0,
             starting_balance_usd=1000.0,
         )
         self.assertTrue(approved, f"Expected approved but got: {reason}")
         self.assertGreater(amount, 0.0)
+
+    def test_max_open_positions_ceiling_hard_blocks_at_10(self):
+        """Count ceiling fires unconditionally at max_open_positions regardless of cash (#167)."""
+        cfg = {
+            "trading": {
+                "stop_loss_pct": 5,
+                "take_profit_pct": 10,
+                "max_position_pct": 30,
+                "max_open_positions": 10,
+            },
+            "risk": {
+                "min_cash_reserve_pct": 5,
+                "min_order_usd": 20,
+            },
+        }
+        risk = RiskManager(cfg)
+        approved, reason, _ = risk.validate_buy(
+            pair="BTC/USD",
+            proposed_usd=50.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=800.0,   # plenty of cash — cash guards pass
+            open_positions_count=10,    # exactly at ceiling
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+        )
+        self.assertFalse(approved)
+        self.assertIn("Max open positions reached", reason)
 
 
 class TestPaperBrokerOverdrawGuard(unittest.TestCase):
