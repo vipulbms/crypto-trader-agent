@@ -226,6 +226,8 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11s | Feat: add PENDLE/USD (TP 20%, buy_min_score=7), ONDO/USD (TP 16%, buy_min_score=6), BONK/USD (TP 25%, buy_min_score=9); TP whitelist extended to include 25%; 27 active pairs (#186–#188) |
 | session_2026_04_11t | Feat: drawdown recovery mode — restrict to major pairs + half size when daily loss ≥ -3%; hysteresis exit at -1.5%; Telegram alerts; 7 tests; 216 total (#182) |
 | session_2026_04_11u | Feat: profit factor auto-escalation — raise buy_min_score +1 (PF<1.0) or +2 (PF<0.7) for underperforming pairs; injected per cycle from 30-day trade history; PF table in CLI report; 10 tests; 219 total (#183) |
+| session_2026_04_11v | Fix: backtest loader bare-list JSON support for BONK/PENDLE/ONDO — `isinstance(data, list)` branch in `load_pair_candles()`; closes #198 |
+| session_2026_04_11w | Chore: GitHub Actions CI pipeline — `tests.yml` (pytest on every push/PR), `signal-backtest.yml` (fast backtest on config/signal changes, PR comment), `check_backtest_result.py` win-rate gate; pytest added to requirements.txt (#181) |
 
 ---
 
