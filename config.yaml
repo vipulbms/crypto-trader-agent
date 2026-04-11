@@ -591,6 +591,14 @@ risk:
     pause_tiers_hours: [1, 2, 4]  # Graduated backoff: 1st fire→1h, 2nd→2h, 3rd+→4h (#143)
     tier_reset_hours: 24          # Reset fire count if no new fires for this many hours
 
+  # Drawdown recovery mode — restrict to major pairs when daily loss exceeds trigger (#182)
+  drawdown_recovery:
+    enabled: true
+    trigger_pct: 3.0           # Enter recovery at -3% daily loss
+    exit_pct: 1.5              # Exit recovery when daily loss recovers to -1.5% (hysteresis band)
+    allowed_pairs: [BTC/USD, ETH/USD, BNB/USD]
+    max_position_pct_override: 10  # Half of normal 20% max during recovery
+
   # Correlation guard — block stacking highly-correlated pairs (#139)
   correlation_clusters:
     - name: large_cap_l1

@@ -120,6 +120,14 @@ class RiskManager:
         self._max_cluster_positions  = risk.get("max_cluster_positions", 2)
         self._cluster_size_penalty   = risk.get("cluster_size_penalty", 0.5)
 
+        # Drawdown recovery mode (#182)
+        recovery_cfg = risk.get("drawdown_recovery", {})
+        self._recovery_enabled       = recovery_cfg.get("enabled", False)
+        self._recovery_trigger_pct   = recovery_cfg.get("trigger_pct", 3.0)
+        self._recovery_exit_pct      = recovery_cfg.get("exit_pct", 1.5)
+        self._recovery_allowed_pairs = recovery_cfg.get("allowed_pairs", ["BTC/USD", "ETH/USD", "BNB/USD"])
+        self._recovery_max_pos_pct   = recovery_cfg.get("max_position_pct_override", 10)
+
         # DB path — used to query trade history for circuit breaker
         self._db_path = db_path
 
@@ -292,6 +300,17 @@ class RiskManager:
         """No-op — a profitable exit breaks the streak automatically via trade history."""
         pass
 
+    def is_in_drawdown_recovery(self, daily_pnl_pct: float) -> bool:
+        """
+        Returns True when the daily P&L has fallen below the recovery trigger threshold.
+        Used to restrict new buys to major liquid pairs at reduced size (#182).
+
+        daily_pnl_pct: signed percentage, e.g. -3.5 means a 3.5% loss today.
+        """
+        if not self._recovery_enabled:
+            return False
+        return daily_pnl_pct <= -self._recovery_trigger_pct
+
     def get_stop_loss_pct(self, pair: str, atr: float = None, price: float = None) -> float:
         """Return SL % for this pair. Uses ATR-based formula when enabled (S12.4.1)."""
         if self._atr_sl_enabled and atr and price and price > 0:
@@ -367,7 +386,25 @@ class RiskManager:
                     f"Daily loss limit reached: {daily_loss_pct:.1f}% >= {self._daily_loss_limit_pct}%",
                     0.0,
                 )
-
+        # Guard 1.2 — Drawdown recovery mode: restrict to major pairs at reduced size (#182)
+        if starting_balance_usd > 0:
+            daily_pnl_pct = daily_loss_usd / starting_balance_usd * 100
+            if self.is_in_drawdown_recovery(daily_pnl_pct):
+                if pair not in self._recovery_allowed_pairs:
+                    return (
+                        False,
+                        f"Drawdown recovery mode ({daily_pnl_pct:.1f}% daily P&L) — "
+                        f"only {', '.join(self._recovery_allowed_pairs)} permitted",
+                        0.0,
+                    )
+                # Cap position size at the recovery override (half of normal)
+                recovery_cap = available_cash_usd * self._recovery_max_pos_pct / 100
+                if proposed_usd > recovery_cap:
+                    proposed_usd = recovery_cap
+                    logger.info(
+                        "[RECOVERY] %s: position capped at $%.2f (recovery max %d%%)",
+                        pair, proposed_usd, self._recovery_max_pos_pct,
+                    )
         # 3. Min cash reserve — PRIMARY gate: runs before count ceiling (#167)
         min_cash = portfolio_balance_usd * (self._min_cash_reserve_pct / 100)
         if available_cash_usd <= min_cash:
