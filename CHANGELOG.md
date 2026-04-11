@@ -2,6 +2,18 @@
 
 ---
 
+## Session: 2026-04-11 (Part K) — Commit skill: branch + PR workflow (#168)
+
+### Chore
+- **[#168] commit skill enforces feature/defect branch + pull request**:
+  - New Step 1: always create `feature/<N>` or `defect/<N>` branch from up-to-date `main` before any commit work. Never commit directly to `main`.
+  - Step 10: push uses `git push -u origin feature/<N>` (branch, not main).
+  - New Step 11: `gh pr create --base main --head feature/<N> --body "Closes #<N>"` to open PR.
+  - Step 12: confirm reports commit hash, branch name, and PR URL.
+  - All existing steps renumbered 2–12 accordingly.
+
+---
+
 ## Session: 2026-04-11 (Part J) — Cash guards as primary gate, count ceiling raised to 10 (#167)
 
 ### Bug Fix

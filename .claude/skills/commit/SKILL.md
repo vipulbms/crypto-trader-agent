@@ -17,7 +17,27 @@ argument-hint: "[optional commit message]"
 
 ## Steps
 
-### 1. Identify what to commit
+### 1. Create a branch for the issue
+**Always commit on a dedicated branch — never commit directly to `main`.**
+
+Determine the branch type from the GitHub issue:
+- Bug fix / regression → `defect/<issue-number>` (e.g. `defect/173`)
+- New feature / enhancement → `feature/<issue-number>` (e.g. `feature/165`)
+
+If there is no issue number yet, create the GitHub issue first (per the mandatory workflow rule in user memory).
+
+```bash
+git checkout main
+git pull                             # ensure main is up-to-date
+git checkout -b feature/<N>          # or defect/<N>
+```
+
+If the branch already exists (e.g. partially committed earlier), check it out instead:
+```bash
+git checkout feature/<N>
+```
+
+### 2. Identify what to commit
 Review the changed files above. Never stage:
 - `.env` — contains API keys
 - `data/` — runtime databases
@@ -28,7 +48,9 @@ Review the changed files above. Never stage:
 
 Only stage source files: `.py`, `.yaml`, `.md`, `.txt`, `.json`, skill files under `.claude/`.
 
-### 2. Save session notes
+**Never stage** `scripts/create_github_issues.sh` — this file is a historical record of all planned epics and stories. It must not be modified or re-committed. If new issues are needed, create a new script (e.g. `scripts/create_github_issues_v2.sh`) or open issues manually via `gh issue create`.
+
+### 3. Save session notes
 Write a new session notes file at `docs/sessions/session_<date>_<part>.md` (e.g. `session_2026_03_31i.md`).
 
 Determine the next part letter by looking at existing files in `docs/sessions/` for today's date and incrementing.
@@ -51,14 +73,14 @@ Session notes format:
 ```
 Include one section per significant change. Be specific: file paths, function names, before/after behaviour where relevant.
 
-### 3. Update CLAUDE.md
+### 4. Update CLAUDE.md
 Review `CLAUDE.md` in the project root and update it to reflect any changes made in this session:
 - Add new pairs to the pairs table if any were added
 - Update "Known Behaviours / Gotchas" if any new quirks were discovered
 - Update "Session Notes" table with the new session file
 - Update architecture section if any new files/modules were added
 
-### 4. Update documentation files
+### 5. Update documentation files
 Review and update the following documents to reflect changes made in this session. Only update sections that are genuinely stale — do not rewrite content that is still accurate.
 
 **Complexity guide:**
@@ -101,19 +123,19 @@ Update if new features were added or stories were completed:
 - Update Acceptance Criteria if behaviour changed
 Do **not** rewrite the entire document — append or edit targeted stories only.
 
-### 5. Update CHANGELOG.md
+### 6. Update CHANGELOG.md
 Append a new entry to `CHANGELOG.md` summarising the changes in this commit:
 - Add a new `## Session: <today's date>` section if one does not exist for today, or append to the existing one
 - Include: bugs fixed (root cause + fix), features added, files changed
 - Keep it concise — bullet points or a table, not prose
 
-### 6. Update memory
+### 7. Update memory
 Update the relevant memory file at:
 `~/.claude/projects/-Users-vipulsanghrajka-Documents-myworkdir-crypto-trader-agent/memory/project_kryptos.md`
 
 Add any new critical conventions, config values, or architectural decisions that future sessions should know. Do not duplicate what is already there — only add what is new or changed.
 
-### 7. Draft commit message
+### 8. Draft commit message
 If the user provided a message in `$ARGUMENTS`, use it as the subject line.
 Otherwise, derive a message from the diff following the project's commit style:
 - `fix:` for bug fixes
@@ -127,10 +149,18 @@ Format:
 
 <body — what changed and why, 2-5 bullet points if needed>
 
+Closes #<issue-number>  ← include if a GitHub issue is fully resolved by this commit
+Refs #<issue-number>    ← include if this commit is partial progress toward an issue
+
 Co-Authored-By: Claude Sonnet 4.6
 ```
 
-### 8. Stage only the appropriate files
+Always check if the changes relate to an open GitHub issue. If so:
+- Use `Closes #N` in the commit body if the issue is fully resolved — GitHub will auto-close it on push.
+- Use `Refs #N` if this commit is part of a larger issue that is not yet complete.
+- Use `gh issue list --repo vipulbms/crypto-trader-agent` to look up issue numbers if unsure.
+
+### 9. Stage only the appropriate files
 Use `git add <specific files>` — never `git add -A` or `git add .` to avoid accidentally staging secrets or large runtime files.
 
 Always include these documentation files when they were updated:
@@ -146,12 +176,27 @@ Always include these documentation files when they were updated:
 
 Only stage a doc file if it was actually modified in this session.
 
-### 9. Commit and push
+### 10. Commit and push the branch
 ```bash
 git commit -m "..."
-git push
+git push -u origin feature/<N>   # or defect/<N>
 ```
 
-### 10. Confirm
-Report the commit hash, message, and the GitHub URL:
+### 11. Raise a Pull Request
+Open a PR from the feature/defect branch to `main`:
+```bash
+gh pr create \
+  --repo vipulbms/crypto-trader-agent \
+  --base main \
+  --head feature/<N> \
+  --title "<commit subject line>" \
+  --body "Closes #<N>"
+```
+- Use `defect/<N>` in `--head` for defect branches.
+- The PR body must include `Closes #<N>` so GitHub auto-closes the issue on merge.
+- If `gh pr create` is unavailable, provide the GitHub compare URL:
+  `https://github.com/vipulbms/crypto-trader-agent/compare/feature/<N>`
+
+### 12. Confirm
+Report the commit hash, branch name, PR URL, and the GitHub repo URL:
 `https://github.com/vipulbms/crypto-trader-agent`
