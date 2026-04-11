@@ -11,11 +11,11 @@ trading:
   early_sell_min_tp_proximity_pct: 60  # LLM cannot propose_sell until P&L >= this % of TP target (code-enforced BRD FR-20)
 
   # Global default take-profit. Overridden per pair below.
-  # Allowed values: 5 | 8 | 12 | 16 | 20
+  # Allowed values: 5 | 8 | 12 | 16 | 20 | 25
   take_profit_pct: 8
 
   # Allowed take-profit levels — validated at startup
-  allowed_take_profit_pcts: [5, 8, 12, 16, 20]
+  allowed_take_profit_pcts: [5, 8, 12, 16, 20, 25]
 
   max_position_pct: 20        # Max % of portfolio per single trade (Fix #130 — was 15)
   max_open_positions: 10      # Safety ceiling only — cash guards are primary gate (#167; was 5)
@@ -401,6 +401,57 @@ trading:
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier Bitcoin L2 — 0.5% floor (#185)
 
+    - pair: PENDLE/USD         # Closes #186 — Pendle Finance (DeFi yield protocol, Tier 1)
+      ws_name: PENDLE/USD
+      rest_name: PENDLEUSD
+      take_profit_pct: 20     # High volatility — expiry-driven spikes; same tier as DOGE/TIA
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.35    # calibrated 0.10 underestimates spike phases; issue 0.35
+      rsi_oversold: 28        # calibrated 26 rounded to 28; issue 30
+      rsi_overbought: 74      # calibrated 74 ✓
+      bb_squeeze_threshold_pct: 2.0  # DeFi protocol — moderate squeeze before expiry-driven breakout
+      min_volume_ratio: 0.40  # calibrated + issue agreement
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.40   # expiry-driven volatility — moderate caution in bear regime
+      buy_min_score: 7               # higher gate — expiry-driven dynamics can generate false signals
+      rsi_divergence_lookback: 15    # fast DeFi cycles, similar to meme dynamics
+      obv_trend_period: 7            # short window — expiry accumulation patterns
+      obv_noise_threshold: 0.010     # DeFi volatile — 1.0% floor, similar to INJ/TIA (#185)
+
+    - pair: ONDO/USD           # Closes #187 — Ondo Finance (RWA tokenisation, Tier 2)
+      ws_name: ONDO/USD
+      rest_name: ONDOUSD
+      take_profit_pct: 16     # Mid-tier steady mover — not extreme volatility
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.28    # calibrated 0.13 too low (limited data); issue 0.28
+      rsi_oversold: 28        # calibrated 28 ✓
+      rsi_overbought: 70      # calibrated 68; issue 70; use 70 as consensus
+      bb_squeeze_threshold_pct: 1.8  # moderate compression before RWA narrative breakout
+      min_volume_ratio: 0.35  # Tier 2 liquidity — lower than default
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.50   # mid-tier caution — global default
+      buy_min_score: 6               # Tier 2 — moderate threshold; relatively predictable trend
+      rsi_divergence_lookback: 20    # mid-tier global default
+      obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier RWA token — 0.5% floor (#185)
+
+    - pair: BONK/USD           # Closes #188 — BONK (Solana memecoin, Tier 2)
+      ws_name: BONK/USD
+      rest_name: BONKUSD
+      take_profit_pct: 25     # Extreme meme — parabolic spikes 5–50× during SOL bull runs
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.50    # very high ATR during spike phases; calibrated 0.10 too low
+      rsi_oversold: 28        # calibrated 28 ✓
+      rsi_overbought: 72      # allow momentum continuation; calibrated 68 too strict
+      bb_squeeze_threshold_pct: 2.5  # extreme meme — same as PEPE; tight squeeze before breakout
+      min_volume_ratio: 0.50  # confirmed volume only — high false-positive on low vol
+      adaptive_atr_floor_lookback: 200
+      caution_factor_bearish: 0.20   # extreme caution — memes collapse hardest in bear regime
+      buy_min_score: 9               # maximum gate — only strongest confluence enters
+      rsi_divergence_lookback: 15    # fast/noisy meme cycles
+      obv_trend_period: 7            # short window — meme accumulation patterns same as WIF/PEPE
+      obv_noise_threshold: 0.020     # extreme meme — 2% floor; same as WIF/PEPE/DOGE/HYPE (#185)
+
 # ──────────────────────────────────────────────
 # Paper trading mode
 # ──────────────────────────────────────────────
@@ -545,13 +596,13 @@ risk:
     - name: large_cap_l1
       pairs: [BTC/USD, ETH/USD, BNB/USD, SOL/USD]   # ~0.85 rolling correlation
     - name: memecoins
-      pairs: [DOGE/USD, HYPE/USD, WIF/USD, PEPE/USD]  # meme sentiment co-movement
+      pairs: [DOGE/USD, HYPE/USD, WIF/USD, PEPE/USD, BONK/USD]  # meme sentiment co-movement
     - name: alt_l1
       pairs: [SUI/USD, AVAX/USD, INJ/USD, TIA/USD]   # newer L1s — risk-off correlation
     - name: payment_legacy
       pairs: [XRP/USD, TRX/USD, ADA/USD, LTC/USD]
     - name: eth_ecosystem
-      pairs: [OP/USD, ARB/USD, UNI/USD]               # ~0.85-0.90 ETH-beta correlation (L2s + DeFi)
+      pairs: [OP/USD, ARB/USD, UNI/USD, PENDLE/USD]   # ~0.85-0.90 ETH-beta correlation (L2s + DeFi)
     - name: ai_tokens
       pairs: [RENDER/USD, FET/USD]                    # ASI/AI narrative co-movement
     - name: solana_ecosystem
@@ -672,6 +723,12 @@ trailing_stop:
     STX/USD:
       trail_pct: 6.0          # Bitcoin L2 — moderate trailing (#154)
       activate_after_pct: 4.0
+    PENDLE/USD:
+      trail_pct: 7.0          # DeFi yield — spike-and-retrace profile, same as DOGE (#186)
+      activate_after_pct: 5.0
+    BONK/USD:
+      trail_pct: 7.0          # extreme Solana meme — same profile as DOGE/WIF/PEPE (#188)
+      activate_after_pct: 5.0
 
 # ──────────────────────────────────────────────
 # Feature: Breakeven stop (S12.3.1 — #85)

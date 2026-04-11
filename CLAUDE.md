@@ -112,6 +112,9 @@ src/
 | RENDER/USD | 16% | AI GPU compute; caution=0.50 (#152) |
 | FET/USD | 16% | ASI Alliance AI; caution=0.45 (#153) |
 | STX/USD | 16% | Bitcoin L2 (Stacks); caution=0.50 (#154) |
+| PENDLE/USD | 20% | Pendle Finance DeFi yield protocol; buy_min_score=7; caution=0.40; trailing 7%/5% (#186) |
+| ONDO/USD | 16% | Ondo Finance RWA tokenisation; buy_min_score=6; caution=0.50 (#187) |
+| BONK/USD | 25% | Solana memecoin (extreme); buy_min_score=9; caution=0.20; trailing 7%/5% (#188) |
 
 All pairs use 5% stop-loss.
 
@@ -220,6 +223,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11p | Fix: SOD balance DB-persisted in live mode — `agent_state` added to LIVE_SCHEMA + PAPER_SCHEMA; `_get_or_set_sod_balance` generalised to paper+live; midnight rollover works in live mode; 9 new tests (#178) |
 | session_2026_04_11q | Fix: per-pair `obv_noise_threshold` — meme/volatile pairs (DOGE/WIF/PEPE/HYPE/JUP) set to 2% so only meaningful OBV moves count; large caps 0.2%; mid-tier 0.5%; 3 new tests; 202 total (#185) |
 | session_2026_04_11r | Feat: candlestick pattern signals — hammer +1, bullish engulfing +2, doji at BB lower +1; max_score 25→28; 7 new tests; 209 total (#184) |
+| session_2026_04_11s | Feat: add PENDLE/USD (TP 20%, buy_min_score=7), ONDO/USD (TP 16%, buy_min_score=6), BONK/USD (TP 25%, buy_min_score=9); TP whitelist extended to include 25%; 27 active pairs (#186–#188) |
 
 ---
 

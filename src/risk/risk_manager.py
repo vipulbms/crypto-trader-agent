@@ -14,7 +14,7 @@ from src.utils.timing import timed
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_TAKE_PROFIT_PCTS = [5, 8, 12, 16, 20]
+ALLOWED_TAKE_PROFIT_PCTS = [5, 8, 12, 16, 20, 25]
 
 
 def validate_config(config: dict) -> None:

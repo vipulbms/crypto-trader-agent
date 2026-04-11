@@ -52,6 +52,10 @@ PAIR_FILE_MAP = {
     "RENDER/USD": ("RENDERUSD_candle.json", "RENDERUSD"),
     "FET/USD":    ("FETUSD_candle.json",    "FETUSD"),
     "STX/USD":    ("STXUSD_candle.json",    "STXUSD"),
+    # New pairs added (#186-#188)
+    "PENDLE/USD": ("PENDLEUSD_candle.json", "PENDLEUSD"),
+    "ONDO/USD":   ("ONDOUSD_candle.json",   "ONDOUSD"),
+    "BONK/USD":   ("BONKUSD_candle.json",   "BONKUSD"),
 }
 
 
