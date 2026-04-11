@@ -2,6 +2,51 @@
 
 ---
 
+## Session: 2026-04-11 (Part Z) — Resolve PR #210 merge conflicts
+
+### Chore
+- Merged `origin/main` into `feature/206` and resolved conflicts caused by overlapping #204, #206, and #212 documentation/config changes.
+- Renamed the BTC-dominance session note from Part `X` to Part `Y` because `main` had already taken Part `X` for the later docs-only skill sync.
+- Aligned `fetch_btc_dominance()` with the merged nested `regime.btc_dominance.fetch_timeout_secs` config.
+
+### Files Changed
+- `config.yaml`
+- `src/analysis/features.py`
+- `CLAUDE.md`
+- `CHANGELOG.md`
+- `docs/sessions/session_2026_04_11x.md`
+- `docs/sessions/session_2026_04_11y.md`
+- `docs/sessions/session_2026_04_11z.md`
+
+---
+
+## Session: 2026-04-11 (Part Y) — BTC dominance trend macro input (#206)
+
+### Features
+- **[#206] BTC dominance trend fetch**: Added `fetch_btc_dominance(config, db_path=None)` in `src/analysis/features.py` using CoinGecko `/api/v3/global` with in-memory TTL caching.
+- **DB-backed trend calculation**: Daily dominance values are persisted in `agent_state` as `btc_dom_YYYY-MM-DD`; trend compares current value vs `trend_lookback_days` ago and classifies `rising/falling/flat` using `trend_min_change_pp`.
+- **Regime context enrichment**: `detect_market_regime(..., btc_dominance=...)` now appends dominance interpretation to regime summary and returns `btc_dominance_trend` + `btc_dominance_pct`.
+- **AI context propagation**: `build_ai_context(..., btc_dominance=...)` forwards dominance fields to the cycle prompt context.
+- **Main loop integration**: `main.py` fetches BTC dominance once per cycle (skipped in backtest) and passes it into AI context.
+
+### Tests
+- Added `tests/test_btc_dominance.py` with **15 test cases**:
+  - fetch structure + failure handling
+  - trend classification (rising/falling/flat)
+  - cache behavior
+  - regime payload and summary augmentation
+  - AI context propagation
+- Result: **15/15 passing**.
+
+### Files Changed
+- `config.yaml` — new `regime.btc_dominance` block (`enabled`, `url`, `cache_minutes`, `trend_min_change_pp`, `trend_lookback_days`)
+- `src/analysis/features.py` — `fetch_btc_dominance` + regime/context integration
+- `main.py` — per-cycle dominance fetch and `build_ai_context` wiring
+- `tests/test_btc_dominance.py` — new test suite
+- `CLAUDE.md` — session and gotchas updated
+
+---
+
 ## Session: 2026-04-11 (Part X) — Skill docs synced with #204 and #206 (#212)
 
 ### Docs
@@ -30,6 +75,7 @@
 - `config.yaml` — `slippage_pct` + `pair_tier` added to all 27 pairs; `regime.btc_dominance` sub-block; `regime.*_dominance_rising_multiplier` keys; `risk.cycle_top_guard` block
 - `src/exchange/paper_broker.py` — `_get_pair_slippage()` helper; `place_order()` + `close_position()` use per-pair slippage
 - `tests/test_entry_slippage.py` — `_make_broker_with_pair_cfg()` helper + `TestPerPairSlippage` (9 tests)
+>>>>>>> origin/main
 
 ---
 
