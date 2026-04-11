@@ -6,6 +6,7 @@ Tests for #140 — entry slippage applied in PaperBroker.place_order().
 3. Zero entry slippage when slippage_pct=0.0
 """
 import sys, os, tempfile, sqlite3, types
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # ── stub heavy dependencies ─────────────────────────────────────────────────
@@ -106,4 +107,128 @@ class TestEntrySlippage:
         pos = _get_position(db, result["position_id"])
         assert pos["entry_price"] == 500.0, (
             f"With zero slippage, entry_price should be 500.0, got {pos['entry_price']}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-pair tiered slippage tests (#204)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_broker_with_pair_cfg(pair: str, per_pair_slip_pct: float, global_slip: float = 0.05):
+    """Create a PaperBroker with a single pair entry in config.trading.pairs."""
+    import tempfile
+    from src.storage.database import init_paper_db
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    path = f.name
+    f.close()
+    init_paper_db(path, starting_balance=10_000.0)
+    config = {
+        "trading": {
+            "stop_loss_pct": 5.0,
+            "pairs": [{"pair": pair, "slippage_pct": per_pair_slip_pct}],
+        },
+        "trailing_stop": {"enabled": False},
+        "breakeven_stop": {"enabled": False},
+        "partial_take_profit": {"enabled": False},
+    }
+    return PaperBroker(paper_db=path, slippage_pct=global_slip, maker_fee_pct=0.0, config=config), path
+
+
+class TestPerPairSlippage:
+    """Tests for tiered per-pair slippage (#204)."""
+
+    def test_get_pair_slippage_tier1_btc(self):
+        """BTC/USD tier-1 config returns 0.05% as fraction 0.0005."""
+        broker, _ = _make_broker_with_pair_cfg("BTC/USD", per_pair_slip_pct=0.05, global_slip=0.10)
+        assert broker._get_pair_slippage("BTC/USD") == pytest.approx(0.0005)
+
+    def test_get_pair_slippage_tier2_ada(self):
+        """ADA/USD tier-2 config returns 0.10% as fraction 0.001."""
+        broker, _ = _make_broker_with_pair_cfg("ADA/USD", per_pair_slip_pct=0.10, global_slip=0.05)
+        assert broker._get_pair_slippage("ADA/USD") == pytest.approx(0.001)
+
+    def test_get_pair_slippage_tier3_trx(self):
+        """TRX/USD tier-3 config returns 0.20% as fraction 0.002."""
+        broker, _ = _make_broker_with_pair_cfg("TRX/USD", per_pair_slip_pct=0.20, global_slip=0.05)
+        assert broker._get_pair_slippage("TRX/USD") == pytest.approx(0.002)
+
+    def test_get_pair_slippage_tier4_wif(self):
+        """WIF/USD tier-4 config returns 0.40% as fraction 0.004."""
+        broker, _ = _make_broker_with_pair_cfg("WIF/USD", per_pair_slip_pct=0.40, global_slip=0.05)
+        assert broker._get_pair_slippage("WIF/USD") == pytest.approx(0.004)
+
+    def test_get_pair_slippage_fallback_to_global(self):
+        """Unknown pair without config entry falls back to global slippage."""
+        broker, _ = _make_broker_with_pair_cfg("BTC/USD", per_pair_slip_pct=0.40, global_slip=0.07)
+        # AVAX/USD is not in the pairs list → should fall back to global 0.07%
+        assert broker._get_pair_slippage("AVAX/USD") == pytest.approx(0.0007)
+
+    def test_place_order_fill_price_uses_per_pair_slippage(self):
+        """place_order() fill price reflects per-pair slippage, not global."""
+        broker, db = _make_broker_with_pair_cfg("WIF/USD", per_pair_slip_pct=0.40, global_slip=0.05)
+        result = broker.place_order(
+            pair="WIF/USD", side="buy",
+            usd_amount=100.0, current_price=1000.0,
+            stop_loss_pct=5.0, take_profit_pct=20.0,
+        )
+        pos = _get_position(db, result["position_id"])
+        # 0.40% slip on top of $1000
+        expected_fill = round(1000.0 * (1 + 0.004), 8)
+        assert abs(pos["entry_price"] - expected_fill) < 1e-6, (
+            f"entry_price should be {expected_fill} (0.40% slip), got {pos['entry_price']}"
+        )
+
+    def test_place_order_slippage_pct_in_result_reflects_per_pair(self):
+        """Result dict slippage_pct value matches per-pair config, not global."""
+        broker, _ = _make_broker_with_pair_cfg("WIF/USD", per_pair_slip_pct=0.40, global_slip=0.05)
+        result = broker.place_order(
+            pair="WIF/USD", side="buy",
+            usd_amount=100.0, current_price=1000.0,
+            stop_loss_pct=5.0, take_profit_pct=20.0,
+        )
+        assert result["slippage_pct"] == pytest.approx(0.40)
+
+    def test_close_position_fill_price_uses_per_pair_slippage(self):
+        """close_position() exit fill price reflects per-pair slippage."""
+        broker, db = _make_broker_with_pair_cfg("WIF/USD", per_pair_slip_pct=0.40, global_slip=0.05)
+        order = broker.place_order(
+            pair="WIF/USD", side="buy",
+            usd_amount=100.0, current_price=1000.0,
+            stop_loss_pct=5.0, take_profit_pct=20.0,
+        )
+        exit_price = 1200.0
+        result = broker.close_position(
+            position_id=order["position_id"], exit_price=exit_price, exit_reason="take_profit"
+        )
+        # 0.40% exit slippage reduces fill below mid-price
+        expected_fill = round(exit_price * (1 - 0.004), 8)
+        assert abs(result["exit_price"] - expected_fill) < 1e-6, (
+            f"exit fill should be {expected_fill} (0.40% slip), got {result['exit_price']}"
+        )
+
+    def test_meme_vs_large_cap_round_trip_cost(self):
+        """Meme pair (0.40%) has higher round-trip cost than large-cap (0.05%)."""
+        price = 1000.0
+        amount = 500.0
+        # Large-cap
+        broker_btc, _ = _make_broker_with_pair_cfg("BTC/USD", per_pair_slip_pct=0.05, global_slip=0.05)
+        btc_order = broker_btc.place_order(
+            pair="BTC/USD", side="buy", usd_amount=amount,
+            current_price=price, stop_loss_pct=5.0, take_profit_pct=8.0,
+        )
+        btc_exit = broker_btc.close_position(
+            position_id=btc_order["position_id"], exit_price=price, exit_reason="agent_sell"
+        )
+        # Meme
+        broker_wif, _ = _make_broker_with_pair_cfg("WIF/USD", per_pair_slip_pct=0.40, global_slip=0.05)
+        wif_order = broker_wif.place_order(
+            pair="WIF/USD", side="buy", usd_amount=amount,
+            current_price=price, stop_loss_pct=5.0, take_profit_pct=20.0,
+        )
+        wif_exit = broker_wif.close_position(
+            position_id=wif_order["position_id"], exit_price=price, exit_reason="agent_sell"
+        )
+        # Both at same price → WIF should have worse (more negative) P&L due to higher slippage
+        assert wif_exit["pnl_usd"] < btc_exit["pnl_usd"], (
+            f"Meme PnL {wif_exit['pnl_usd']} should be worse than large-cap {btc_exit['pnl_usd']}"
         )
