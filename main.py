@@ -64,9 +64,10 @@ def setup_logging(config: dict) -> None:
     root.addHandler(console_handler)
 
 
-def _get_or_set_sod_balance(paper_db: str, current_balance: float) -> float:
+def _get_or_set_sod_balance(db_path: str, current_balance: float) -> float:
     """
-    Return today's start-of-day balance from agent_state DB (paper mode only).
+    Return today's start-of-day balance from agent_state DB.
+    Works for both paper (paper_trading.db) and live (live_trading.db) modes.
 
     Key: start_of_day_balance_YYYY-MM-DD (UTC date).
     - If the key exists for today → return it (stable across cycles).
@@ -79,7 +80,7 @@ def _get_or_set_sod_balance(paper_db: str, current_balance: float) -> float:
     from src.storage.database import get_connection
     today_key = f"start_of_day_balance_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
     try:
-        conn = get_connection(paper_db)
+        conn = get_connection(db_path)
         row = conn.execute(
             "SELECT value FROM agent_state WHERE key = ?", (today_key,)
         ).fetchone()
@@ -247,13 +248,16 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
         while True:
             cycle_start = time.time()
 
-            # ── Refresh start-of-day balance from DB (paper mode) ─────────
+            # ── Refresh start-of-day balance from DB (paper + live mode) ───────
             # Guards against stale in-memory value after reset_paper.py runs
-            # while the agent is alive, and handles midnight rollovers. (#170)
-            if mode == "paper" and not is_backtest:
-                paper_db_path = config.get("storage", {}).get("paper_db", "paper_trading.db")
+            # while the agent is alive, and handles midnight rollovers. (#170, #178)
+            if not is_backtest:
+                if mode == "paper":
+                    sod_db_path = config.get("storage", {}).get("paper_db", "paper_trading.db")
+                else:
+                    sod_db_path = config.get("storage", {}).get("live_db", "live_trading.db")
                 current_bal_for_sod = broker.get_balance()["total_usd"]
-                start_of_day_bal = _get_or_set_sod_balance(paper_db_path, current_bal_for_sod)
+                start_of_day_bal = _get_or_set_sod_balance(sod_db_path, current_bal_for_sod)
 
             # Stop-loss / take-profit checks run FIRST — highest priority, before LLM decisions
             # In backtest mode, pass the candle timestamp so closed trades record candle time.

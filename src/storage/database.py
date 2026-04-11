@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     stop_loss_pct       REAL NOT NULL,
     take_profit_pct     REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS agent_state (
+    key     TEXT PRIMARY KEY,
+    value   TEXT NOT NULL
+);
 """
 
 # ──────────────────────────────────────────────────────────────
@@ -140,6 +145,11 @@ CREATE TABLE IF NOT EXISTS daily_pnl (
     ending_balance      REAL,
     pnl_usd             REAL,
     pnl_pct             REAL
+);
+
+CREATE TABLE IF NOT EXISTS agent_state (
+    key     TEXT PRIMARY KEY,
+    value   TEXT NOT NULL
 );
 """
 
@@ -295,10 +305,11 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     """Initialise paper trading DB. Seeds wallet if first run."""
     conn = get_connection(paper_db)
     _init_db(conn, PAPER_SCHEMA, paper_db)
-    # Idempotent migrations for columns added after initial schema creation
+    # Idempotent migrations for columns/tables added after initial schema creation
     for col_ddl in [
         "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE paper_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     ]:
         try:
             conn.execute(col_ddl)
@@ -326,6 +337,7 @@ def init_live_db(live_db: str) -> None:
     for col_ddl in [
         "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     ]:
         try:
             conn.execute(col_ddl)

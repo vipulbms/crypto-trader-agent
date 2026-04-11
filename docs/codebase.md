@@ -520,6 +520,10 @@ paper_trades        (id, opened_at, closed_at, pair, side, entry_price,
 live_positions      (... same + entry_order_id, stop_loss_order_id, take_profit_order_id)
 live_trades         (... same + entry_order_id, exit_order_id)
 daily_pnl           (id, date, starting_balance, ending_balance, pnl_usd, pnl_pct)
+
+-- shared key-value store (both paper_trading.db and live_trading.db)
+agent_state         (key TEXT PRIMARY KEY, value TEXT NOT NULL)
+                    -- e.g. key = "start_of_day_balance_2026-04-11" (UTC date)
 ```
 
 ### `audit.db`
