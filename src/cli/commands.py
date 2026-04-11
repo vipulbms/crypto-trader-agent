@@ -68,6 +68,9 @@ def cmd_view_report(params: dict, config: Optional[dict] = None) -> None:
     portfolio = rpt.get_portfolio_summary(mode, config)
     if portfolio:
         d.print_portfolio_summary(portfolio)
+        pf_data = rpt.get_profit_factors(mode, config)
+        if pf_data:
+            d.print_profit_factor_table(pf_data)
 
     # Trades
     trades = rpt.get_trades_with_decisions(mode, config, days=days, pair=pair, limit=limit)

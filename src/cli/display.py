@@ -162,13 +162,26 @@ def print_portfolio_summary(data: dict) -> None:
     if positions:
         lines.append("")
         lines.append("[bold white]Open Positions[/bold white]")
+        pf_by_pair = data.get("profit_factors", {})
         for p in positions:
+            pair_name = p.get("pair", "?")
+            pf        = pf_by_pair.get(pair_name)
+            if pf is not None:
+                if pf < 0.7:
+                    pf_str = f"  [bold red]PF:{pf:.2f}[/bold red]"
+                elif pf < 1.0:
+                    pf_str = f"  [yellow]PF:{pf:.2f}[/yellow]"
+                else:
+                    pf_str = f"  [dim]PF:{pf:.2f}[/dim]"
+            else:
+                pf_str = ""
             lines.append(
-                f"  [cyan]{p.get('pair','?')}[/cyan]  "
+                f"  [cyan]{pair_name}[/cyan]  "
                 f"${p.get('usd_value',0):,.2f}  "
                 f"entry ${p.get('entry_price',0):,.4f}  "
                 f"SL ${p.get('stop_loss_price',0):,.4f}  "
                 f"TP ${p.get('take_profit_price',0):,.4f}"
+                f"{pf_str}"
             )
 
     console.print(Panel("\n".join(lines), title="[bold cyan]Portfolio[/bold cyan]", border_style="cyan"))
@@ -634,3 +647,45 @@ def print_signal_driver_report(data: dict) -> None:
             t.add_row(pair, str(entry["buy_count"]), str(entry["hold_count"]),
                       f"{top_blocker}{top_count}")
         console.print(t)
+
+
+def print_profit_factor_table(pf_data: dict) -> None:
+    """Display rolling 30-day profit factor table per pair (#183).
+
+    pf_data: {pair: (pf_value, n_trades)} — None pf means insufficient history.
+    """
+    if not pf_data:
+        console.print("[yellow]No profit factor data available (need ≥10 closed trades per pair).[/yellow]")
+        return
+
+    table = Table(
+        box=box.MARKDOWN,
+        show_header=True,
+        header_style="bold cyan",
+        title="30-Day Profit Factor by Pair",
+    )
+    table.add_column("Pair",     style="cyan",  width=12, no_wrap=True)
+    table.add_column("PF",       justify="right", width=8)
+    table.add_column("Trades",   justify="right", width=7)
+    table.add_column("Status",   width=28)
+
+    for pair, (pf, n_trades) in sorted(pf_data.items()):
+        if pf is None:
+            table.add_row(pair, "—", str(n_trades), "[dim]Insufficient history[/dim]")
+            continue
+        if pf == float("inf"):
+            pf_str  = "[green]∞[/green]"
+            status  = "[green]All wins[/green]"
+        elif pf < 0.7:
+            pf_str  = f"[bold red]{pf:.2f}[/bold red]"
+            status  = "[bold red]Severe — threshold +2[/bold red]"
+        elif pf < 1.0:
+            pf_str  = f"[yellow]{pf:.2f}[/yellow]"
+            status  = "[yellow]Underperforming — threshold +1[/yellow]"
+        else:
+            pf_str  = f"[green]{pf:.2f}[/green]"
+            status  = "[green]OK[/green]"
+        table.add_row(pair, pf_str, str(n_trades), status)
+
+    console.print(table)
+

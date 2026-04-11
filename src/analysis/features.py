@@ -773,6 +773,32 @@ def _fmt_secs(secs: int) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Feature 8: Profit factor auto-escalation (#183)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def compute_profit_factor(pair: str, trades: list) -> Optional[float]:
+    """
+    Compute the rolling profit factor for a pair from a list of closed trade dicts.
+
+    Profit factor = Gross wins / Gross losses.
+    Returns None when fewer than min_trades records are available (insufficient history).
+
+    Args:
+        pair:   pair name (used only for logging)
+        trades: list of dicts with at least {"pnl_usd": float}
+    """
+    if len(trades) < 10:
+        return None  # insufficient history — no escalation
+    wins   = sum(t["pnl_usd"] for t in trades if t["pnl_usd"] > 0)
+    losses = abs(sum(t["pnl_usd"] for t in trades if t["pnl_usd"] < 0))
+    if losses == 0:
+        return float("inf")  # all wins, no losses
+    pf = round(wins / losses, 2)
+    logger.debug("[PROFIT_FACTOR] %s: pf=%.2f (wins=$%.2f losses=$%.2f n=%d)", pair, pf, wins, losses, len(trades))
+    return pf
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Master context builder — called once per cycle to produce all context blocks
 # ──────────────────────────────────────────────────────────────────────────────
 
