@@ -15,6 +15,7 @@ Stop-loss exits are fully autonomous via the risk manager — outside this flow.
 import json
 import logging
 import os
+import re
 import time
 from typing import Optional
 
@@ -56,6 +57,7 @@ class TradingAgent:
         self._request_delay = llm_cfg.get("request_delay_seconds", 0)
         self._max_buys    = config.get("trading", {}).get("max_buys_per_cycle", 2)
         self._min_order_usd = config.get("risk", {}).get("min_order_usd", 20.0)
+        self._disable_thinking = llm_cfg.get("disable_thinking", False)
 
         if self._provider == "openai_compat":
             from openai import OpenAI
@@ -394,17 +396,28 @@ class TradingAgent:
         and normalise the response to the same tuple as _call_ollama.
         Returns (tool_calls, raw_output, prompt_tokens, completion_tokens)
         where tool_calls is a list of objects with .function.name and .function.arguments.
+
+        When disable_thinking=true (recommended for qwen3 on Groq), thinking mode is
+        suppressed via extra_body to prevent <think> blocks from interfering with
+        tool dispatch.  As defence-in-depth, <think> blocks are also stripped from
+        raw_output regardless of this flag.
         """
-        response = self._client.chat.completions.create(
+        kwargs = dict(
             model=model,
             messages=messages,
             tools=self._TOOL_DEFS,
             tool_choice="required",
             temperature=0.1,
         )
+        if self._disable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+            logger.debug("[LLM] Thinking mode disabled via extra_body (qwen3/Groq)")
+        response = self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
         msg = choice.message
         raw_output = msg.content or ""
+        # Defence-in-depth: strip any <think>…</think> blocks that leaked into content
+        raw_output = re.sub(r"<think>.*?</think>", "", raw_output, flags=re.DOTALL).strip()
         prompt_tokens = getattr(response.usage, "prompt_tokens", None)
         completion_tokens = getattr(response.usage, "completion_tokens", None)
 
