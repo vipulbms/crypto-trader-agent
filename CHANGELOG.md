@@ -2,6 +2,22 @@
 
 ---
 
+## Session: 2026-04-11 (Part W) — Tiered per-pair slippage in paper broker (#204)
+
+### Features
+- **[#204] Per-pair tiered slippage**: `PaperBroker._get_pair_slippage(pair)` resolves slippage from `trading.pairs[].slippage_pct` config field, falling back to global `slippage_pct`. Applied on both entry (`place_order`) and exit (`close_position`).
+- **Tier structure**: Tier 1 (BTC) 0.05% · Tier 2 (ETH/BNB/SOL/XRP/ADA/LTC/AVAX) 0.05–0.10% · Tier 3 (speculative alts) 0.20% · Tier 4 (meme/micro) 0.40%. BONK/WIF round-trip friction (0.8%) is 8× that of BTC (0.1%).
+- **`pair_tier` field**: added to all 27 pairs in config — also pre-wires sector rotation logic for #203.
+- **Config additions**: `regime.btc_dominance` sub-block (for #206), `regime.*_dominance_rising_multiplier` keys (for #203), `risk.cycle_top_guard` block (for #205).
+- **9 new tests** in `tests/test_entry_slippage.py` — `TestPerPairSlippage` class covering all 4 tiers, global fallback, fill price accuracy on entry/exit, and round-trip cost comparison.
+
+### Files Changed
+- `config.yaml` — `slippage_pct` + `pair_tier` added to all 27 pairs; `regime.btc_dominance` sub-block; `regime.*_dominance_rising_multiplier` keys; `risk.cycle_top_guard` block
+- `src/exchange/paper_broker.py` — `_get_pair_slippage()` helper; `place_order()` + `close_position()` use per-pair slippage
+- `tests/test_entry_slippage.py` — `_make_broker_with_pair_cfg()` helper + `TestPerPairSlippage` (9 tests)
+
+---
+
 ## Session: 2026-04-11 (Part S) — Add PENDLE/USD, ONDO/USD, BONK/USD (#186–#188)
 
 ### Features
