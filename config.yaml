@@ -510,10 +510,12 @@ risk:
       pairs: [SUI/USD, AVAX/USD, INJ/USD, TIA/USD]   # newer L1s — risk-off correlation
     - name: payment_legacy
       pairs: [XRP/USD, TRX/USD, ADA/USD, LTC/USD]
-    - name: eth_l2
-      pairs: [OP/USD, ARB/USD]                        # ~0.90 ETH-beta correlation
+    - name: eth_ecosystem
+      pairs: [OP/USD, ARB/USD, UNI/USD]               # ~0.85-0.90 ETH-beta correlation (L2s + DeFi)
     - name: ai_tokens
       pairs: [RENDER/USD, FET/USD]                    # ASI/AI narrative co-movement
+    - name: solana_ecosystem
+      pairs: [JUP/USD, STX/USD]                       # SOL-adjacent DeFi + BTC L2 — risk-off co-movement
   max_cluster_positions: 2    # Max open positions per cluster
   cluster_size_penalty: 0.5   # Multiply position size when cluster already has 1 open
 
