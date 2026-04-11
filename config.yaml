@@ -46,6 +46,7 @@ trading:
       adaptive_atr_floor_lookback: 200  # 50h rolling window — faster regime adaptation (#141)
       caution_factor_bearish: 0.8   # low bearish DD (0.90%) — slight caution only (#124)
       rsi_divergence_lookback: 25   # slow mover — longer window gives more reliable swing confirmation (#135)
+      obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
     - pair: ETH/USD
       ws_name: ETH/USD
       rest_name: ETHUSD
@@ -59,6 +60,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # strong win rate — keep global threshold (#128)
+      obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
     - pair: BNB/USD
       ws_name: BNB/USD
       rest_name: BNBUSD
@@ -72,6 +74,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # strong win rate — keep global threshold (#128)
+      obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
     - pair: SOL/USD
       ws_name: SOL/USD
       rest_name: SOLUSD
@@ -85,6 +88,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.93% — moderate caution (#124)
       buy_min_score: 6              # 44% win rate at score 5 — raise bar (#128)
+      obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
     - pair: XRP/USD
       ws_name: XRP/USD
       rest_name: XRPUSD
@@ -97,6 +101,7 @@ trading:
       min_volume_ratio: 0.50  # dead zone 41%
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.43% (#124)
+      obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
     - pair: TRX/USD
       ws_name: TRX/USD
       rest_name: TRXUSD
@@ -110,6 +115,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low bearish DD 1.05% (#124)
       rsi_divergence_lookback: 15   # noisy/fast pair — shorter window avoids false divergences (#135)
+      obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
     - pair: DOGE/USD
       ws_name: DOGE/USD
       rest_name: XDGUSD
@@ -124,6 +130,7 @@ trading:
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # profitable pair — keep global threshold (#128)
       rsi_divergence_lookback: 15   # meme coin — fast swings, shorter window (#135)
+      obv_noise_threshold: 0.020    # meme/volatile — 2% floor required for meaningful OBV move (#185)
     - pair: ADA/USD
       ws_name: ADA/USD
       rest_name: ADAUSD
@@ -136,6 +143,7 @@ trading:
       min_volume_ratio: 0.40  # dead zone 52.1%
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.83% (#124)
+      obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
     - pair: LTC/USD
       ws_name: LTC/USD
       rest_name: LTCUSD
@@ -149,6 +157,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.39% (#124)
       rsi_divergence_lookback: 25   # slow mover (follows BTC) — longer window (#135)
+      obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
     # RAILS/USD disabled — 25% win rate, 3/4 stop losses in production (#132)
     # - pair: RAILS/USD
     #  ws_name: RAILS/USD
@@ -175,6 +184,7 @@ trading:
       min_volume_ratio: 0.40  # dead zone 53.6%
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.90% (#124)
+      obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
     - pair: SUI/USD
       ws_name: SUI/USD
       rest_name: SUIUSD
@@ -187,6 +197,7 @@ trading:
       min_volume_ratio: 0.50  # dead zone 47.7%
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.35  # high bearish DD 2.19% — cut harder (#124)
+      obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
     - pair: HYPE/USD
       ws_name: HYPE/USD
       rest_name: HYPEUSD
@@ -200,6 +211,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
       rsi_divergence_lookback: 15   # high-volatility DeFi — fast swings, shorter window (#135)
+      obv_noise_threshold: 0.020    # meme/volatile — 2% floor required for meaningful OBV move (#185)
     - pair: UNI/USD
       ws_name: UNI/USD
       rest_name: UNIUSD
@@ -213,6 +225,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.5   # underperformer — global default (#124)
       buy_min_score: 6              # 50% win rate at score 5 — raise bar (#128)
+      obv_noise_threshold: 0.005    # mid-tier DeFi — 0.5% floor (#185)
     - pair: INJ/USD
       ws_name: INJ/USD
       rest_name: INJUSD
@@ -226,6 +239,7 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.35  # highest bearish DD 2.23% — cut harder (#124)
       buy_min_score: 7              # 30% win rate at score 5 — tighten significantly (#128)
+      obv_noise_threshold: 0.010    # high-vol DeFi/L1 — 1% floor (#185)
     - pair: WIF/USD            # Closes #145 — dogwifhat, Solana-ecosystem meme
       ws_name: WIF/USD
       rest_name: WIFUSD
@@ -241,6 +255,7 @@ trading:
       buy_min_score: 7               # backtest: 33% win / 67% SL rate — tighten bar (#145)
       rsi_divergence_lookback: 15    # meme/fast swings — shorter window
       obv_trend_period: 7            # meme tier — capture short accumulation cycles
+      obv_noise_threshold: 0.020     # meme/volatile — 2% floor required for meaningful OBV move (#185)
     - pair: TON/USD            # Closes #146 — Toncoin (The Open Network)
       ws_name: TON/USD
       rest_name: TONUSD
@@ -256,6 +271,7 @@ trading:
       buy_min_score: 5               # global default — strong RSI patterns expected
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier — 0.5% floor (#185)
     - pair: OP/USD             # Closes #147 — Optimism L2
       ws_name: OP/USD
       rest_name: OPUSD
@@ -271,6 +287,7 @@ trading:
       buy_min_score: 7               # backtest: 47% win (45–59% band) — raise bar (#147)
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier L2 — 0.5% floor (#185)
     - pair: ARB/USD            # Closes #148 — Arbitrum L2
       ws_name: ARB/USD
       rest_name: ARBUSD
@@ -286,6 +303,7 @@ trading:
       buy_min_score: 6               # require stronger confluence for L2 tokens
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier L2 — 0.5% floor (#185)
     - pair: JUP/USD            # Closes #149 — Jupiter DEX aggregator (Solana)
       ws_name: JUP/USD
       rest_name: JUPUSD
@@ -301,6 +319,7 @@ trading:
       buy_min_score: 7               # high-beta Solana DeFi token — require strong confluence
       rsi_divergence_lookback: 15    # Solana-adjacent fast cycles — shorter window
       obv_trend_period: 7            # Solana-adjacent — capture short accumulation cycles
+      obv_noise_threshold: 0.020     # meme/volatile SOL DeFi — 2% floor required (#185)
     - pair: PEPE/USD           # Closes #150 — PEPE memecoin (Tier 2)
       ws_name: PEPE/USD
       rest_name: PEPEUSD
@@ -316,6 +335,7 @@ trading:
       buy_min_score: 8               # highest threshold in system — extreme volatility risk
       rsi_divergence_lookback: 15    # meme/fast cycles
       obv_trend_period: 7            # meme tier
+      obv_noise_threshold: 0.020     # extreme meme — 2% floor required for meaningful OBV move (#185)
     - pair: TIA/USD            # Closes #151 — Celestia modular blockchain (Tier 2)
       ws_name: TIA/USD
       rest_name: TIAUSD
@@ -331,6 +351,7 @@ trading:
       buy_min_score: 8               # raised from 7 — backtest 39% < 45% threshold (#151)
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.010     # high-vol newer token — 1% floor (#185)
     - pair: RENDER/USD         # Closes #152 — Render Network (AI GPU compute, Tier 2)
       ws_name: RENDER/USD
       rest_name: RENDERUSD
@@ -346,6 +367,7 @@ trading:
       buy_min_score: 6               # AI narrative — require stronger confluence than blue chips
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier AI token — 0.5% floor (#185)
     - pair: FET/USD            # Closes #153 — Fetch.ai / ASI Alliance (AI, Tier 2)
       ws_name: FET/USD
       rest_name: FETUSD
@@ -361,6 +383,7 @@ trading:
       buy_min_score: 6               # AI narrative — require stronger confluence
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier AI token — 0.5% floor (#185)
     - pair: STX/USD            # Closes #154 — Stacks (Bitcoin L2, Tier 2)
       ws_name: STX/USD
       rest_name: STXUSD
@@ -376,6 +399,7 @@ trading:
       buy_min_score: 6               # Tier 2 — require moderate additional confluence
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
+      obv_noise_threshold: 0.005     # mid-tier Bitcoin L2 — 0.5% floor (#185)
 
 # ──────────────────────────────────────────────
 # Paper trading mode
@@ -406,6 +430,7 @@ indicators:
   atr_period: 14
   adx_period: 14               # ADX trend strength period (Wilder, standard = 14) (#134)
   obv_trend_period: 10         # Candles to look back for OBV trend comparison — per-pair override supported (#136)
+  obv_noise_threshold: 0.001   # OBV change % floor below which trend is "flat" — per-pair override supported (#185)
   candle_buffer_size: 300     # 300×15-min = 75 hrs; covers ema_slow(200) warmup + headroom
   candle_interval: 15         # 15-min candles — aligned with cycle_interval_minutes
   min_candles_to_start: 220   # Minimum candles before first decision cycle (covers ema_slow warmup)
