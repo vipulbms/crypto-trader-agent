@@ -2,6 +2,51 @@
 
 ---
 
+## Session: 2026-04-11 (Part AA) — Sector rotation tier caps in rising BTC dominance (#203)
+
+### Features
+- **[#203] Runtime pair-tier sizing**: added `compute_pair_regime_caps()` in `src/analysis/features.py` to turn configured `pair_tier` values into per-pair regime caps.
+- **Bearish + rising BTC dominance overlay**: `main.py` now applies additional multipliers on top of `caution_factor_bearish`:
+  - Tier 3 speculative alts → `0.5×`
+  - Tier 4 meme pairs → `0.3×`
+  - non-core Tier 2 alts → `0.7×`
+  - BTC / ETH / BNB unaffected
+- **Prompt visibility**: `src/agent/prompts.py` now shows `Tier: N (label)` in each pair block.
+- **Tool-side enforcement**: `src/agent/tools.py` + `src/agent/trading_agent.py` now enforce `pair_max_usd` before `validate_buy()` so the cap is not prompt-only.
+- **Skill updates**: `add-pair` now includes `pair_tier`; `trading-rules` documents the concrete tiered dominance overlay.
+
+### Tests
+- Added `tests/test_sector_tiers.py` — cap math, prompt tier display, and tool cap enforcement.
+- Re-ran `tests/test_regime_and_dynamic_tp.py` to confirm no regression in related regime/prompt flow.
+
+### Files Changed
+- `src/analysis/features.py`
+- `main.py`
+- `src/agent/prompts.py`
+- `src/agent/tools.py`
+- `src/agent/trading_agent.py`
+- `.claude/skills/add-pair/SKILL.md`
+- `.claude/skills/trading-rules/SKILL.md`
+- `tests/test_sector_tiers.py`
+
+---
+
+## Session: 2026-04-11 (Part AB) — Resolve PR #214 merge conflicts
+
+### Chore
+- Merged `origin/main` into `feature/203` and resolved documentation/session-note conflicts caused by overlapping same-day entries from #203 and the already-merged #206/#212 work.
+- Preserved the existing `main` branch history for Parts `X`, `Y`, and `Z`, and moved the #203 session note to `session_2026_04_11aa.md` to avoid a duplicate `Part Y`.
+- Re-ran targeted regression coverage for BTC-dominance context and sector-tier sizing after the merge.
+
+### Files Changed
+- `CHANGELOG.md`
+- `CLAUDE.md`
+- `docs/sessions/session_2026_04_11aa.md`
+- `docs/sessions/session_2026_04_11ab.md`
+- `docs/sessions/session_2026_04_11y.md`
+
+---
+
 ## Session: 2026-04-11 (Part Z) — Resolve PR #210 merge conflicts
 
 ### Chore
@@ -75,7 +120,6 @@
 - `config.yaml` — `slippage_pct` + `pair_tier` added to all 27 pairs; `regime.btc_dominance` sub-block; `regime.*_dominance_rising_multiplier` keys; `risk.cycle_top_guard` block
 - `src/exchange/paper_broker.py` — `_get_pair_slippage()` helper; `place_order()` + `close_position()` use per-pair slippage
 - `tests/test_entry_slippage.py` — `_make_broker_with_pair_cfg()` helper + `TestPerPairSlippage` (9 tests)
->>>>>>> origin/main
 
 ---
 
