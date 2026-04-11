@@ -460,16 +460,27 @@ signals:
 #  timeout_seconds: 600
 #  max_reasoning_chars: 1000   # Max chars stored in audit reasoning_summary
 
-# Gemini via OpenAI-compatible endpoint (comment out llm block above and uncomment below)
+# Groq via OpenAI-compatible endpoint
 llm:
   provider: openai_compat
-  model: gemini-2.5-flash
-  fallback_model: gemini-2.5-flash
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-  api_key_env: GEMINI_API_KEY
-  timeout_seconds: 60
+  model: qwen/qwen3-32b
+  fallback_model: llama-3.3-70b-versatile
+  base_url: https://api.groq.com/openai/v1/
+  api_key_env: GROQ_API_KEY
+  timeout_seconds: 30
   max_reasoning_chars: 1000
-  request_delay_seconds: 6     # Rate limit: stay at 10 req/min (safe under 15 req/min free tier)
+  request_delay_seconds: 3     # Rate limit: 6,000 TPM free tier; 30-min cycle interval is safe
+
+# Gemini fallback (swap back if Groq quota exhausted)
+# llm:
+#   provider: openai_compat
+#   model: gemini-2.5-flash
+#   fallback_model: gemini-2.5-flash
+#   base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+#   api_key_env: GEMINI_API_KEY
+#   timeout_seconds: 60
+#   max_reasoning_chars: 1000
+#   request_delay_seconds: 6
 
 # ──────────────────────────────────────────────
 # Notifications

@@ -2,13 +2,31 @@
 # backtest_status.sh — print current backtest progress, P&L, and positions
 #
 # Usage:
-#   ./scripts/backtest_status.sh              # uses data/backtest_audit.db + data/backtest_paper.db
-#   ./scripts/backtest_status.sh <audit.db> <paper.db>   # custom paths
+#   ./scripts/backtest_status.sh                        # text summary only
+#   ./scripts/backtest_status.sh --charts               # text + per-trade PNG charts
+#   ./scripts/backtest_status.sh --charts --pair ETH/USD   # filter to one pair
+#   ./scripts/backtest_status.sh --charts --out charts/backtest   # custom output dir
+#   ./scripts/backtest_status.sh <audit.db> <paper.db>  # custom DB paths
 #
-# Refs #93
+# Closes #101
 
-AUDIT_DB="${1:-data/backtest_audit.db}"
-PAPER_DB="${2:-data/backtest_paper.db}"
+# ── Argument parsing ──────────────────────────────────────────────────────────
+SHOW_CHARTS=0
+CHART_PAIR=""
+CHART_OUT="charts/backtest"
+POSITIONAL=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --charts)     SHOW_CHARTS=1; shift ;;
+    --pair)       CHART_PAIR="$2"; shift 2 ;;
+    --out)        CHART_OUT="$2";  shift 2 ;;
+    *)            POSITIONAL+=("$1"); shift ;;
+  esac
+done
+
+AUDIT_DB="${POSITIONAL[0]:-data/backtest_audit.db}"
+PAPER_DB="${POSITIONAL[1]:-data/backtest_paper.db}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 
@@ -110,3 +128,31 @@ else
 fi
 
 echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+
+# ── Per-trade charts (optional) ───────────────────────────────────────────────
+if [ "$SHOW_CHARTS" -eq 1 ]; then
+  echo -e "${BOLD}${CYAN}GENERATING CHARTS  →  $CHART_OUT/${RESET}"
+
+  PAIR_ARG=""
+  if [ -n "$CHART_PAIR" ]; then
+    PAIR_ARG="pair_filter='$CHART_PAIR',"
+  fi
+
+  python3 - <<PYEOF
+import sys, os
+sys.path.insert(0, os.getcwd())
+from src.reports.chart_generator import generate_charts
+paths = generate_charts(
+    db_path='$PAPER_DB',
+    out_dir='$CHART_OUT',
+    history_dir='history',
+    $PAIR_ARG
+)
+if paths:
+    print(f"\nCharts written ({len(paths)}):")
+    for p in paths:
+        print(f"  {p}")
+else:
+    print("No charts generated.")
+PYEOF
+fi

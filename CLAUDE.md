@@ -214,6 +214,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11j | Fix: cash guards as primary gate — min cash reserve + deployable check run before count ceiling; max_open_positions raised 5→10 (safety ceiling only); sanity warning uses max_position_pct (#167) |
 | session_2026_04_11k | Chore: commit skill updated — always create feature/defect branch, push branch, raise PR to main (#168) |
 | session_2026_04_11l | Fix: DB-persisted start-of-day balance prevents false daily loss notification (#170); reset_paper.py running-agent guard (#171) |
+| session_2026_04_11m | Chore: switch LLM to Groq qwen3-32b / llama-3.3-70b fallback (#173); commit backtest_status.sh chart flags (retro #101) |
 
 ---
 
