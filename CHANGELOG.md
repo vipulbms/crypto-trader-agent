@@ -2,6 +2,30 @@
 
 ---
 
+## Session: 2026-04-11 (Part S) — Add PENDLE/USD, ONDO/USD, BONK/USD (#186–#188)
+
+### Features
+- **[#186] Add PENDLE/USD** (TP 20%, `buy_min_score=7`, `caution_factor_bearish=0.40`): DeFi yield protocol with expiry-driven BB squeeze breakouts. Added to `eth_ecosystem` correlation cluster. Trailing stop 7%/5%.
+- **[#187] Add ONDO/USD** (TP 16%, `buy_min_score=6`, `caution_factor_bearish=0.50`): RWA tokenisation; TradFi institutional narrative; steady trending profile. Unclustered. Standard trailing 5%/3%.
+- **[#188] Add BONK/USD** (TP 25%, `buy_min_score=9`, `caution_factor_bearish=0.20`): Extreme Solana meme; maximum-gate entry; BB squeeze release expected to fire reliably before breakouts. Added to `memecoins` cluster. Trailing stop 7%/5%.
+- **TP whitelist extended**: `ALLOWED_TAKE_PROFIT_PCTS` now includes 25% (required for BONK).
+- **27 active pairs**: up from 24 (28 configured including disabled RAILS/USD).
+
+### Files Changed
+- `config.yaml` — 3 new pair blocks; `allowed_take_profit_pcts` includes 25; `memecoins` cluster + BONK; `eth_ecosystem` cluster + PENDLE; trailing stop overrides for PENDLE/BONK
+- `src/risk/risk_manager.py` — `ALLOWED_TAKE_PROFIT_PCTS` includes 25
+- `tests/backtest/loader.py` — `PAIR_FILE_MAP` entries for PENDLE/ONDO/BONK
+- `src/agent/tools.py` — `propose_buy` docstring pair list updated
+- `src/cli/display.py` — welcome banner updated
+- `src/cli/nl_parser.py` — `PAIRS` list and `_SYSTEM_PROMPT` updated
+- `.claude/skills/trading-rules/SKILL.md` — pair count 24→27; caution/score summaries updated
+- `docs/business_requirements.md` — v2.2 entry; scope; FR-01; FR-25 (TP levels); pair table
+- `docs/epics_stories_ac.md` — 24 pairs → 27 pairs (3 occurrences)
+- `CLAUDE.md` — pairs table rows; session entry
+- `history/PENDLEUSD_candle.json`, `ONDOUSD_candle.json`, `BONKUSD_candle.json` — 721 candles each
+
+---
+
 ## Session: 2026-04-11 (Part R) — Candlestick pattern signals (#184)
 
 ### Feature
