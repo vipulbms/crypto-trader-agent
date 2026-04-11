@@ -65,6 +65,42 @@ def test_obv_trend_none_values():
     assert _compute_obv_trend(obv, period=5) == "flat"
 
 
+# ── Per-pair noise threshold tests (#185) ─────────────────────────────────
+
+
+def test_obv_noise_threshold_meme_above_floor():
+    """
+    Given 2% OBV rise and a meme pair noise_threshold=0.02
+    When _compute_obv_trend is called
+    Then it returns 'rising' (exactly at the boundary counts as > threshold)
+    """
+    # prior=1000, current=1021 → change=2.1% > 2% threshold
+    obv = [1000.0] * 10 + [1021.0]
+    assert _compute_obv_trend(obv, period=10, noise_threshold=0.02) == "rising"
+
+
+def test_obv_noise_threshold_meme_below_floor():
+    """
+    Given 0.5% OBV rise and a meme pair noise_threshold=0.02
+    When _compute_obv_trend is called
+    Then it returns 'flat' (0.5% < 2% threshold — noise, not accumulation)
+    """
+    # prior=1000, current=1005 → change=0.5% < 2% threshold
+    obv = [1000.0] * 10 + [1005.0]
+    assert _compute_obv_trend(obv, period=10, noise_threshold=0.02) == "flat"
+
+
+def test_obv_noise_threshold_large_cap_above_floor():
+    """
+    Given 0.5% OBV rise and a large-cap pair noise_threshold=0.002
+    When _compute_obv_trend is called
+    Then it returns 'rising' (0.5% > 0.2% threshold — meaningful for BTC/ETH)
+    """
+    # prior=1000, current=1005 → change=0.5% > 0.2% threshold
+    obv = [1000.0] * 10 + [1005.0]
+    assert _compute_obv_trend(obv, period=10, noise_threshold=0.002) == "rising"
+
+
 # ── Integration tests: OBV contribution to buy score ──────────────────────
 
 
@@ -163,6 +199,9 @@ if __name__ == "__main__":
     test_obv_trend_flat()
     test_obv_trend_insufficient_data()
     test_obv_trend_none_values()
+    test_obv_noise_threshold_meme_above_floor()
+    test_obv_noise_threshold_meme_below_floor()
+    test_obv_noise_threshold_large_cap_above_floor()
     test_obv_rising_increases_buy_score()
     test_obv_falling_adds_distribution_note()
     test_obv_flat_no_mention()

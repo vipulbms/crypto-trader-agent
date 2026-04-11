@@ -97,6 +97,8 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
 
     # Per-pair OBV trend period — how many candles back to compare OBV for trend (#136)
     obv_trend_period = pair_cfg.get("obv_trend_period", ind_cfg.get("obv_trend_period", 10))
+    # Per-pair OBV noise threshold — meme/volatile pairs need a higher floor to avoid noise votes (#185)
+    obv_noise_threshold = pair_cfg.get("obv_noise_threshold", ind_cfg.get("obv_noise_threshold", 0.001))
 
     max_score      = sig_cfg.get("max_score", 16)
     # Per-pair buy_min_score overrides global — tighten for underperformers (#128)
@@ -128,7 +130,7 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
 
     # OBV trend — rising = accumulation (+1 BUY), falling = distribution (#136)
     obv_series    = indicators.get("obv_series", [])
-    obv_trend     = _compute_obv_trend(obv_series, obv_trend_period)
+    obv_trend     = _compute_obv_trend(obv_series, obv_trend_period, noise_threshold=obv_noise_threshold)
 
     # BB squeeze release — high-probability breakout setup (+2 BUY) (#137)
     bb_width_series = indicators.get("bb_width_series", [])
@@ -315,12 +317,14 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     return _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
 
 
-def _compute_obv_trend(obv_series: list, period: int = 10) -> str:
+def _compute_obv_trend(obv_series: list, period: int = 10, noise_threshold: float = 0.001) -> str:
     """
     Compare OBV now vs `period` candles ago to determine trend direction.
 
     Returns "rising", "falling", or "flat".
-    A small noise threshold (0.1%) avoids labelling micro-fluctuations as trends.
+    `noise_threshold` filters micro-fluctuations: default 0.1% suits large caps;
+    meme/volatile pairs should use 0.02 (2%) so only meaningful moves are classified
+    as accumulation/distribution.  Override per-pair via config `obv_noise_threshold`.
     """
     if not obv_series or len(obv_series) < period + 1:
         return "flat"
@@ -329,9 +333,9 @@ def _compute_obv_trend(obv_series: list, period: int = 10) -> str:
     if current is None or prior is None or prior == 0:
         return "flat"
     change_pct = (current - prior) / abs(prior)
-    if change_pct > 0.001:
+    if change_pct > noise_threshold:
         return "rising"
-    elif change_pct < -0.001:
+    elif change_pct < -noise_threshold:
         return "falling"
     return "flat"
 
