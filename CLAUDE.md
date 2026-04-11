@@ -212,6 +212,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11h | Chore: add scripts/reset_paper.py — reset paper_trading.db + audit.db paper rows to clean $1,000 slate; closes #163 |
 | session_2026_04_11i | Fix: position gate uses remaining cash — max_open_positions count cap now only fires when count≥max AND deployable<min_order_usd; max_per_trade uses cash_usd not total_usd (#165) |
 | session_2026_04_11j | Fix: cash guards as primary gate — min cash reserve + deployable check run before count ceiling; max_open_positions raised 5→10 (safety ceiling only); sanity warning uses max_position_pct (#167) |
+| session_2026_04_11k | Chore: commit skill updated — always create feature/defect branch, push branch, raise PR to main (#168) |
 
 ---
 
