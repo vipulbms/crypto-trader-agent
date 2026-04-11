@@ -37,9 +37,18 @@ class PaperBroker:
 
     def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.16, config: dict = None):
         self._db = paper_db
-        self._slippage  = slippage_pct / 100
+        self._slippage  = slippage_pct / 100  # global fallback (e.g. 0.0005 = 0.05%)
         self._maker_fee = maker_fee_pct / 100
         self._config = config or {}
+
+    def _get_pair_slippage(self, pair: str) -> float:
+        """Resolve per-pair slippage (as fraction) from config, falling back to global. (#204)"""
+        pairs_cfg = self._config.get("trading", {}).get("pairs", [])
+        pair_entry = next((p for p in pairs_cfg if p.get("pair") == pair), {})
+        per_pair = pair_entry.get("slippage_pct")
+        if per_pair is not None:
+            return per_pair / 100.0
+        return self._slippage
 
     # ──────────────────────────────────────────────
     # Account queries (same interface as KrakenClient)
@@ -117,7 +126,9 @@ class PaperBroker:
         # In a high-frequency quant strategy, we execute Limit Orders at the Bid.
         # Even limit orders incur queue position risk and small adverse selection
         # on a 30-minute cycle. Apply entry slippage symmetrically with exit. (#140)
-        fill_price  = round(current_price * (1 + self._slippage), 8)
+        # Per-pair slippage tiers (#204): large-cap 0.05%, mid-cap 0.10%, small-cap 0.20%, meme 0.40%
+        slip = self._get_pair_slippage(pair)
+        fill_price  = round(current_price * (1 + slip), 8)
         volume      = round(usd_amount / fill_price, 8)
         actual_cost = round(fill_price * volume, 4)
         fee_usd     = round(actual_cost * self._maker_fee, 4)
@@ -173,7 +184,7 @@ class PaperBroker:
             "fill_price":         fill_price,
             "usd_invested":       actual_cost,
             "fee_usd":            fee_usd,
-            "slippage_pct":       self._slippage * 100,
+            "slippage_pct":       slip * 100,
             "stop_loss_price":    sl_price,
             "take_profit_price":  tp_price,
             "stop_loss_pct":      stop_loss_pct,
@@ -215,8 +226,9 @@ class PaperBroker:
         close_volume = volume_override if volume_override is not None else pos["volume"]
         is_partial   = volume_override is not None
 
-        # Sell at slight slippage below current price
-        fill_price  = round(exit_price * (1 - self._slippage), 8)
+        # Sell at slight slippage below current price — per-pair tier (#204)
+        slip = self._get_pair_slippage(pos.get("pair", ""))
+        fill_price  = round(exit_price * (1 - slip), 8)
         gross_out   = round(fill_price * close_volume, 4)
         fee_usd     = round(gross_out * 0.0026, 4)
         net_out     = round(gross_out - fee_usd, 4)

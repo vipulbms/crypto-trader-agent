@@ -47,6 +47,8 @@ trading:
       caution_factor_bearish: 0.8   # low bearish DD (0.90%) — slight caution only (#124)
       rsi_divergence_lookback: 25   # slow mover — longer window gives more reliable swing confirmation (#135)
       obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
+      slippage_pct: 0.05          # large-cap liquid (#204)
+      pair_tier: 1                  # BTC — macro reserve Tier 1 (#203)
     - pair: ETH/USD
       ws_name: ETH/USD
       rest_name: ETHUSD
@@ -61,6 +63,8 @@ trading:
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # strong win rate — keep global threshold (#128)
       obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
+      slippage_pct: 0.05          # large-cap liquid (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     - pair: BNB/USD
       ws_name: BNB/USD
       rest_name: BNBUSD
@@ -75,6 +79,8 @@ trading:
       caution_factor_bearish: 1.0   # proven winner — buy the dip, no reduction (#124)
       buy_min_score: 5              # strong win rate — keep global threshold (#128)
       obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
+      slippage_pct: 0.05          # large-cap liquid (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     - pair: SOL/USD
       ws_name: SOL/USD
       rest_name: SOLUSD
@@ -89,6 +95,8 @@ trading:
       caution_factor_bearish: 0.6   # median bearish DD 1.93% — moderate caution (#124)
       buy_min_score: 6              # 44% win rate at score 5 — raise bar (#128)
       obv_noise_threshold: 0.002    # large cap, stable OBV — 0.2% floor (#185)
+      slippage_pct: 0.05          # large-cap liquid (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     - pair: XRP/USD
       ws_name: XRP/USD
       rest_name: XRPUSD
@@ -102,6 +110,8 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.43% (#124)
       obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.05          # large-cap liquid (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     - pair: TRX/USD
       ws_name: TRX/USD
       rest_name: TRXUSD
@@ -116,6 +126,8 @@ trading:
       caution_factor_bearish: 0.8   # low bearish DD 1.05% (#124)
       rsi_divergence_lookback: 15   # noisy/fast pair — shorter window avoids false divergences (#135)
       obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: DOGE/USD
       ws_name: DOGE/USD
       rest_name: XDGUSD
@@ -131,6 +143,8 @@ trading:
       buy_min_score: 5              # profitable pair — keep global threshold (#128)
       rsi_divergence_lookback: 15   # meme coin — fast swings, shorter window (#135)
       obv_noise_threshold: 0.020    # meme/volatile — 2% floor required for meaningful OBV move (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 4                  # meme/momentum-only Tier 4 (#203)
     - pair: ADA/USD
       ws_name: ADA/USD
       rest_name: ADAUSD
@@ -144,6 +158,8 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.83% (#124)
       obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     - pair: LTC/USD
       ws_name: LTC/USD
       rest_name: LTCUSD
@@ -158,6 +174,8 @@ trading:
       caution_factor_bearish: 0.8   # low-moderate bearish DD 1.39% (#124)
       rsi_divergence_lookback: 25   # slow mover (follows BTC) — longer window (#135)
       obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     # RAILS/USD disabled — 25% win rate, 3/4 stop losses in production (#132)
     # - pair: RAILS/USD
     #  ws_name: RAILS/USD
@@ -185,6 +203,8 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.6   # median bearish DD 1.90% (#124)
       obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 2                  # DeFi/L1 infrastructure Tier 2 (#203)
     - pair: SUI/USD
       ws_name: SUI/USD
       rest_name: SUIUSD
@@ -198,6 +218,8 @@ trading:
       adaptive_atr_floor_lookback: 200
       caution_factor_bearish: 0.35  # high bearish DD 2.19% — cut harder (#124)
       obv_noise_threshold: 0.005    # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: HYPE/USD
       ws_name: HYPE/USD
       rest_name: HYPEUSD
@@ -212,6 +234,8 @@ trading:
       caution_factor_bearish: 0.4   # high volatility, unpredictable — cut hard (#124)
       rsi_divergence_lookback: 15   # high-volatility DeFi — fast swings, shorter window (#135)
       obv_noise_threshold: 0.020    # meme/volatile — 2% floor required for meaningful OBV move (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: UNI/USD
       ws_name: UNI/USD
       rest_name: UNIUSD
@@ -226,6 +250,8 @@ trading:
       caution_factor_bearish: 0.5   # underperformer — global default (#124)
       buy_min_score: 6              # 50% win rate at score 5 — raise bar (#128)
       obv_noise_threshold: 0.005    # mid-tier DeFi — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: INJ/USD
       ws_name: INJ/USD
       rest_name: INJUSD
@@ -240,6 +266,8 @@ trading:
       caution_factor_bearish: 0.35  # highest bearish DD 2.23% — cut harder (#124)
       buy_min_score: 7              # 30% win rate at score 5 — tighten significantly (#128)
       obv_noise_threshold: 0.010    # high-vol DeFi/L1 — 1% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: WIF/USD            # Closes #145 — dogwifhat, Solana-ecosystem meme
       ws_name: WIF/USD
       rest_name: WIFUSD
@@ -256,6 +284,8 @@ trading:
       rsi_divergence_lookback: 15    # meme/fast swings — shorter window
       obv_trend_period: 7            # meme tier — capture short accumulation cycles
       obv_noise_threshold: 0.020     # meme/volatile — 2% floor required for meaningful OBV move (#185)
+      slippage_pct: 0.40          # meme/micro (#204)
+      pair_tier: 4                  # meme/momentum-only Tier 4 (#203)
     - pair: TON/USD            # Closes #146 — Toncoin (The Open Network)
       ws_name: TON/USD
       rest_name: TONUSD
@@ -272,6 +302,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: OP/USD             # Closes #147 — Optimism L2
       ws_name: OP/USD
       rest_name: OPUSD
@@ -288,6 +320,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier L2 — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: ARB/USD            # Closes #148 — Arbitrum L2
       ws_name: ARB/USD
       rest_name: ARBUSD
@@ -304,6 +338,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier L2 — 0.5% floor (#185)
+      slippage_pct: 0.10          # mid-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: JUP/USD            # Closes #149 — Jupiter DEX aggregator (Solana)
       ws_name: JUP/USD
       rest_name: JUPUSD
@@ -320,6 +356,8 @@ trading:
       rsi_divergence_lookback: 15    # Solana-adjacent fast cycles — shorter window
       obv_trend_period: 7            # Solana-adjacent — capture short accumulation cycles
       obv_noise_threshold: 0.020     # meme/volatile SOL DeFi — 2% floor required (#185)
+      slippage_pct: 0.40          # meme/micro (#204)
+      pair_tier: 4                  # meme/momentum-only Tier 4 (#203)
     - pair: PEPE/USD           # Closes #150 — PEPE memecoin (Tier 2)
       ws_name: PEPE/USD
       rest_name: PEPEUSD
@@ -336,6 +374,8 @@ trading:
       rsi_divergence_lookback: 15    # meme/fast cycles
       obv_trend_period: 7            # meme tier
       obv_noise_threshold: 0.020     # extreme meme — 2% floor required for meaningful OBV move (#185)
+      slippage_pct: 0.40          # meme/micro (#204)
+      pair_tier: 4                  # meme/momentum-only Tier 4 (#203)
     - pair: TIA/USD            # Closes #151 — Celestia modular blockchain (Tier 2)
       ws_name: TIA/USD
       rest_name: TIAUSD
@@ -352,6 +392,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.010     # high-vol newer token — 1% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: RENDER/USD         # Closes #152 — Render Network (AI GPU compute, Tier 2)
       ws_name: RENDER/USD
       rest_name: RENDERUSD
@@ -368,6 +410,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier AI token — 0.5% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: FET/USD            # Closes #153 — Fetch.ai / ASI Alliance (AI, Tier 2)
       ws_name: FET/USD
       rest_name: FETUSD
@@ -384,6 +428,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier AI token — 0.5% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
     - pair: STX/USD            # Closes #154 — Stacks (Bitcoin L2, Tier 2)
       ws_name: STX/USD
       rest_name: STXUSD
@@ -400,6 +446,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier Bitcoin L2 — 0.5% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
 
     - pair: PENDLE/USD         # Closes #186 — Pendle Finance (DeFi yield protocol, Tier 1)
       ws_name: PENDLE/USD
@@ -417,6 +465,8 @@ trading:
       rsi_divergence_lookback: 15    # fast DeFi cycles, similar to meme dynamics
       obv_trend_period: 7            # short window — expiry accumulation patterns
       obv_noise_threshold: 0.010     # DeFi volatile — 1.0% floor, similar to INJ/TIA (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
 
     - pair: ONDO/USD           # Closes #187 — Ondo Finance (RWA tokenisation, Tier 2)
       ws_name: ONDO/USD
@@ -434,6 +484,8 @@ trading:
       rsi_divergence_lookback: 20    # mid-tier global default
       obv_trend_period: 10           # mid-tier global default
       obv_noise_threshold: 0.005     # mid-tier RWA token — 0.5% floor (#185)
+      slippage_pct: 0.20          # small-cap (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
 
     - pair: BONK/USD           # Closes #188 — BONK (Solana memecoin, Tier 2)
       ws_name: BONK/USD
@@ -451,6 +503,8 @@ trading:
       rsi_divergence_lookback: 15    # fast/noisy meme cycles
       obv_trend_period: 7            # short window — meme accumulation patterns same as WIF/PEPE
       obv_noise_threshold: 0.020     # extreme meme — 2% floor; same as WIF/PEPE/DOGE/HYPE (#185)
+      slippage_pct: 0.40          # meme/micro (#204)
+      pair_tier: 4                  # meme/momentum-only Tier 4 (#203)
 
 # ──────────────────────────────────────────────
 # Paper trading mode
@@ -628,6 +682,17 @@ risk:
   max_cluster_positions: 2    # Max open positions per cluster
   cluster_size_penalty: 0.5   # Multiply position size when cluster already has 1 open
 
+  # On-chain cycle top guard — suppress Tier 3/4 BUYs at macro peak (#205)
+  cycle_top_guard:
+    enabled: true
+    mvrv_z_danger: 7.0         # MVRV Z-Score threshold — historically 7+ = cycle top distribution zone
+    nupl_danger: 0.70          # NUPL threshold — >0.70 = extreme unrealised profit (2017: 0.74, 2021: 0.71)
+    mvrv_url: "https://open-api.coinglass.com/public/v2/indicator/bitcoin_mvrv_zscore"
+    nupl_url: "https://open-api.coinglass.com/public/v2/indicator/bitcoin_nupl"
+    fetch_timeout_secs: 8
+    cache_hours: 24            # Re-fetch at most once per UTC day (on-chain data changes daily)
+    # Set COINGLASS_API_KEY environment variable — guard silently skips if key absent or API fails
+
 # ──────────────────────────────────────────────
 # Feature 1: Multi-pair context awareness
 # Position sizing scaled by signal strength and ATR volatility
@@ -780,12 +845,19 @@ regime:
   ranging_macd_threshold: 0.001 # |MACD histogram| < this = ranging (no momentum)
   bearish_caution_factor: 0.5   # Global fallback; per-pair caution_factor_bearish in trading.pairs[] overrides (#124)
   volatile_caution_factor: 0.7  # Multiply proposed position size by this in volatile regime
+  # BTC dominance macrofilter (#206) — additional caution when dominance trend is rising
+  btc_dominance_rising_caution_multiplier: 0.7  # Extra caution on all non-BTC/ETH/BNB in rising dominance + bearish
+  # Sector tier multipliers applied on top of caution_factor_bearish when BTC dominance rising (#203)
+  tier3_dominance_rising_multiplier: 0.5   # Tier 3 speculative altcoins: additional 50% size cut
+  tier4_dominance_rising_multiplier: 0.3   # Tier 4 meme/momentum-only: additional 70% size cut
+  # BTC dominance data source (CoinGecko free, no key required)
   btc_dominance:
     enabled: true
     url: "https://api.coingecko.com/api/v3/global"
-    cache_minutes: 60             # Re-fetch at most once per hour
-    trend_min_change_pp: 0.5      # Min change in percentage-points to call rising/falling
-    trend_lookback_days: 3        # Compare current vs N days ago
+    fetch_timeout_secs: 5
+    cache_minutes: 120              # Re-fetch at most every 2 hours
+    trend_min_change_pp: 0.5        # Minimum pp change over lookback_days to classify as rising/falling
+    trend_lookback_days: 3          # Compare today vs N-1 days ago stored in agent_state
 
 # ──────────────────────────────────────────────
 # Feature 4: News & sentiment integration

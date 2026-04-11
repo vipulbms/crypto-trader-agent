@@ -2,7 +2,25 @@
 
 ---
 
-## Session: 2026-04-11 (Part X) — BTC dominance trend macro input (#206)
+## Session: 2026-04-11 (Part Z) — Resolve PR #210 merge conflicts
+
+### Chore
+- Merged `origin/main` into `feature/206` and resolved conflicts caused by overlapping #204, #206, and #212 documentation/config changes.
+- Renamed the BTC-dominance session note from Part `X` to Part `Y` because `main` had already taken Part `X` for the later docs-only skill sync.
+- Aligned `fetch_btc_dominance()` with the merged nested `regime.btc_dominance.fetch_timeout_secs` config.
+
+### Files Changed
+- `config.yaml`
+- `src/analysis/features.py`
+- `CLAUDE.md`
+- `CHANGELOG.md`
+- `docs/sessions/session_2026_04_11x.md`
+- `docs/sessions/session_2026_04_11y.md`
+- `docs/sessions/session_2026_04_11z.md`
+
+---
+
+## Session: 2026-04-11 (Part Y) — BTC dominance trend macro input (#206)
 
 ### Features
 - **[#206] BTC dominance trend fetch**: Added `fetch_btc_dominance(config, db_path=None)` in `src/analysis/features.py` using CoinGecko `/api/v3/global` with in-memory TTL caching.
@@ -26,6 +44,38 @@
 - `main.py` — per-cycle dominance fetch and `build_ai_context` wiring
 - `tests/test_btc_dominance.py` — new test suite
 - `CLAUDE.md` — session and gotchas updated
+
+---
+
+## Session: 2026-04-11 (Part X) — Skill docs synced with #204 and #206 (#212)
+
+### Docs
+- Updated `.claude/skills/add-pair/SKILL.md` to include `slippage_pct` in the new-pair template and added tier-based guidance for selecting the value after #204.
+- Updated `.claude/skills/trading-rules/SKILL.md` to document the BTC dominance macro overlay introduced by #206 and its effect on altcoin risk appetite.
+- Corrected the touched field-count/checklist text in `add-pair` so the onboarding workflow stays internally consistent.
+
+### Files Changed
+- `.claude/skills/add-pair/SKILL.md`
+- `.claude/skills/trading-rules/SKILL.md`
+- `docs/sessions/session_2026_04_11x.md`
+- `CLAUDE.md`
+
+---
+
+## Session: 2026-04-11 (Part W) — Tiered per-pair slippage in paper broker (#204)
+
+### Features
+- **[#204] Per-pair tiered slippage**: `PaperBroker._get_pair_slippage(pair)` resolves slippage from `trading.pairs[].slippage_pct` config field, falling back to global `slippage_pct`. Applied on both entry (`place_order`) and exit (`close_position`).
+- **Tier structure**: Tier 1 (BTC) 0.05% · Tier 2 (ETH/BNB/SOL/XRP/ADA/LTC/AVAX) 0.05–0.10% · Tier 3 (speculative alts) 0.20% · Tier 4 (meme/micro) 0.40%. BONK/WIF round-trip friction (0.8%) is 8× that of BTC (0.1%).
+- **`pair_tier` field**: added to all 27 pairs in config — also pre-wires sector rotation logic for #203.
+- **Config additions**: `regime.btc_dominance` sub-block (for #206), `regime.*_dominance_rising_multiplier` keys (for #203), `risk.cycle_top_guard` block (for #205).
+- **9 new tests** in `tests/test_entry_slippage.py` — `TestPerPairSlippage` class covering all 4 tiers, global fallback, fill price accuracy on entry/exit, and round-trip cost comparison.
+
+### Files Changed
+- `config.yaml` — `slippage_pct` + `pair_tier` added to all 27 pairs; `regime.btc_dominance` sub-block; `regime.*_dominance_rising_multiplier` keys; `risk.cycle_top_guard` block
+- `src/exchange/paper_broker.py` — `_get_pair_slippage()` helper; `place_order()` + `close_position()` use per-pair slippage
+- `tests/test_entry_slippage.py` — `_make_broker_with_pair_cfg()` helper + `TestPerPairSlippage` (9 tests)
+>>>>>>> origin/main
 
 ---
 

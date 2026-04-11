@@ -465,7 +465,10 @@ def fetch_btc_dominance(config: dict, db_path: Optional[str] = None) -> Optional
         return None
 
     url          = dom_cfg.get("url", "https://api.coingecko.com/api/v3/global")
-    timeout      = config.get("regime", {}).get("fetch_timeout_secs", 8)
+    timeout      = dom_cfg.get(
+        "fetch_timeout_secs",
+        config.get("regime", {}).get("fetch_timeout_secs", 8),
+    )
     cache_mins   = dom_cfg.get("cache_minutes", 60)
     min_change   = dom_cfg.get("trend_min_change_pp", 0.5)
     lookback_days = dom_cfg.get("trend_lookback_days", 3)

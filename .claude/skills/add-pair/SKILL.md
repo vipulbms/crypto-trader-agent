@@ -89,7 +89,7 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
 
 ### 5. Make all changes
 
-**a) `config.yaml`** — add to `trading.pairs[]` (full 15-field block required):
+**a) `config.yaml`** — add to `trading.pairs[]` (full 16-field block required):
 ```yaml
     - pair: PAIR/USD
       ws_name: WS_NAME                   # from step 2 (e.g. AVAX/USD; BTC is XBT/USD)
@@ -106,7 +106,18 @@ Read `/tmp/new_pair_params.yaml` for the recommended values.
       buy_min_score: <value>             # min confluence score for BUY (#128); see table below
       rsi_divergence_lookback: <value>   # from calibration table (step 4): 25=slow, 20=mid, 15=fast/meme (#135)
       obv_trend_period: <value>          # candles back to compare OBV for trend (#136); see table below
+    slippage_pct: <value>              # simulated fill slippage by liquidity tier (#204); see table below
 ```
+
+**`slippage_pct`** — execution friction estimate for paper fills (#204):
+| Liquidity tier | Suggested value | Examples |
+|---|---|---|
+| Highly liquid major | **0.05** | BTC, ETH, BNB, SOL, XRP |
+| Liquid large / mid-cap | **0.10** | ADA, LTC, AVAX, TON, OP, ARB, UNI |
+| Smaller alt / thinner book | **0.20** | TRX, SUI, INJ, HYPE, RENDER, FET, STX, PENDLE, ONDO, TIA |
+| Meme / microstructure-heavy | **0.40** | DOGE, WIF, JUP, PEPE, BONK |
+
+Choose the tier from actual order-book depth and historical spread behaviour, not brand strength alone. If the pair trades like a meme or has persistent thin-book gaps, use the higher tier.
 
 **caution_factor_bearish** — how aggressively to cut position size in bearish regime (1.0 = no cut, buy the dip; 0.30 = cut to 30%):
 | Volatility tier | Suggested value | Reasoning |
@@ -263,8 +274,8 @@ Re-run the backtest after any parameter adjustment before committing.
 After making all changes, run these checks:
 
 ```bash
-# Confirm config has all 11 fields for the new pair
-grep -A 12 "pair: PAIR/USD" config.yaml
+# Confirm config has all 16 fields for the new pair
+grep -A 16 "pair: PAIR/USD" config.yaml
 
 # Confirm nl_parser has both the full name and short name
 grep "PAIR/USD\|SYMBOL" src/cli/nl_parser.py
@@ -281,7 +292,7 @@ exec(open('tests/test_per_pair_params.py').read())
 ```
 
 **Checklist:**
-- [ ] `config.yaml`: 15-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score, rsi_divergence_lookback, obv_trend_period)
+- [ ] `config.yaml`: 16-field pair block present (pair, ws_name, rest_name, take_profit_pct, stop_loss_pct, atr_tp_min_pct, rsi_oversold, rsi_overbought, bb_squeeze_threshold_pct, min_volume_ratio, adaptive_atr_floor_lookback, caution_factor_bearish, buy_min_score, rsi_divergence_lookback, obv_trend_period, slippage_pct)
 - [ ] Fast backtest run and win rate acceptable (step 6)
 - [ ] `src/agent/tools.py`: propose_buy docstring updated
 - [ ] `src/cli/display.py`: welcome banner updated
