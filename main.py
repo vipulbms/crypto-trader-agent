@@ -24,7 +24,7 @@ import os
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import yaml
 from dotenv import load_dotenv
@@ -576,6 +576,37 @@ async def run_cycle(
                     "[ADAPTIVE_VOL] %s: lookback=%d p15_volume=%.2f",
                     pair, lookback_vol, indicators["rolling_volume_p15"],
                 )
+
+        # Inject profit factor — rolling 30-day trade history per pair (#183)
+        pf_cfg = config.get("signals", {}).get("profit_factor_escalation", {})
+        if pf_cfg.get("enabled", True):
+            try:
+                from src.analysis.features import compute_profit_factor
+                from src.storage.database import get_connection
+                from datetime import timezone as _tz
+                _pf_days     = pf_cfg.get("lookback_days", 30)
+                _min_trades  = pf_cfg.get("min_trades", 10)
+                _pf_db_path  = config.get("storage", {}).get(
+                    "paper_db" if mode == "paper" else "live_db",
+                    "paper_trading.db" if mode == "paper" else "live_trading.db",
+                )
+                _trades_tbl  = "paper_trades" if mode == "paper" else "live_trades"
+                _since       = (datetime.now(_tz.utc) - timedelta(days=_pf_days)).isoformat()
+                _conn        = get_connection(_pf_db_path)
+                _rows        = _conn.execute(
+                    f"SELECT pnl_usd FROM {_trades_tbl} "
+                    f"WHERE pair=? AND closed_at>=? AND pnl_usd IS NOT NULL",
+                    (pair, _since),
+                ).fetchall()
+                _conn.close()
+                _pf_trades = [{"pnl_usd": float(r["pnl_usd"])} for r in _rows]
+                if len(_pf_trades) >= _min_trades:
+                    pf_value = compute_profit_factor(pair, _pf_trades)
+                    if pf_value is not None:
+                        indicators["profit_factor"] = pf_value
+                        logger.debug("[PF] %s: profit_factor=%.2f (n=%d)", pair, pf_value, len(_pf_trades))
+            except Exception as _pf_err:
+                logger.debug("[PF] %s: skipped — %s", pair, _pf_err)
 
         sig = generate_signal(pair, indicators, config)
         sig["indicators"] = indicators  # attach raw indicators for prompt

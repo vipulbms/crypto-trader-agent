@@ -528,6 +528,16 @@ signals:
   buy_min_score: 5                # Need ~2-3 signals aligned (e.g. RSI oversold + MACD turn = 6)
   sell_min_score: 3               # Any one strong sell signal is sufficient
 
+  # ── Profit factor auto-escalation (#183) ─────────────────────────────────
+  # Pairs with rolling 30-day PF < 1.0 have buy_min_score raised each cycle.
+  # Minimum 10 closed trades required before escalation fires.
+  profit_factor_escalation:
+    enabled: true
+    lookback_days: 30         # Rolling window for trade history
+    min_trades: 10            # Minimum closed trades before escalation fires
+    pf_warn_threshold: 1.0    # PF < 1.0 → +1 buy_min_score
+    pf_severe_threshold: 0.7  # PF < 0.7 → +2 buy_min_score
+
 # ──────────────────────────────────────────────
 # LLM settings
 # ──────────────────────────────────────────────

@@ -160,6 +160,26 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     sell_score = 0
     reasons    = []
 
+    # Profit factor auto-escalation: raise buy_min_score for underperforming pairs (#183)
+    pf_cfg = sig_cfg.get("profit_factor_escalation", {})
+    if pf_cfg.get("enabled", True):
+        pf = indicators.get("profit_factor")
+        if pf is not None:
+            pf_warn    = pf_cfg.get("pf_warn_threshold", 1.0)
+            pf_severe  = pf_cfg.get("pf_severe_threshold", 0.7)
+            if pf < pf_severe:
+                buy_min_score += 2
+                reasons.append(
+                    f"Profit factor {pf:.2f} < {pf_severe} — severe underperformance, "
+                    f"entry threshold raised +2 (now {buy_min_score})"
+                )
+            elif pf < pf_warn:
+                buy_min_score += 1
+                reasons.append(
+                    f"Profit factor {pf:.2f} < {pf_warn} — underperforming, "
+                    f"entry threshold raised +1 (now {buy_min_score})"
+                )
+
     # BB pre-computation — needed by both buy and sell paths
     bb_width_pct = ((bb_upper - bb_lower) / price * 100) if (bb_upper and bb_lower and price) else 0
     bb_wide_enough = bb_width_pct >= bb_min_width

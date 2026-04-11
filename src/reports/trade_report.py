@@ -112,7 +112,47 @@ def get_portfolio_summary(mode: str, config: dict) -> dict:
         "daily_pnl_usd": daily_pnl,
         "snapshot_at": snap["snapshot_at"] if snap else None,
         "unrealised_pnl_usd": snap["unrealised_pnl_usd"] if snap else 0.0,
+        "profit_factors": get_profit_factors(mode, config),
     }
+
+
+@_safe
+def get_profit_factors(mode: str, config: dict, days: int = 30) -> dict:
+    """
+    Compute rolling profit factor for every pair with sufficient trade history.
+
+    Returns: {pair: (pf_value_or_None, n_trades)}
+    Profit factor = Gross wins / Gross losses.
+    A pair with < 10 closed trades in the window returns (None, n_trades).
+    """
+    from src.analysis.features import compute_profit_factor
+    tc   = _trade_conn(config, mode)
+    tbl  = "paper_trades" if mode == "paper" else "live_trades"
+    since = _days_ago_iso(days)
+    min_trades = config.get("signals", {}).get(
+        "profit_factor_escalation", {}
+    ).get("min_trades", 10)
+
+    rows = tc.execute(
+        f"SELECT pair, pnl_usd FROM {tbl} WHERE closed_at>=? AND pnl_usd IS NOT NULL",
+        (since,),
+    ).fetchall()
+    tc.close()
+
+    # Group by pair
+    by_pair: dict = {}
+    for r in rows:
+        by_pair.setdefault(r["pair"], []).append({"pnl_usd": float(r["pnl_usd"])})
+
+    result = {}
+    for pair, trades in by_pair.items():
+        if len(trades) < min_trades:
+            result[pair] = (None, len(trades))
+        else:
+            pf = compute_profit_factor(pair, trades)
+            result[pair] = (pf, len(trades))
+
+    return result
 
 
 # ──────────────────────────────────────────────────────────────
