@@ -2,6 +2,24 @@
 
 ---
 
+## Session: 2026-04-11 (Part P) — SOD balance DB-persisted in live mode (#178)
+
+### Fix
+- **[#178] `_get_or_set_sod_balance` generalised to paper + live mode**: Previously only called for `mode == "paper"`. Live mode relied on a stale in-memory SOD balance set once at startup, ignoring midnight UTC rollovers and `reset_paper.py` invocations.
+- **`agent_state` table codified in schemas**: Added `CREATE TABLE IF NOT EXISTS agent_state` DDL to both `PAPER_SCHEMA` and `LIVE_SCHEMA` in `src/storage/database.py`. Added idempotent migrations to `init_paper_db()` and `init_live_db()`. Previously the table only existed in the production paper DB from a prior ad-hoc migration.
+- **SOD block condition** in `main.py` changed from `if mode == "paper" and not is_backtest:` → `if not is_backtest:` with inner `if/else` selecting `paper_trading.db` vs `live_trading.db`.
+- **9 new tests** in `tests/test_sod_balance.py`: schema creation, idempotency, live-mode first-write, same-day stability, midnight UTC rollover, DB fallback, paper-mode regression.
+
+### Files Changed
+- `src/storage/database.py` — `agent_state` DDL added to `PAPER_SCHEMA`, `LIVE_SCHEMA`, and both migration lists
+- `main.py` — `_get_or_set_sod_balance(paper_db, ...)` → `db_path`, docstring updated, SOD block extended to live mode
+- `tests/test_sod_balance.py` — 9 new tests
+
+### Tests
+- 199 tests, all passing (was 190 before this session).
+
+---
+
 ## Session: 2026-04-11 (Part N) — Clarify reset_paper.py output label (#175)
 
 ### Chore
