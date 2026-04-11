@@ -183,7 +183,7 @@ def main() -> None:
         sys.exit(1)
 
     state = _current_state(paper_db, audit_db)
-    print("Current state:")
+    print("State before reset:")
     if "paper_error" in state:
         print(f"  paper_trading.db  ERROR: {state['paper_error']}")
     else:

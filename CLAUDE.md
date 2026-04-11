@@ -215,6 +215,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11k | Chore: commit skill updated — always create feature/defect branch, push branch, raise PR to main (#168) |
 | session_2026_04_11l | Fix: DB-persisted start-of-day balance prevents false daily loss notification (#170); reset_paper.py running-agent guard (#171) |
 | session_2026_04_11m | Chore: switch LLM to Groq qwen3-32b / llama-3.3-70b fallback (#173); commit backtest_status.sh chart flags (retro #101) |
+| session_2026_04_11n | Chore: clarify reset_paper.py output — rename 'Current state' label to 'State before reset' (#175) |
 
 ---
 
