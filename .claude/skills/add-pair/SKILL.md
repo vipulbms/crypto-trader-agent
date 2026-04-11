@@ -288,6 +288,8 @@ exec(open('tests/test_per_pair_params.py').read())
 - [ ] `src/cli/nl_parser.py`: PAIRS list (both full and short) updated; _SYSTEM_PROMPT updated
 - [ ] `docs/business_requirements.md`: scope count, FR-01 list, pair table row, version history
 - [ ] `docs/epics_stories_ac.md`: pair count references updated
+
+> **Note — Drawdown Recovery (#182):** When daily P&L ≤ -3%, `validate_buy()` Guard 1.2 only permits BTC/USD, ETH/USD, and BNB/USD. New pairs are **not** eligible during recovery unless explicitly added to `risk.drawdown_recovery.allowed_pairs` in `config.yaml`. By default, leave new pairs out of that list — it is intentionally restricted to proven major-cap pairs with low drawdown in bearish conditions.
 - [ ] `CLAUDE.md`: pairs table updated
 - [ ] `trailing_stop.per_pair_overrides` updated — or confirmed global default (5%/3%) is appropriate
 - [ ] `risk.correlation_clusters` reviewed — pair added to existing cluster, new cluster created, or left unclustered with rationale
