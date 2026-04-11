@@ -228,6 +228,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11u | Feat: profit factor auto-escalation — raise buy_min_score +1 (PF<1.0) or +2 (PF<0.7) for underperforming pairs; injected per cycle from 30-day trade history; PF table in CLI report; 10 tests; 219 total (#183) |
 | session_2026_04_11v | Fix: backtest loader bare-list JSON format for BONK/PENDLE/ONDO candle files; closes #198 |
 | session_2026_04_11w | Feat: tiered per-pair slippage in paper broker — Tier 1/2/3/4 → 0.05%/0.10%/0.20%/0.40%; `pair_tier` added to all 27 pairs; `_get_pair_slippage()` helper; 9 new tests (12 total); closes #204 |
+| session_2026_04_11x | Docs: update `add-pair` and `trading-rules` skills for `slippage_pct` onboarding (#204) and BTC dominance macro overlay guidance (#206); closes #212 |
 
 ---
 
