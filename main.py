@@ -64,6 +64,42 @@ def setup_logging(config: dict) -> None:
     root.addHandler(console_handler)
 
 
+def _get_or_set_sod_balance(paper_db: str, current_balance: float) -> float:
+    """
+    Return today's start-of-day balance from agent_state DB (paper mode only).
+
+    Key: start_of_day_balance_YYYY-MM-DD (UTC date).
+    - If the key exists for today → return it (stable across cycles).
+    - If absent (new day or DB was reset) → store current_balance and return it.
+
+    This makes the daily P&L baseline self-healing: a reset_paper.py run while
+    the agent is alive will clear agent_state, so the next cycle writes a fresh
+    $1,000 baseline instead of using the stale in-memory value.
+    """
+    from src.storage.database import get_connection
+    today_key = f"start_of_day_balance_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    try:
+        conn = get_connection(paper_db)
+        row = conn.execute(
+            "SELECT value FROM agent_state WHERE key = ?", (today_key,)
+        ).fetchone()
+        if row:
+            conn.close()
+            return float(row["value"])
+        # New day or post-reset — write and return current balance
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+            (today_key, str(current_balance)),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("[SOD] Wrote start-of-day balance $%.2f to agent_state (key=%s)",
+                    current_balance, today_key)
+    except Exception as exc:
+        logger.warning("[SOD] Could not persist start-of-day balance: %s — falling back to current", exc)
+    return current_balance
+
+
 def print_banner(mode: str, balance: float, pairs: list) -> None:
     print("\n" + "═" * 60)
     print("  KRYPTOS — AI Crypto Trading Agent")
@@ -210,6 +246,14 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
     try:
         while True:
             cycle_start = time.time()
+
+            # ── Refresh start-of-day balance from DB (paper mode) ─────────
+            # Guards against stale in-memory value after reset_paper.py runs
+            # while the agent is alive, and handles midnight rollovers. (#170)
+            if mode == "paper" and not is_backtest:
+                paper_db_path = config.get("storage", {}).get("paper_db", "paper_trading.db")
+                current_bal_for_sod = broker.get_balance()["total_usd"]
+                start_of_day_bal = _get_or_set_sod_balance(paper_db_path, current_bal_for_sod)
 
             # Stop-loss / take-profit checks run FIRST — highest priority, before LLM decisions
             # In backtest mode, pass the candle timestamp so closed trades record candle time.

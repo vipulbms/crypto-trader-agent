@@ -17,6 +17,7 @@ Usage:
 import argparse
 import os
 import sys
+import time
 
 # Add project root to path so src.* imports work
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -140,12 +141,23 @@ def _reset_audit_db_paper(audit_db: str) -> None:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+def _check_agent_running(paper_path: str) -> bool:
+    """Return True if paper_trading.db was modified within the last 120 seconds."""
+    try:
+        mtime = os.path.getmtime(paper_path)
+        return (time.time() - mtime) < 120
+    except OSError:
+        return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reset paper trading databases")
     parser.add_argument("--balance", type=float, default=1000.0,
                         help="Starting cash balance in USD (default: 1000)")
     parser.add_argument("--yes", action="store_true",
                         help="Skip confirmation prompt")
+    parser.add_argument("--force", action="store_true",
+                        help="Force reset even if the trading agent appears to be running")
     args = parser.parse_args()
 
     config = _load_config()
@@ -159,6 +171,16 @@ def main() -> None:
     print(f"  paper_trading.db : {paper_path}")
     print(f"  audit.db         : {audit_path}")
     print(f"  New balance      : ${args.balance:,.2f}\n")
+
+    # ── Running-agent guard (#171) ─────────────────────────────────────────────
+    if _check_agent_running(paper_path) and not args.force:
+        print("  ⚠️  WARNING: paper_trading.db was modified in the last 120 seconds.")
+        print("  The trading agent may still be running. Resetting while the agent is")
+        print("  alive will cause a stale start-of-day balance and trigger a false")
+        print("  daily loss notification.\n")
+        print("  Stop the agent first (Ctrl+C in its terminal), then re-run.")
+        print("  If you are certain the agent is stopped, re-run with --force.\n")
+        sys.exit(1)
 
     state = _current_state(paper_db, audit_db)
     print("Current state:")
