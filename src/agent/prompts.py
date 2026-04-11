@@ -86,7 +86,7 @@ def build_cycle_prompt(
             )
 
     # ── AI Context blocks (features 1–6) ──────────────────────────
-    for block_key in ("regime", "sentiment", "patterns", "exit_timing",
+    for block_key in ("regime", "cycle_top", "sentiment", "patterns", "exit_timing",
                       "position_sizing", "dynamic_tp"):
         block = ctx.get(block_key, "")
         if block:
@@ -150,6 +150,7 @@ def build_cycle_prompt(
         "4. Do NOT call any tool for pairs you are not acting on — they are automatically held.",
         "5. Reason briefly (1-2 sentences) before each tool call.",
         "6. If no pairs meet your quality bar, make zero calls — do not force trades.",
+        "7. If a [CYCLE TOP WARNING] block is present, treat Tier 3 / Tier 4 BUYs as blocked even if their raw setup looks strong.",
     ]
 
     return "\n".join(lines)

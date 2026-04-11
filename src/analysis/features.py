@@ -15,6 +15,7 @@ All literals are read from config.yaml — no hardcoded values in this file.
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
@@ -513,6 +514,57 @@ def fetch_fear_greed(config: dict) -> Optional[dict]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _btc_dom_cache: dict = {"data": None, "fetched_at": 0}
+_cycle_top_cache: dict = {"data": None, "fetched_at": 0}
+
+
+def _coerce_float(value) -> Optional[float]:
+    """Best-effort float coercion for API payload values."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.replace(",", "").strip()
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_latest_indicator_value(node, candidate_keys: list[str]) -> Optional[float]:
+    """Extract the most recent numeric indicator value from nested API payloads."""
+    if isinstance(node, dict):
+        for key in candidate_keys:
+            if key in node:
+                value = _extract_latest_indicator_value(node[key], candidate_keys)
+                if value is not None:
+                    return value
+        for key in ("data", "result", "list", "series", "items", "rows"):
+            if key in node:
+                value = _extract_latest_indicator_value(node[key], candidate_keys)
+                if value is not None:
+                    return value
+        for key, value in node.items():
+            if key.lower() in {"time", "timestamp", "date", "t"}:
+                continue
+            coerced = _coerce_float(value)
+            if coerced is not None:
+                return coerced
+            nested = _extract_latest_indicator_value(value, candidate_keys)
+            if nested is not None:
+                return nested
+        return None
+
+    if isinstance(node, list):
+        if len(node) >= 2:
+            last_numeric = _coerce_float(node[-1])
+            if last_numeric is not None:
+                return last_numeric
+        for item in reversed(node):
+            value = _extract_latest_indicator_value(item, candidate_keys)
+            if value is not None:
+                return value
+        return None
+
+    return _coerce_float(node)
 
 
 def fetch_btc_dominance(config: dict, db_path: Optional[str] = None) -> Optional[dict]:
@@ -610,6 +662,151 @@ def fetch_btc_dominance(config: dict, db_path: Optional[str] = None) -> Optional
         btc_dom_pct, trend, change_pp, lookback_days,
     )
     return data
+
+
+def fetch_cycle_top_indicators(config: dict, db_path: Optional[str] = None) -> Optional[dict]:
+    """
+    Fetch BTC cycle-top indicators (MVRV Z-Score + NUPL) from CoinGlass.
+    Cached in-memory and optionally persisted to agent_state with a 24h TTL.
+    """
+    guard_cfg = config.get("risk", {}).get("cycle_top_guard", {})
+    if not guard_cfg.get("enabled", False):
+        return None
+
+    api_key = os.getenv("COINGLASS_API_KEY", "").strip()
+    if not api_key:
+        logger.info("[CYCLE_TOP] COINGLASS_API_KEY not set — skipping cycle-top guard fetch")
+        return None
+
+    cache_hours = guard_cfg.get("cache_hours", 24)
+    cache_secs = cache_hours * 3600
+    now = time.time()
+    if _cycle_top_cache["data"] and (now - _cycle_top_cache["fetched_at"]) < cache_secs:
+        return _cycle_top_cache["data"]
+
+    payload_key = "cycle_top_guard_payload"
+    fetched_key = "cycle_top_guard_fetched_at"
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            rows = conn.execute(
+                "SELECT key, value FROM agent_state WHERE key IN (?, ?)",
+                (payload_key, fetched_key),
+            ).fetchall()
+            cached = {row[0]: row[1] for row in rows}
+            cached_at = _coerce_float(cached.get(fetched_key))
+            cached_payload = cached.get(payload_key)
+            if cached_at and cached_payload and (now - cached_at) < cache_secs:
+                data = json.loads(cached_payload)
+                _cycle_top_cache["data"] = data
+                _cycle_top_cache["fetched_at"] = cached_at
+                conn.close()
+                return data
+            conn.close()
+        except Exception as db_err:
+            logger.debug("[CYCLE_TOP] DB cache read failed: %s", db_err)
+
+    headers = {
+        "Accept": "application/json",
+        "coinglassSecret": api_key,
+        "CG-API-KEY": api_key,
+    }
+    timeout = guard_cfg.get("fetch_timeout_secs", 8)
+    try:
+        mvrv_resp = requests.get(guard_cfg.get("mvrv_url"), headers=headers, timeout=timeout)
+        mvrv_resp.raise_for_status()
+        nupl_resp = requests.get(guard_cfg.get("nupl_url"), headers=headers, timeout=timeout)
+        nupl_resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("[CYCLE_TOP] Fetch failed: %s", exc)
+        return None
+
+    mvrv = _extract_latest_indicator_value(
+        mvrv_resp.json(),
+        ["mvrvZScore", "mvrv_zscore", "mvrv_z_score", "zscore", "z_score", "value"],
+    )
+    nupl = _extract_latest_indicator_value(nupl_resp.json(), ["nupl", "value"])
+    if mvrv is None or nupl is None:
+        logger.warning("[CYCLE_TOP] Could not parse MVRV/NUPL from CoinGlass responses")
+        return None
+
+    data = {
+        "mvrv_z_score": round(mvrv, 3),
+        "nupl": round(nupl, 3),
+        "cycle_top_active": (
+            mvrv >= guard_cfg.get("mvrv_z_danger", 7.0)
+            and nupl >= guard_cfg.get("nupl_danger", 0.70)
+        ),
+    }
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+                (payload_key, json.dumps(data)),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+                (fetched_key, str(now)),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as db_err:
+            logger.debug("[CYCLE_TOP] DB cache write failed: %s", db_err)
+
+    _cycle_top_cache["data"] = data
+    _cycle_top_cache["fetched_at"] = now
+    logger.info(
+        "[CYCLE_TOP] MVRV=%.2f NUPL=%.2f active=%s",
+        data["mvrv_z_score"], data["nupl"], data["cycle_top_active"],
+    )
+    return data
+
+
+def build_cycle_top_context(cycle_top_data: Optional[dict], config: dict) -> str:
+    """Build the cycle-top warning block shown in the cycle prompt."""
+    if not cycle_top_data or not cycle_top_data.get("cycle_top_active"):
+        return ""
+
+    guard_cfg = config.get("risk", {}).get("cycle_top_guard", {})
+    return (
+        "--- [CYCLE TOP WARNING] ---\n"
+        "  BTC on-chain metrics are in macro peak territory.\n"
+        f"  MVRV Z-Score: {cycle_top_data.get('mvrv_z_score', 0.0):.2f} "
+        f"(danger >= {guard_cfg.get('mvrv_z_danger', 7.0):.2f})\n"
+        f"  NUPL:         {cycle_top_data.get('nupl', 0.0):.2f} "
+        f"(danger >= {guard_cfg.get('nupl_danger', 0.70):.2f})\n"
+        "  Action: Block new Tier 3 / Tier 4 BUYs. Prefer BTC/USD, ETH/USD, and BNB/USD."
+    )
+
+
+def apply_cycle_top_guard(signals: list, config: dict, cycle_top_data: Optional[dict]) -> int:
+    """Suppress Tier 3 / Tier 4 BUY signals when the cycle-top guard is active."""
+    if not cycle_top_data or not cycle_top_data.get("cycle_top_active"):
+        return 0
+
+    pair_cfg_map = {
+        pair_cfg.get("pair"): pair_cfg
+        for pair_cfg in config.get("trading", {}).get("pairs", [])
+    }
+    suppressed = 0
+    for sig in signals:
+        pair_tier = sig.get("pair_tier") or int(pair_cfg_map.get(sig.get("pair"), {}).get("pair_tier", 0) or 0)
+        if sig.get("signal") == "BUY" and pair_tier in (3, 4):
+            sig["signal"] = "HOLD"
+            sig["cycle_top_buy_suppressed"] = True
+            reasons = list(sig.get("reasons", []))
+            if "Cycle top guard active" not in reasons:
+                reasons.append("Cycle top guard active")
+            sig["reasons"] = reasons
+            suppressed += 1
+    return suppressed
 
 
 def build_sentiment_context(config: dict) -> str:
@@ -1004,6 +1201,7 @@ def build_ai_context(
     open_positions: list,
     config: dict,
     btc_dominance: Optional[dict] = None,
+    cycle_top_data: Optional[dict] = None,
 ) -> dict:
     """
     Build all AI context blocks for a decision cycle.
@@ -1016,6 +1214,7 @@ def build_ai_context(
             "position_sizing":  str,
             "dynamic_tp":       str,
             "exit_timing":      str,
+            "cycle_top":        str,
             "btc_dominance_trend": str,   "rising"|"falling"|"flat"|"unknown"
             "btc_dominance_pct":   float,
         }
@@ -1025,6 +1224,7 @@ def build_ai_context(
     return {
         "regime":          build_regime_context(regime, config),
         "regime_data":     regime,
+        "cycle_top":       build_cycle_top_context(cycle_top_data, config),
         "sentiment":       build_sentiment_context(config),
         "patterns":        build_pattern_context(config),
         "position_sizing": build_position_sizing_context(

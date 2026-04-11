@@ -2,6 +2,31 @@
 
 ---
 
+## Session: 2026-04-11 (Part AC) — Cycle-top guard via MVRV Z-Score and NUPL (#205)
+
+### Features
+- **[#205] CoinGlass cycle-top guard**: added `fetch_cycle_top_indicators()` in `src/analysis/features.py` to fetch BTC `MVRV Z-Score` and `NUPL`, cache them in-memory, and persist a 24-hour snapshot in `agent_state`.
+- **Prompt warning block**: `build_ai_context()` now emits a `[CYCLE TOP WARNING]` block and `src/agent/prompts.py` shows it near the regime section when both thresholds are breached.
+- **Tier 3/4 BUY suppression**: `main.py` now converts Tier 3 and Tier 4 raw BUY signals to HOLD before the LLM acts when the macro cycle-top guard is active.
+- **Risk-manager enforcement**: `RiskManager.validate_buy()` now hard-blocks Tier 3 / Tier 4 buys during active cycle-top conditions, even if the LLM still attempts one.
+- **Telegram alerts**: `Notifier` now sends activation/deactivation alerts for the cycle-top guard.
+- **Skill update**: `trading-rules` now documents the hard-blocked cycle-top behavior.
+
+### Tests
+- Added `tests/test_cycle_top_guard.py` covering CoinGlass parsing/cache, prompt warning output, signal suppression, and risk-manager enforcement.
+- Re-ran `tests/test_btc_dominance.py`, `tests/test_sector_tiers.py`, and `tests/test_regime_and_dynamic_tp.py` to validate adjacent regime logic.
+
+### Files Changed
+- `src/analysis/features.py`
+- `src/risk/risk_manager.py`
+- `src/agent/prompts.py`
+- `src/notifications/notifier.py`
+- `main.py`
+- `.claude/skills/trading-rules/SKILL.md`
+- `tests/test_cycle_top_guard.py`
+
+---
+
 ## Session: 2026-04-11 (Part AA) — Sector rotation tier caps in rising BTC dominance (#203)
 
 ### Features
