@@ -492,9 +492,12 @@ async def run_cycle(
             loop_state["drawdown_recovery_active"] = False
 
     # Fetch Fear & Greed once per cycle — injected into each pair's indicators dict
-    from src.analysis.features import fetch_fear_greed
+    from src.analysis.features import fetch_fear_greed, fetch_btc_dominance
     fear_greed_data = fetch_fear_greed(config)
     fear_greed_index = fear_greed_data["value"] if fear_greed_data else None
+
+    # Fetch BTC dominance trend once per cycle (#206)
+    btc_dom_data = fetch_btc_dominance(config, db_path=_trading_db) if not is_backtest else None
 
     # Compute indicators and signals for each pair
     signals = []
@@ -639,6 +642,7 @@ async def run_cycle(
         portfolio=portfolio,
         open_positions=open_positions,
         config=config,
+        btc_dominance=btc_dom_data,
     )
 
     # Apply regime caution factor to max_per_trade (#124)

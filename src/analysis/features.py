@@ -17,7 +17,7 @@ import json
 import logging
 import sqlite3
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -269,7 +269,7 @@ def build_dynamic_tp_context(signals: list, config: dict) -> str:
 # Feature 3: Market regime detection
 # ──────────────────────────────────────────────────────────────────────────────
 
-def detect_market_regime(signals: list, config: dict) -> dict:
+def detect_market_regime(signals: list, config: dict, btc_dominance: Optional[dict] = None) -> dict:
     """
     Classify the current market regime across all pairs.
 
@@ -281,7 +281,9 @@ def detect_market_regime(signals: list, config: dict) -> dict:
             "volatile_count": int,
             "ranging_count": int,
             "summary": str,
-            "caution_factor": float  (1.0 = normal, <1 = reduce position sizes)
+            "caution_factor": float,       (1.0 = normal, <1 = reduce position sizes)
+            "btc_dominance_trend": str,    "rising"|"falling"|"flat"|"unknown"
+            "btc_dominance_pct": float,    current BTC dominance % (0 if unavailable)
         }
     """
     reg_cfg = config.get("regime", {})
@@ -354,6 +356,25 @@ def detect_market_regime(signals: list, config: dict) -> dict:
         caution = 1.0
         summary = f"MIXED REGIME: {bullish_count} bullish, {bearish_count} bearish, {ranging_count} ranging."
 
+    # BTC dominance overlay — append to summary when trend is notable (#206)
+    dom_trend   = "unknown"
+    dom_pct     = 0.0
+    dom_change  = 0.0
+    if btc_dominance:
+        dom_trend  = btc_dominance.get("btc_dominance_trend", "flat")
+        dom_pct    = btc_dominance.get("btc_dominance_pct", 0.0)
+        dom_change = btc_dominance.get("trend_change_pp", 0.0)
+        if dom_trend == "rising":
+            summary += (
+                f" | BTC DOMINANCE RISING ({dom_pct:.1f}%, +{dom_change:.1f}pp) — "
+                f"capital rotating to BTC/ETH; altcoin caution elevated."
+            )
+        elif dom_trend == "falling":
+            summary += (
+                f" | BTC DOMINANCE FALLING ({dom_pct:.1f}%, {dom_change:.1f}pp) — "
+                f"altseason signal; altcoins may outperform."
+            )
+
     return {
         "regime": regime,
         "bullish_count": bullish_count,
@@ -362,6 +383,8 @@ def detect_market_regime(signals: list, config: dict) -> dict:
         "ranging_count": ranging_count,
         "summary": summary,
         "caution_factor": caution,
+        "btc_dominance_trend": dom_trend,
+        "btc_dominance_pct": dom_pct,
     }
 
 
@@ -483,6 +506,110 @@ def fetch_fear_greed(config: dict) -> Optional[dict]:
     except Exception as e:
         logger.warning("Fear & Greed fetch failed: %s", e)
         return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Feature 4b: BTC Dominance trend (#206)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_btc_dom_cache: dict = {"data": None, "fetched_at": 0}
+
+
+def fetch_btc_dominance(config: dict, db_path: Optional[str] = None) -> Optional[dict]:
+    """
+    Fetch BTC market-cap dominance from CoinGecko /api/v3/global.
+    Caches in-memory for cache_minutes. Optionally persists daily readings
+    to the agent_state table in db_path for trend calculation.
+
+    Returns:
+        {
+            "btc_dominance_pct": float,
+            "btc_dominance_trend": "rising" | "falling" | "flat",
+            "trend_change_pp": float,   # positive = rising
+        }
+        or None on error / disabled.
+    """
+    dom_cfg = config.get("regime", {}).get("btc_dominance", {})
+    if not dom_cfg.get("enabled", True):
+        return None
+
+    url          = dom_cfg.get("url", "https://api.coingecko.com/api/v3/global")
+    timeout      = dom_cfg.get(
+        "fetch_timeout_secs",
+        config.get("regime", {}).get("fetch_timeout_secs", 8),
+    )
+    cache_mins   = dom_cfg.get("cache_minutes", 60)
+    min_change   = dom_cfg.get("trend_min_change_pp", 0.5)
+    lookback_days = dom_cfg.get("trend_lookback_days", 3)
+
+    now = time.time()
+    if _btc_dom_cache["data"] and (now - _btc_dom_cache["fetched_at"]) < cache_mins * 60:
+        return _btc_dom_cache["data"]
+
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        global_data = resp.json().get("data", {})
+        btc_dom_pct = float(global_data.get("market_cap_percentage", {}).get("btc", 0.0))
+    except Exception as e:
+        logger.warning("[BTC_DOM] Fetch failed: %s", e)
+        return None
+
+    # Persist today's reading to DB for trend calculation
+    today_key = "btc_dom_" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    prev_dom_pct = None
+    if db_path:
+        try:
+            import sqlite3 as _sqlite3
+            conn = _sqlite3.connect(db_path)
+            # Ensure agent_state table exists
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS agent_state "
+                "(key TEXT PRIMARY KEY, value TEXT)"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO agent_state (key, value) VALUES (?, ?)",
+                (today_key, str(btc_dom_pct)),
+            )
+            conn.commit()
+            # Look up the reading from `lookback_days` ago for trend
+            past_key = "btc_dom_" + (
+                datetime.now(timezone.utc) - timedelta(days=lookback_days)
+            ).strftime("%Y-%m-%d")
+            row = conn.execute(
+                "SELECT value FROM agent_state WHERE key=?", (past_key,)
+            ).fetchone()
+            if row:
+                prev_dom_pct = float(row[0])
+            conn.close()
+        except Exception as db_err:
+            logger.debug("[BTC_DOM] DB persistence failed: %s", db_err)
+
+    # Compute trend
+    if prev_dom_pct is not None:
+        change_pp = round(btc_dom_pct - prev_dom_pct, 3)
+    else:
+        change_pp = 0.0
+
+    if change_pp >= min_change:
+        trend = "rising"
+    elif change_pp <= -min_change:
+        trend = "falling"
+    else:
+        trend = "flat"
+
+    data = {
+        "btc_dominance_pct":   round(btc_dom_pct, 2),
+        "btc_dominance_trend": trend,
+        "trend_change_pp":     change_pp,
+    }
+    _btc_dom_cache["data"]       = data
+    _btc_dom_cache["fetched_at"] = now
+    logger.info(
+        "[BTC_DOM] Dominance=%.2f%% trend=%s (Δ%.2fpp vs %dd ago)",
+        btc_dom_pct, trend, change_pp, lookback_days,
+    )
+    return data
 
 
 def build_sentiment_context(config: dict) -> str:
@@ -876,6 +1003,7 @@ def build_ai_context(
     portfolio: dict,
     open_positions: list,
     config: dict,
+    btc_dominance: Optional[dict] = None,
 ) -> dict:
     """
     Build all AI context blocks for a decision cycle.
@@ -888,9 +1016,11 @@ def build_ai_context(
             "position_sizing":  str,
             "dynamic_tp":       str,
             "exit_timing":      str,
+            "btc_dominance_trend": str,   "rising"|"falling"|"flat"|"unknown"
+            "btc_dominance_pct":   float,
         }
     """
-    regime = detect_market_regime(signals, config)
+    regime = detect_market_regime(signals, config, btc_dominance=btc_dominance)
 
     return {
         "regime":          build_regime_context(regime, config),
@@ -904,4 +1034,6 @@ def build_ai_context(
         "dynamic_tp_values": compute_dynamic_tp_values(signals, config),
         "dynamic_sl_values": compute_dynamic_sl_values(signals, config),
         "exit_timing":     build_exit_timing_context(open_positions, signals, config),
+        "btc_dominance_trend": regime.get("btc_dominance_trend", "unknown"),
+        "btc_dominance_pct":   regime.get("btc_dominance_pct", 0.0),
     }
