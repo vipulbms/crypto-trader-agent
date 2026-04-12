@@ -237,6 +237,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_12a | Analysis: H4 gate hypothesis disproven — confirmed_down win rate 43.9% vs 41.4% overall; analyse_h4_gate.py committed (vectorised, ~6min for 16-month window); closes #180 |
 | session_2026_04_12b | Fix: cycle prompt token reduction (HOLD pairs filtered, BB/ATR/redundant blocks removed, ~1,015 tokens saved, refs #217); feat: structured LLM JSON logging /logs/agent-llm-prompts.log + session_id/request_id tracing + kryptos-cli.log CLI audit, closes #219; fix: duplicate log lines (root handler accumulation); fix: CoinGlass 1h failure back-off; fix: @timed("config") noise on compute_indicators |
 | session_2026_04_12c | Fix: qwen3-32b tool_use_failed — apply `reasoning_effort: none` via Groq API (correct Groq parameter, replaces Anthropic-style `thinking` which was reverted in #216); 8 tests; closes #223 |
+| session_2026_04_12d | Fix: duplicate log lines — `console_handler` skipped when `sys.stdout` is not a TTY (background subprocess has stdout redirected to `agent.log`); closes #226 |
 
 ---
 
