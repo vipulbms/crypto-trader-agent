@@ -16,6 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 timing_mod = types.ModuleType("src.utils.timing")
 timing_mod.timed = lambda *a, **kw: (lambda f: f)
+timing_mod.set_cycle_id = lambda *a: None
+timing_mod.set_request_id = lambda *a: None
+timing_mod.current_cycle_id = type("_CV", (), {"get": staticmethod(lambda: 0)})()
 sys.modules["src.utils.timing"] = timing_mod
 
 tz_mod = types.ModuleType("src.utils.tz")

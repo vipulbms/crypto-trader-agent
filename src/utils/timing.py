@@ -25,9 +25,31 @@ logger = logging.getLogger("timing")
 # Holds the current cycle ID — set by run_cycle in main.py
 current_cycle_id: ContextVar[int] = ContextVar("current_cycle_id", default=0)
 
+# Per-agent-process session ID (set once at startup in main.py)
+_session_id_var: ContextVar[str] = ContextVar("session_id", default="")
+
+# Per-LLM-call request ID (set per call in trading_agent.py)
+_request_id_var: ContextVar[str] = ContextVar("request_id", default="")
+
 
 def set_cycle_id(cycle_id: int) -> None:
     current_cycle_id.set(cycle_id)
+
+
+def set_session_id(session_id: str) -> None:
+    _session_id_var.set(session_id)
+
+
+def set_request_id(request_id: str) -> None:
+    _request_id_var.set(request_id)
+
+
+def get_session_id() -> str:
+    return _session_id_var.get("")
+
+
+def get_request_id() -> str:
+    return _request_id_var.get("")
 
 
 def _extract_params(func, args, kwargs, param_names: tuple) -> dict:

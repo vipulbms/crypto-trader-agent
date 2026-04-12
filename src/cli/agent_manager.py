@@ -19,11 +19,19 @@ from src.utils.tz import SGT, now_sgt
 
 logger = logging.getLogger(__name__)
 
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_DATA_DIR  = os.path.join(_BASE_DIR, "data")
-_PID_FILE  = os.path.join(_DATA_DIR, "kryptos.pid")
-_LOG_FILE  = os.path.join(_BASE_DIR, "agent.log")
+_BASE_DIR    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DATA_DIR    = os.path.join(_BASE_DIR, "data")
+_PID_FILE    = os.path.join(_DATA_DIR, "kryptos.pid")
 _MAIN_SCRIPT = os.path.join(_BASE_DIR, "main.py")
+_LOG_FILE    = "/logs/agent.log"  # overridden by init_from_config()
+
+
+def init_from_config(config: dict) -> None:
+    """Resolve log paths from config.storage.log_dir. Call once at CLI startup."""
+    global _LOG_FILE
+    log_dir  = config.get("storage", {}).get("log_dir", "/logs")
+    os.makedirs(log_dir, exist_ok=True)
+    _LOG_FILE = os.path.join(log_dir, "agent.log")
 
 
 def _ensure_data_dir() -> None:

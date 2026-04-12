@@ -24,6 +24,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 from datetime import datetime, timezone, timedelta
 
 import yaml
@@ -32,34 +33,58 @@ from dotenv import load_dotenv
 logger = logging.getLogger("main")
 
 
+class _TraceFilter(logging.Filter):
+    """Injects session_id_short and request_id_short into every log record."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__()
+        self._session_id_short = session_id[:8] if session_id else "--------"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from src.utils.timing import get_request_id
+        rid = get_request_id()
+        record.session_id_short = self._session_id_short
+        record.request_id_short = rid[:8] if rid else "--------"
+        return True
+
+
 def load_config(path: str = "config.yaml") -> dict:
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
 
-def setup_logging(config: dict) -> None:
+def setup_logging(config: dict, session_id: str = "") -> None:
     storage_cfg  = config.get("storage", {})
+    log_dir      = storage_cfg.get("log_dir", "/logs")
     max_bytes    = storage_cfg.get("log_max_bytes", 100 * 1024 * 1024)
     backup_count = storage_cfg.get("log_backup_count", 4)
     llm_debug    = storage_cfg.get("llm_debug_logging", False)
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
 
-    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    fmt = "%(asctime)s [%(levelname)s] [S:%(session_id_short)s] %(name)s: %(message)s"
+    trace_filter = _TraceFilter(session_id)
 
     # File handler — DEBUG when llm_debug_logging enabled, else INFO
     file_handler = logging.handlers.RotatingFileHandler(
-        "logs/agent.log", maxBytes=max_bytes, backupCount=backup_count,
+        os.path.join(log_dir, "agent.log"), maxBytes=max_bytes, backupCount=backup_count,
     )
     file_handler.setLevel(logging.DEBUG if llm_debug else logging.INFO)
     file_handler.setFormatter(logging.Formatter(fmt))
+    file_handler.addFilter(trace_filter)
 
     # Console handler — always INFO (avoid flooding terminal with prompts)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter(fmt))
+    console_handler.addFilter(trace_filter)
 
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if llm_debug else logging.INFO)
+    # Remove any handlers already attached (e.g. from logging.basicConfig elsewhere)
+    # to prevent duplicate log lines when setup_logging is called more than once.
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+        h.close()
     root.addHandler(file_handler)
     root.addHandler(console_handler)
 
@@ -117,7 +142,7 @@ def print_banner(mode: str, balance: float, pairs: list) -> None:
     print("═" * 60 + "\n")
 
 
-async def run_agent(config: dict, mode: str, feed=None) -> None:
+async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") -> None:
     """
     feed : optional HistoricalFeed for back-testing.
            When provided, the live WebSocket is not started and the main loop
@@ -209,6 +234,7 @@ async def run_agent(config: dict, mode: str, feed=None) -> None:
         config=config,
         mode=mode,
         audit_logger=audit,
+        session_id=session_id,
     )
 
     notifier.send_agent_started(start_of_day_bal, pairs, mode)
@@ -764,11 +790,20 @@ def main() -> None:
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     args = parser.parse_args()
 
-    mode   = "paper" if args.paper else "live"
-    config = load_config(args.config)
-    setup_logging(config)
+    mode       = "paper" if args.paper else "live"
+    config     = load_config(args.config)
+    session_id = str(uuid.uuid4())
 
-    asyncio.run(run_agent(config, mode))
+    setup_logging(config, session_id=session_id)
+
+    from src.utils.timing import set_session_id
+    from src.utils.llm_logger import init_llm_logger
+    set_session_id(session_id)
+    init_llm_logger(log_dir=config.get("storage", {}).get("log_dir", "/logs"), config=config)
+
+    logger.info("[SESSION] Agent session started — id=%s mode=%s", session_id, mode)
+
+    asyncio.run(run_agent(config, mode, session_id=session_id))
 
 
 if __name__ == "__main__":

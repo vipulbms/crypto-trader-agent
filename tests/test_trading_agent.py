@@ -24,13 +24,23 @@ for _mod in ("ollama", "httpx"):
 timing_mod = types.ModuleType("src.utils.timing")
 timing_mod.timed = lambda *a, **kw: (lambda fn: fn)
 timing_mod.set_cycle_id = lambda *a: None
+timing_mod.set_request_id = lambda *a: None
+timing_mod.current_cycle_id = MagicMock(get=lambda: 0)
 sys.modules.setdefault("src.utils.timing", timing_mod)
 
-# Stub src.utils.tz
-tz_mod = types.ModuleType("src.utils.tz")
-from datetime import datetime
-tz_mod.now_sgt = lambda: datetime.utcnow()
-sys.modules.setdefault("src.utils.tz", tz_mod)
+# Stub src.utils.llm_logger (avoids file I/O in tests)
+llm_logger_mod = types.ModuleType("src.utils.llm_logger")
+llm_logger_mod.log_llm_interaction = lambda **kw: None
+sys.modules.setdefault("src.utils.llm_logger", llm_logger_mod)
+
+# Stub src.utils.tz (only if not already imported — avoids polluting sys.modules for other tests)
+if "src.utils.tz" not in sys.modules:
+    tz_mod = types.ModuleType("src.utils.tz")
+    from datetime import datetime, timezone, timedelta
+    tz_mod.now_sgt = lambda: datetime.utcnow()
+    tz_mod.SGT = timezone(timedelta(hours=8), name="SGT")
+    tz_mod.now_sgt_iso = lambda: datetime.utcnow().isoformat()
+    sys.modules["src.utils.tz"] = tz_mod
 
 # Stub src.agent.prompts (avoids heavy LLM-prompt imports)
 prompts_mod = types.ModuleType("src.agent.prompts")
@@ -177,13 +187,13 @@ class TestThinkBlockStripping:
 
 
 class TestDisableThinking:
-    """Option A: extra_body passed when disable_thinking=True."""
+    """Groq rejects extra_body{"thinking"} with 400 — <think> stripping is the sole guard."""
 
-    def test_disable_thinking_true_sends_extra_body(self):
+    def test_disable_thinking_true_no_extra_body(self):
         """
         Given disable_thinking=True
         When _call_openai_compat is called
-        Then the API call includes extra_body={"thinking": {"type": "disabled"}}
+        Then extra_body is NOT passed (Groq rejects it with 400; stripping is the sole guard)
         """
         agent = _make_agent(disable_thinking=True)
         mock_resp = _build_mock_response(content="response")
@@ -192,8 +202,7 @@ class TestDisableThinking:
         agent._call_openai_compat("qwen/qwen3-32b", [])
 
         call_kwargs = agent._client.chat.completions.create.call_args[1]
-        assert "extra_body" in call_kwargs, "extra_body should be present when disable_thinking=True"
-        assert call_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+        assert "extra_body" not in call_kwargs, "extra_body must not be sent — Groq rejects it with 400"
 
     def test_disable_thinking_false_no_extra_body(self):
         """

@@ -17,6 +17,9 @@ def _timed(*a, **kw):
     def _dec(fn): return fn
     return _dec
 timing_mod.timed = _timed
+timing_mod.set_cycle_id = lambda *a: None
+timing_mod.set_request_id = lambda *a: None
+timing_mod.current_cycle_id = type("_CV", (), {"get": staticmethod(lambda: 0)})()
 sys.modules.setdefault("src.utils.timing", timing_mod)
 
 from src.exchange.paper_broker import PaperBroker

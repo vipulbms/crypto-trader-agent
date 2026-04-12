@@ -17,10 +17,13 @@ import logging
 import os
 import re
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..utils.tz import now_sgt
-from ..utils.timing import timed, set_cycle_id
+from ..utils.timing import timed, set_cycle_id, set_request_id, current_cycle_id
+from ..utils.llm_logger import log_llm_interaction
 
 import httpx
 import ollama
@@ -43,11 +46,13 @@ class TradingAgent:
         config: dict,
         mode: str,
         audit_logger,
+        session_id: str = "",
     ):
         self._tools       = tools
         self._config      = config
         self._mode        = mode
         self._audit       = audit_logger
+        self._session_id  = session_id
         llm_cfg           = config.get("llm", {})
         self._provider    = llm_cfg.get("provider", "ollama")
         self._model       = llm_cfg.get("model", "qwen2.5:14b")
@@ -58,6 +63,9 @@ class TradingAgent:
         self._max_buys    = config.get("trading", {}).get("max_buys_per_cycle", 2)
         self._min_order_usd = config.get("risk", {}).get("min_order_usd", 20.0)
         self._disable_thinking = llm_cfg.get("disable_thinking", False)
+        self._system_prompt = llm_cfg.get("system_prompt") or SYSTEM_PROMPT
+        if not llm_cfg.get("system_prompt"):
+            logger.warning("[AGENT] llm.system_prompt not found in config — using fallback")
 
         if self._provider == "openai_compat":
             from openai import OpenAI
@@ -192,7 +200,7 @@ class TradingAgent:
         All other pairs are automatically logged as HOLD.
         """
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self._system_prompt},
             {"role": "user",   "content": cycle_prompt},
         ]
 
@@ -207,7 +215,7 @@ class TradingAgent:
         completion_tokens = None
 
         logger.debug("[LLM PROMPT]\n--- SYSTEM ---\n%s\n--- USER ---\n%s",
-                     SYSTEM_PROMPT, cycle_prompt)
+                     self._system_prompt, cycle_prompt)
 
         for attempt in [self._model, self._fallback]:
             try:
@@ -380,20 +388,43 @@ class TradingAgent:
 
     def _call_ollama(self, model: str, messages: list) -> tuple:
         """Call Ollama and return (tool_calls, raw_output, prompt_tokens, completion_tokens)."""
+        request_id = str(uuid.uuid4())
+        call_start_utc = datetime.now(timezone.utc).isoformat()
+        call_start = time.time()
+        set_request_id(request_id)
+
         response = self._client.chat(
             model=model,
             messages=messages,
             tools=self._TOOL_DEFS,
             options={"temperature": 0.1},
         )
+        latency_ms = int((time.time() - call_start) * 1000)
+
         msg = response.message
         tool_calls = msg.tool_calls or []
-        return (
-            tool_calls,
-            msg.content or "",
-            getattr(response, "prompt_eval_count", None),
-            getattr(response, "eval_count", None),
+        raw_output = msg.content or ""
+        prompt_tokens     = getattr(response, "prompt_eval_count", None)
+        completion_tokens = getattr(response, "eval_count", None)
+
+        system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+        user_msg   = next((m["content"] for m in messages if m["role"] == "user"), "")
+        log_llm_interaction(
+            request_id=request_id,
+            session_id=self._session_id,
+            cycle_id=current_cycle_id.get(),
+            model_id=model,
+            system_prompt=system_msg,
+            user_message=user_msg,
+            raw_output=raw_output,
+            tool_calls=[{"name": tc.function.name, "args": dict(tc.function.arguments)} for tc in tool_calls],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+            call_start_utc=call_start_utc,
         )
+
+        return tool_calls, raw_output, prompt_tokens, completion_tokens
 
     def _call_openai_compat(self, model: str, messages: list) -> tuple:
         """
@@ -402,11 +433,15 @@ class TradingAgent:
         Returns (tool_calls, raw_output, prompt_tokens, completion_tokens)
         where tool_calls is a list of objects with .function.name and .function.arguments.
 
-        When disable_thinking=true (recommended for qwen3 on Groq), thinking mode is
-        suppressed via extra_body to prevent <think> blocks from interfering with
-        tool dispatch.  As defence-in-depth, <think> blocks are also stripped from
-        raw_output regardless of this flag.
+        <think> blocks are stripped from raw_output as defence-in-depth against
+        reasoning models (qwen3, DeepSeek-R1) that leak chain-of-thought into content.
+        Groq rejects extra_body{"thinking"} with 400, so stripping is the sole guard.
         """
+        request_id = str(uuid.uuid4())
+        call_start_utc = datetime.now(timezone.utc).isoformat()
+        call_start = time.time()
+        set_request_id(request_id)
+
         kwargs = dict(
             model=model,
             messages=messages,
@@ -414,10 +449,12 @@ class TradingAgent:
             tool_choice="required",
             temperature=0.1,
         )
-        if self._disable_thinking:
-            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-            logger.debug("[LLM] Thinking mode disabled via extra_body (qwen3/Groq)")
+        # Note: Groq rejects extra_body{"thinking"} entirely (400) — <think> stripping
+        # below is the sole guard for qwen3 on Groq. extra_body is only valid on
+        # providers that expose a thinking toggle (e.g. Anthropic API direct).
         response = self._client.chat.completions.create(**kwargs)
+        latency_ms = int((time.time() - call_start) * 1000)
+
         choice = response.choices[0]
         msg = choice.message
         raw_output = msg.content or ""
@@ -428,6 +465,7 @@ class TradingAgent:
 
         # Normalise OpenAI tool_calls to the same duck-typed interface as Ollama
         tool_calls = []
+        serialisable_tool_calls = []
         for tc in (msg.tool_calls or []):
             args = tc.function.arguments
             if isinstance(args, str):
@@ -449,6 +487,24 @@ class TradingAgent:
             wrapped = _TC()
             wrapped.function = fn
             tool_calls.append(wrapped)
+            serialisable_tool_calls.append({"name": fn.name, "args": dict(args)})
+
+        system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+        user_msg   = next((m["content"] for m in messages if m["role"] == "user"), "")
+        log_llm_interaction(
+            request_id=request_id,
+            session_id=self._session_id,
+            cycle_id=current_cycle_id.get(),
+            model_id=model,
+            system_prompt=system_msg,
+            user_message=user_msg,
+            raw_output=raw_output,
+            tool_calls=serialisable_tool_calls,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+            call_start_utc=call_start_utc,
+        )
 
         return tool_calls, raw_output, prompt_tokens, completion_tokens
 

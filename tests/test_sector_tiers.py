@@ -121,8 +121,8 @@ class TestPromptShowsTier(unittest.TestCase):
             min_order_usd=20.0,
         )
 
-        self.assertIn("Tier:          3 (speculative altcoin)", prompt)
-        self.assertIn("Max buy size:  $17.50", prompt)
+        # Tier and Max buy are now consolidated on one line (issue #217 Step 3)
+        self.assertIn("Tier 3 (speculative altcoin) | Max buy: $17.50", prompt)
 
 
 class TestTradingToolsPairCap(unittest.TestCase):
