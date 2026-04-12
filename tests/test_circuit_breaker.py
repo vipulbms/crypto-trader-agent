@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from datetime import datetime, timezone, timedelta
 from src.risk.risk_manager import RiskManager
-from src.storage.database import get_connection
+from src.storage.database import get_connection, init_paper_db
 
 DB_PATH = "paper_trading.db"
 
@@ -32,6 +32,7 @@ CONFIG = {
 
 def _seed_trades(rows: list) -> None:
     """Insert test trades. rows = list of (closed_at_iso, exit_reason)."""
+    init_paper_db(DB_PATH)
     conn = get_connection(DB_PATH)
     conn.execute("DELETE FROM paper_trades WHERE pair='TEST/USD'")
     for closed_at, exit_reason in rows:

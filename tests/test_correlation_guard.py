@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.risk.risk_manager import RiskManager
-from src.storage.database import get_connection
+from src.storage.database import get_connection, init_paper_db
 
 DB_PATH = "paper_trading.db"
 
@@ -41,6 +41,7 @@ CONFIG = {
 
 def _seed_positions(pairs: list) -> None:
     """Insert fake open positions for the given pairs."""
+    init_paper_db(DB_PATH)
     conn = get_connection(DB_PATH)
     conn.execute("DELETE FROM paper_positions WHERE pair LIKE '%/USD'")
     for pair in pairs:
