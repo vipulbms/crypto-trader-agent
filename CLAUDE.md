@@ -234,6 +234,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11aa | Feat: sector rotation tier caps — Tier 3=0.5x, Tier 4=0.3x, non-core Tier 2=0.7x when bearish + rising BTC dominance; prompt shows pair tier; propose_buy now enforces pair_max_usd; 4 new tests; closes #203 |
 | session_2026_04_11ab | Chore: merge `origin/main` into `feature/203`; resolve PR #214 conflicts by preserving existing X/Y/Z docs history and moving the #203 note to Part AA |
 | session_2026_04_11ac | Feat: on-chain cycle-top guard via CoinGlass MVRV Z-Score + NUPL — block Tier 3/4 buys at macro peak, add prompt warning and Telegram alerts; 7 new tests; closes #205 |
+| session_2026_04_12a | Analysis: H4 gate hypothesis disproven — confirmed_down win rate 43.9% vs 41.4% overall; analyse_h4_gate.py committed (vectorised, ~6min for 16-month window); closes #180 |
 
 ---
 

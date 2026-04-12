@@ -2,6 +2,23 @@
 
 ---
 
+## Session: 2026-04-12 (Part A) — H4 gate analysis: hypothesis disproven (#180)
+
+### Analysis
+- **[#180] H4 trend gate hypothesis test**: ran two-pass fast backtest (no LLM) over 2025-10-01 → 2026-04-12 (1,110 baseline trades, 26 pairs). `confirmed_down` entries (EMA9 < EMA21 + MACD histogram < 0) achieved **43.9% win rate** vs **41.4% overall** — 2.5pp above baseline. Applying the gate worsened P&L by −$45.79 and dropped win rate by −2.1pp. Hypothesis NOT supported; issue closed as won't implement.
+
+### Features
+- **`scripts/analyse_h4_gate.py`** (new): vectorised two-pass analysis script. Key optimisations: `_precompute_indicators_all()` runs `ta` library once per pair on trimmed candle window (~6 min for 16-month window vs ~147 min per-step); date-based candle trimming; O(n) incremental EMA for H4 state precomputation; `detect_market_regime()` replaces `build_ai_context()` per cycle.
+
+### Documentation
+- `README.md`: added H4 gate analysis section with usage examples and last-run verdict.
+
+### Files Changed
+- `scripts/analyse_h4_gate.py` (new)
+- `README.md`
+
+---
+
 ## Session: 2026-04-11 (Part AC) — Cycle-top guard via MVRV Z-Score and NUPL (#205)
 
 ### Features
