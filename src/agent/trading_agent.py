@@ -456,10 +456,13 @@ class TradingAgent:
         # causes Groq's function-call parser to return tool_use_failed (failed_generation='').
         # reasoning_effort="none" is the correct Groq parameter (not Anthropic's
         # extra_body{"thinking"} which was reverted in #216 as it caused 400 for all models).
+        # reasoning_format="hidden" is ALSO required: Groq docs state this must be set to
+        # "parsed" or "hidden" when tool calling is enabled — the default "raw" is incompatible
+        # with function calling and causes a 400 error even when reasoning_effort=none. (#228)
         # Applied only when disable_thinking=True AND model is qwen3, so the fallback
-        # llama-3.3-70b-versatile is unaffected. Closes #223.
+        # llama-3.3-70b-versatile is unaffected. Closes #223, #228.
         if self._disable_thinking and "qwen3" in model.lower():
-            kwargs["extra_body"] = {"reasoning_effort": "none"}
+            kwargs["extra_body"] = {"reasoning_effort": "none", "reasoning_format": "hidden"}
         response = self._client.chat.completions.create(**kwargs)
         latency_ms = int((time.time() - call_start) * 1000)
 
