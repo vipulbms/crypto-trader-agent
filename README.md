@@ -249,6 +249,69 @@ Every 15 minutes:
 
 ---
 
+## Operational Log Files
+
+The agent writes three rotating log files to `logs/` (configured via `storage.log_dir` in `config.yaml`).
+
+### `logs/agent.log`
+
+Main agent log — one INFO line per significant event (cycle start, signal summary, trade execution, errors). Rotates at 100 MB × 5 files. Enables DEBUG-level LLM output when `storage.llm_debug_logging: true`.
+
+### `logs/cycle_decisions.log`
+
+**Human-readable decision trace** — one structured block per cycle. This is the primary file for understanding why each pair was bought, sold, or held. Rotates at 20 MB × 5 files (configurable via `storage.cycle_log_max_bytes` / `storage.cycle_log_backup_count`). Skipped in backtest mode.
+
+Each cycle block contains:
+- **Header**: cycle ID, timestamp, balance, cash, open position count, daily P&L
+- **Macro context**: regime + caution factor, Fear & Greed index, BTC dominance trend, cycle-top guard state
+- **Per-pair section** for every pair:
+  - Price, signal direction, buy/sell score vs max score, min score required
+  - Indicator snapshot: RSI, MACD histogram (with `← BULLISH TURN` / `← BEARISH TURN` markers), ADX, BB zone, BB width, ATR, EMA relationship, volume ratio
+  - All scoring reasons with `+` (positive), `✗ BLOCKED` (hard veto), or `~` (neutral) prefixes
+  - Final verdict: `BUY/SELL candidate → LLM: <result>` or `HOLD (score N < min M, gap G)`
+- **Footer summary**: BUY/SELL/HOLD counts, veto count, pairs sent to LLM, cycle duration
+
+Example (abridged):
+```
+════════════════════════════════════════════════════════════════════════
+CYCLE #42  2026-04-12 14:30:00 UTC  Balance $1,234.56  Cash $456.78  Open 2  Daily P&L +$12.34 (+1.02%)
+════════════════════════════════════════════════════════════════════════
+MACRO
+  Regime       : neutral
+  Fear & Greed : 38 (fear)
+  BTC Dom      : 52.3% rising
+  Cycle-top    : inactive
+
+──  ETH/USD  $3000.0000  →  BUY  score=7/28  min=5  ──────────────────
+  RSI=28.40  MACD-hist=+0.000120 ← BULLISH TURN  ADX=35.2  BB=at-lower(↓ BUY zone)
+  EMA9 > EMA21  Price > EMA50($2980.0000)  Vol-ratio=1.12x
+  REASONS:
+    + RSI oversold (28.4 < 30)
+    + MACD histogram turned positive
+  VERDICT: BUY candidate → LLM: BUY executed $180.00
+
+──  SOL/USD  $140.5200  →  HOLD  VETOED  ──────────────────────────────
+  RSI=72.10  ...
+  REASONS:
+    ✗ RSI 72.1 >= 70 — overbought, no entry
+  VERDICT: HOLD (hard veto) — not sent to LLM
+
+──  BTC/USD  $65000.0000  →  HOLD  score=4/28(need 5) gap=1  ──────────
+  REASONS:
+    + ADX 45.0 > 40 — strong trend confirmed
+  VERDICT: HOLD (score 4 < min 5, gap 1) — not sent to LLM
+
+────────────────────────────────────────────────────────────────────────
+SUMMARY  BUY:3  SELL:1  HOLD:23(2 vetoed)  Sent to LLM:4  Duration:4.2s
+════════════════════════════════════════════════════════════════════════
+```
+
+### `logs/agent-llm-prompts.log`
+
+Full JSON record of every LLM request/response. Fields: `request_id`, `session_id`, `timestamp`, `model`, `system_prompt`, `user_message`, `raw_output`, `tool_calls`, `prompt_tokens`, `completion_tokens`, `estimated_cost_usd`, `latency_ms`. Rotates at 100 MB × 5 files.
+
+---
+
 ## Database Storage
 
 The agent uses three local SQLite databases (defaulting to the `data/` directory) to maintain state, history, and a complete audit trail.

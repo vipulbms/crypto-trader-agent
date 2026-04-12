@@ -769,6 +769,20 @@ async def run_cycle(
         elif "SELL" in action or "sell" in action.lower():
             sells += 1
 
+    # Write human-readable decision trace (skipped in backtest)
+    if not is_backtest:
+        from src.utils.cycle_logger import write_cycle_report
+        cycle_duration_ms_pre = int(time.time() * 1000) - cycle_start_ms
+        write_cycle_report(
+            config=config,
+            cycle_id=cycle_id,
+            portfolio=portfolio,
+            signals=signals,
+            ai_context=ai_context,
+            results=results,
+            duration_ms=cycle_duration_ms_pre,
+        )
+
     # Audit balance snapshot — re-fetch to capture any trades that executed this cycle
     post_balance = broker.get_balance()
     audit.log_balance_snapshot(
@@ -803,8 +817,11 @@ def main() -> None:
 
     from src.utils.timing import set_session_id
     from src.utils.llm_logger import init_llm_logger
+    from src.utils.cycle_logger import init_cycle_logger
     set_session_id(session_id)
-    init_llm_logger(log_dir=config.get("storage", {}).get("log_dir", "/logs"), config=config)
+    log_dir = config.get("storage", {}).get("log_dir", "/logs")
+    init_llm_logger(log_dir=log_dir, config=config)
+    init_cycle_logger(log_dir=log_dir, config=config)
 
     logger.info("[SESSION] Agent session started — id=%s mode=%s", session_id, mode)
 

@@ -402,6 +402,14 @@ def _score_sell(
 
 
 def _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, max_score, reasons, price) -> dict:
+    # Common score fields — consumed by cycle_logger for decision tracing
+    _scores = {
+        "buy_score":     buy_score,
+        "sell_score":    sell_score,
+        "buy_min_score": buy_min_score,
+        "sell_min_score": sell_min_score,
+        "max_score":     max_score,
+    }
     if buy_score > sell_score and buy_score >= buy_min_score:
         return {
             "pair":     pair,
@@ -409,6 +417,7 @@ def _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, ma
             "strength": round(min(buy_score / max_score, 1.0), 2),
             "reasons":  reasons,
             "price":    price,
+            **_scores,
         }
     elif sell_score > buy_score and sell_score >= sell_min_score:
         return {
@@ -417,6 +426,7 @@ def _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, ma
             "strength": round(min(sell_score / max_score, 1.0), 2),
             "reasons":  reasons,
             "price":    price,
+            **_scores,
         }
     else:
         return {
@@ -425,4 +435,5 @@ def _build_result(pair, buy_score, sell_score, buy_min_score, sell_min_score, ma
             "strength": 0.0,
             "reasons":  reasons if reasons else ["No clear confluence of signals"],
             "price":    price,
+            **_scores,
         }
