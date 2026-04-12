@@ -10,13 +10,14 @@ Verifies:
 
 import sys
 import os
+import uuid
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from datetime import datetime, timezone, timedelta
 from src.risk.risk_manager import RiskManager
 from src.storage.database import get_connection, init_paper_db
 
-DB_PATH = "paper_trading.db"
+DB_PATH = f"test_paper_{uuid.uuid4().hex[:8]}.db"
 
 CONFIG = {
     "trading": {
@@ -139,7 +140,7 @@ TIERED_CONFIG = {
 }
 
 # Use a dedicated clean DB for graduated tests to avoid contamination from production data
-DB_TIERED = "test_paper_cb_graduated.db"
+DB_TIERED = f"test_paper_{uuid.uuid4().hex[:8]}.db"
 
 
 def _setup_tiered_db():
