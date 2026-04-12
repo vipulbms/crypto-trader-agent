@@ -2,6 +2,19 @@
 
 ---
 
+## Session: 2026-04-12 (Part C) — Fix qwen3-32b tool_use_failed (#223)
+
+### Bug Fixes
+- **[#223] qwen3-32b `tool_use_failed` on Groq**: `qwen/qwen3-32b` was failing every LLM cycle with a 400 error (`failed_generation: ''`), always falling back to llama. Root cause: qwen3's thinking mode generates `<think>` content before the tool call JSON, breaking Groq's function-call parser. Fix: pass `extra_body={"reasoning_effort": "none"}` (correct Groq parameter) in `_call_openai_compat()` when `disable_thinking=True` and model contains `qwen3`. The llama fallback is unaffected. Previous Anthropic-style `extra_body={"thinking": ...}` (#177) was not tried again as it caused 400 for all models (#216).
+
+### Chores
+- Deleted temp diagnostic scripts `scripts/_diag_log.py` and `scripts/_trace_handlers.py` (created during session_2026_04_12b investigation).
+
+### Tests
+- Updated `tests/test_trading_agent.py`: replaced stale "no extra_body" assertion with new tests `test_disable_thinking_true_qwen3_passes_reasoning_effort` and `test_disable_thinking_true_llama_no_extra_body`. 8/8 tests pass.
+
+---
+
 ## Session: 2026-04-12 (Part B) — Token reduction + LLM logging + observability fixes (#217, #219)
 
 ### Features
