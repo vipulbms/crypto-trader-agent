@@ -442,6 +442,26 @@ python tests/test_backtest.py           # full 12-month candle history
 python scripts/audit_rejections.py      # why trades were blocked (layer breakdown)
 ```
 
+### H4 Trend Gate Analysis
+
+Tests whether blocking BUY entries during 4-hour confirmed downtrends (EMA9 < EMA21 AND MACD histogram < 0) improves results. Runs two fast-backtest passes (no LLM) and prints a before/after comparison.
+
+```bash
+# Run full analysis (both passes, all 26 pairs)
+python scripts/analyse_h4_gate.py --start-date 2025-10-01
+
+# Summary output only (no per-pair breakdown)
+python scripts/analyse_h4_gate.py --start-date 2025-10-01 --summary-only
+
+# Baseline pass only (no gate — for profiling)
+python scripts/analyse_h4_gate.py --start-date 2025-10-01 --baseline-only
+
+# Also test blocking partial_down entries (EMA9 < EMA21, MACD still positive)
+python scripts/analyse_h4_gate.py --start-date 2025-10-01 --block-partial
+```
+
+The script completes in ~6 minutes for a 16-month window. Re-run periodically (e.g. monthly) after adding new pairs or after significant strategy changes to check whether the H4 state / win-rate relationship shifts. Last run: **2026-04-12 — hypothesis NOT supported** (confirmed_down win rate 43.9% vs overall 41.4%; gate would worsen P&L by −$45.79).
+
 ---
 
 ## File Structure
@@ -476,6 +496,7 @@ crypto-trader-agent/
 │   ├── live_trading.db
 │   └── audit.db
 ├── scripts/
+│   ├── analyse_h4_gate.py           H4 trend-gate hypothesis tester — two-pass fast backtest
 │   ├── audit_rejections.py          Post-backtest diagnostic — why trades were blocked
 │   ├── daily_report.py              Print daily P&L summary
 │   └── review.py                    Candle and signal review tool
