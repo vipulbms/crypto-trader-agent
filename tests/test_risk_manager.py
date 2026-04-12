@@ -468,5 +468,81 @@ class TestPaperBrokerOverdrawGuard(unittest.TestCase):
         self.assertGreater(balance["available_cash_usd"], 0.0)
 
 
+class TestDuplicatePairGuard(unittest.TestCase):
+    """#230 — validate_buy() must reject a BUY when the pair already has an open position."""
+
+    def _make_cfg(self):
+        return {
+            "trading": {
+                "stop_loss_pct": 5,
+                "take_profit_pct": 10,
+                "max_position_pct": 30,
+                "max_open_positions": 10,
+            },
+            "risk": {
+                "min_cash_reserve_pct": 5,
+                "min_order_usd": 20,
+            },
+        }
+
+    def _make_broker_with_open_eth(self, starting_cash: float = 800.0):
+        """Return a PaperBroker that already has one open ETH/USD position."""
+        import tempfile
+        import os
+        from src.storage.database import init_paper_db
+        from src.exchange.paper_broker import PaperBroker
+
+        tmp_fd, tmp = tempfile.mkstemp(prefix="paper_", suffix=".db")
+        os.close(tmp_fd)
+        init_paper_db(tmp, starting_cash)
+        broker = PaperBroker(paper_db=tmp, slippage_pct=0.0, maker_fee_pct=0.0, config={})
+        broker.place_order(
+            pair="ETH/USD",
+            side="buy",
+            usd_amount=100.0,
+            current_price=3000.0,
+            stop_loss_pct=5.0,
+            take_profit_pct=12.0,
+        )
+        return broker, tmp
+
+    def test_duplicate_pair_rejected(self):
+        """BUY on a pair that already has an open position is rejected (#230)."""
+        broker, db_path = self._make_broker_with_open_eth()
+        cfg = self._make_cfg()
+        risk = RiskManager(cfg, db_path=db_path)
+
+        approved, reason, amount = risk.validate_buy(
+            pair="ETH/USD",
+            proposed_usd=100.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=700.0,
+            open_positions_count=1,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+        )
+        self.assertFalse(approved)
+        self.assertIn("Position already open for ETH/USD", reason)
+        self.assertEqual(amount, 0.0)
+
+    def test_new_pair_not_blocked(self):
+        """BUY on a different pair (BTC) not blocked by duplicate guard when ETH is already open (#230)."""
+        broker, db_path = self._make_broker_with_open_eth()
+        cfg = self._make_cfg()
+        risk = RiskManager(cfg, db_path=db_path)
+
+        approved, reason, amount = risk.validate_buy(
+            pair="BTC/USD",
+            proposed_usd=100.0,
+            portfolio_balance_usd=1000.0,
+            available_cash_usd=700.0,
+            open_positions_count=1,
+            daily_loss_usd=0.0,
+            starting_balance_usd=1000.0,
+        )
+        self.assertTrue(approved, f"Expected BTC/USD to be approved but got: {reason}")
+        self.assertGreater(amount, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
