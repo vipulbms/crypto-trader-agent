@@ -188,13 +188,15 @@ class TestThinkBlockStripping:
 
 
 class TestDisableThinking:
-    """reasoning_effort='none' disables qwen3 thinking on Groq. #223"""
+    """reasoning_effort='none' + reasoning_format='hidden' disables qwen3 thinking on Groq. #223 #228"""
 
     def test_disable_thinking_true_qwen3_passes_reasoning_effort(self):
         """
         Given disable_thinking=True and model is qwen/qwen3-32b
         When _call_openai_compat is called
-        Then extra_body={"reasoning_effort": "none"} is passed to suppress thinking (#223)
+        Then extra_body with reasoning_effort=none AND reasoning_format=hidden is passed (#223 #228).
+        reasoning_format=hidden is required because Groq requires parsed or hidden when tool
+        calling is enabled — the default raw causes 400 tool_use_failed (#228).
         """
         agent = _make_agent(disable_thinking=True)
         mock_resp = _build_mock_response(content="response")
@@ -204,7 +206,7 @@ class TestDisableThinking:
 
         call_kwargs = agent._client.chat.completions.create.call_args[1]
         assert "extra_body" in call_kwargs, "extra_body must be sent for qwen3 with disable_thinking=True"
-        assert call_kwargs["extra_body"] == {"reasoning_effort": "none"}
+        assert call_kwargs["extra_body"] == {"reasoning_effort": "none", "reasoning_format": "hidden"}
 
     def test_disable_thinking_true_llama_no_extra_body(self):
         """

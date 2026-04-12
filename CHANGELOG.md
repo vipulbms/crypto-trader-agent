@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-12 (Part E) — Fix qwen3-32b tool_use_failed: add reasoning_format=hidden (#228)
+
+### Bug Fixes
+- **[#228] qwen3-32b `tool_use_failed` — missing `reasoning_format`**: `qwen/qwen3-32b` continued failing with HTTP 400 `tool_use_failed` (empty `failed_generation`) on every LLM cycle despite the `reasoning_effort=none` fix from #223. Root cause: Groq docs require `reasoning_format` to be explicitly set to `parsed` or `hidden` when tool calling is enabled — the default `raw` is incompatible with function calling. Fix: added `reasoning_format: "hidden"` to the `extra_body` dict alongside `reasoning_effort: "none"` in `TradingAgent._call_openai_compat()`. `hidden` returns only the final answer with no reasoning tokens.
+
+---
+
 ## Session: 2026-04-12 (Part D) — Fix duplicate log lines (#226)
 
 ### Bug Fixes
