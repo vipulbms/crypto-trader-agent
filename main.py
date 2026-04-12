@@ -86,7 +86,12 @@ def setup_logging(config: dict, session_id: str = "") -> None:
         root.removeHandler(h)
         h.close()
     root.addHandler(file_handler)
-    root.addHandler(console_handler)
+    # Only attach a console handler when stdout is an interactive terminal.
+    # When started as a background subprocess by agent_manager, stdout is
+    # redirected to agent.log — adding a StreamHandler there would cause every
+    # log line to be written twice (once by file_handler, once via stdout).
+    if sys.stdout.isatty():
+        root.addHandler(console_handler)
 
 
 def _get_or_set_sod_balance(db_path: str, current_balance: float) -> float:

@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-12 (Part D) — Fix duplicate log lines (#226)
+
+### Bug Fixes
+- **[#226] Duplicate log lines**: `setup_logging()` attached a `console_handler` (`StreamHandler(sys.stdout)`) and a `file_handler` (`RotatingFileHandler`) to the root logger. When started as a background subprocess by `agent_manager.start()`, `sys.stdout` is already redirected to `agent.log`, so every log record was written to the file twice. Fix: wrap `console_handler` attachment with `if sys.stdout.isatty()` — interactive runs get both handlers; background subprocess gets only the file handler.
+
+---
+
 ## Session: 2026-04-12 (Part C) — Fix qwen3-32b tool_use_failed (#223)
 
 ### Bug Fixes
