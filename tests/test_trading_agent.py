@@ -1,10 +1,11 @@
 """
-Tests for #177 — qwen3 thinking-mode safeguards in TradingAgent._call_openai_compat().
+Tests for #177/#223 — qwen3 thinking-mode safeguards in TradingAgent._call_openai_compat().
 
-1. <think> blocks stripped from raw_output (Option B defence-in-depth)
-2. disable_thinking=True passes extra_body={"thinking": {"type": "disabled"}} to API
-3. disable_thinking=False (default) sends no extra_body
-4. Tool calls are dispatched correctly even when content contains a <think> prefix
+1. <think> blocks stripped from raw_output (defence-in-depth, all models)
+2. disable_thinking=True + qwen3 model passes extra_body={"reasoning_effort": "none"} (#223)
+3. disable_thinking=True + non-qwen3 model does NOT pass extra_body (llama fallback unaffected)
+4. disable_thinking=False sends no extra_body
+5. Tool calls dispatched correctly even when content contains a <think> prefix
 """
 import json
 import sys
@@ -187,13 +188,13 @@ class TestThinkBlockStripping:
 
 
 class TestDisableThinking:
-    """Groq rejects extra_body{"thinking"} with 400 — <think> stripping is the sole guard."""
+    """reasoning_effort='none' disables qwen3 thinking on Groq. #223"""
 
-    def test_disable_thinking_true_no_extra_body(self):
+    def test_disable_thinking_true_qwen3_passes_reasoning_effort(self):
         """
-        Given disable_thinking=True
+        Given disable_thinking=True and model is qwen/qwen3-32b
         When _call_openai_compat is called
-        Then extra_body is NOT passed (Groq rejects it with 400; stripping is the sole guard)
+        Then extra_body={"reasoning_effort": "none"} is passed to suppress thinking (#223)
         """
         agent = _make_agent(disable_thinking=True)
         mock_resp = _build_mock_response(content="response")
@@ -202,7 +203,23 @@ class TestDisableThinking:
         agent._call_openai_compat("qwen/qwen3-32b", [])
 
         call_kwargs = agent._client.chat.completions.create.call_args[1]
-        assert "extra_body" not in call_kwargs, "extra_body must not be sent — Groq rejects it with 400"
+        assert "extra_body" in call_kwargs, "extra_body must be sent for qwen3 with disable_thinking=True"
+        assert call_kwargs["extra_body"] == {"reasoning_effort": "none"}
+
+    def test_disable_thinking_true_llama_no_extra_body(self):
+        """
+        Given disable_thinking=True but model is llama-3.3-70b-versatile (fallback)
+        When _call_openai_compat is called
+        Then extra_body is NOT passed — reasoning_effort is qwen3-specific
+        """
+        agent = _make_agent(disable_thinking=True)
+        mock_resp = _build_mock_response(content="response")
+        agent._client.chat.completions.create.return_value = mock_resp
+
+        agent._call_openai_compat("llama-3.3-70b-versatile", [])
+
+        call_kwargs = agent._client.chat.completions.create.call_args[1]
+        assert "extra_body" not in call_kwargs, "extra_body must NOT be sent for llama fallback"
 
     def test_disable_thinking_false_no_extra_body(self):
         """

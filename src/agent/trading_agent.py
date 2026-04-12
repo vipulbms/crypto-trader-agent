@@ -433,9 +433,11 @@ class TradingAgent:
         Returns (tool_calls, raw_output, prompt_tokens, completion_tokens)
         where tool_calls is a list of objects with .function.name and .function.arguments.
 
-        <think> blocks are stripped from raw_output as defence-in-depth against
-        reasoning models (qwen3, DeepSeek-R1) that leak chain-of-thought into content.
-        Groq rejects extra_body{"thinking"} with 400, so stripping is the sole guard.
+        For qwen3-class reasoning models on Groq: when disable_thinking=True,
+        extra_body={"reasoning_effort": "none"} is passed to suppress the <think> block
+        that would otherwise cause a 400 tool_use_failed error. Applied only to qwen3
+        models so the llama fallback is unaffected.
+        <think> blocks are additionally stripped from raw_output as defence-in-depth.
         """
         request_id = str(uuid.uuid4())
         call_start_utc = datetime.now(timezone.utc).isoformat()
@@ -449,9 +451,15 @@ class TradingAgent:
             tool_choice="required",
             temperature=0.1,
         )
-        # Note: Groq rejects extra_body{"thinking"} entirely (400) — <think> stripping
-        # below is the sole guard for qwen3 on Groq. extra_body is only valid on
-        # providers that expose a thinking toggle (e.g. Anthropic API direct).
+        # For qwen3-class reasoning models on Groq: disable thinking via reasoning_effort.
+        # Without this, qwen3 generates a <think> block before the tool call JSON, which
+        # causes Groq's function-call parser to return tool_use_failed (failed_generation='').
+        # reasoning_effort="none" is the correct Groq parameter (not Anthropic's
+        # extra_body{"thinking"} which was reverted in #216 as it caused 400 for all models).
+        # Applied only when disable_thinking=True AND model is qwen3, so the fallback
+        # llama-3.3-70b-versatile is unaffected. Closes #223.
+        if self._disable_thinking and "qwen3" in model.lower():
+            kwargs["extra_body"] = {"reasoning_effort": "none"}
         response = self._client.chat.completions.create(**kwargs)
         latency_ms = int((time.time() - call_start) * 1000)
 
