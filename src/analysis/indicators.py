@@ -17,7 +17,7 @@ from src.utils.timing import timed
 logger = logging.getLogger(__name__)
 
 
-@timed("config")
+@timed()
 def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     """
     Compute technical indicators from a list of OHLCV candle dicts.

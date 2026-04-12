@@ -27,8 +27,10 @@ Usage:
 
 import argparse
 import logging
+import logging.handlers
 import os
 import sys
+from datetime import datetime, timezone
 
 import yaml
 
@@ -39,6 +41,10 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.ERROR)
 logging.getLogger("ollama").setLevel(logging.ERROR)
+
+# CLI audit logger — populated by _setup_cli_logging()
+_cli_audit_logger: logging.Logger = logging.getLogger("kryptos.cli.audit")
+_cli_audit_logger.propagate = False  # don't surface in terminal
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -53,6 +59,45 @@ def _load_config() -> dict:
         return {}
     with open(cfg_path, "r") as f:
         return yaml.safe_load(f)
+
+
+def _setup_cli_logging(config: dict) -> None:
+    """
+    Set up kryptos-cli.log in config.storage.log_dir.
+    Every CLI command (REPL input, single command, direct subcommand) is appended
+    as a timestamped line. Rotation: 100 MB × 5 files (backupCount=4).
+    Also wires agent_manager._LOG_FILE to the same log_dir.
+    """
+    from src.cli import agent_manager
+
+    log_dir  = config.get("storage", {}).get("log_dir", "/logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Wire agent_manager so start() / tail_log() use the correct path
+    agent_manager.init_from_config(config)
+
+    cli_log_path = os.path.join(log_dir, "kryptos-cli.log")
+    handler = logging.handlers.RotatingFileHandler(
+        cli_log_path,
+        maxBytes=100 * 1024 * 1024,  # 100 MB
+        backupCount=4,                # 1 active + 4 rotated = 5 total
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    _cli_audit_logger.setLevel(logging.DEBUG)
+    if not _cli_audit_logger.handlers:
+        _cli_audit_logger.addHandler(handler)
+
+
+def _audit(command: str, intent: str = "", source: str = "") -> None:
+    """Write one audit line to kryptos-cli.log."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    parts = [ts, repr(command)]
+    if intent:
+        parts.append(f"intent={intent}")
+    if source:
+        parts.append(f"source={source}")
+    _cli_audit_logger.info(" | ".join(parts))
 
 
 # ──────────────────────────────────────────────────────────────
@@ -119,6 +164,7 @@ def run_repl(config: dict, default_mode: str = "paper") -> None:
             continue
 
         intent_obj = _with_mode(parser.parse(text))
+        _audit(text, intent=intent_obj.get("intent", ""), source=intent_obj.get("source", ""))
 
         # Show which intent was detected (dim, only when NL was used & not a direct command)
         if intent_obj.get("source") == "keyword" and len(text.split()) > 1:
@@ -146,6 +192,7 @@ def run_single_command(text: str, config: dict, default_mode: str = "paper") -> 
     if not p.get("mode"):
         p["mode"] = default_mode
     intent_obj["params"] = p
+    _audit(text, intent=intent_obj.get("intent", ""), source="single")
     commands.dispatch(intent_obj, config)
 
 
@@ -157,6 +204,7 @@ def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
     from src.cli import commands, display as d
 
     mode = "live" if getattr(args, "live", False) else getattr(args, "mode", "paper")
+    _audit(subcommand, intent=subcommand, source="direct")
     params = {
         "mode": mode,
         "pair": getattr(args, "pair", None),
@@ -339,6 +387,8 @@ def main() -> None:
     arg_parser = build_arg_parser()
     args       = arg_parser.parse_args()
     config     = _load_config()
+
+    _setup_cli_logging(config)
 
     # Resolve default mode
     default_mode = "live" if getattr(args, "live", False) else "paper"

@@ -514,7 +514,7 @@ def fetch_fear_greed(config: dict) -> Optional[dict]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _btc_dom_cache: dict = {"data": None, "fetched_at": 0}
-_cycle_top_cache: dict = {"data": None, "fetched_at": 0}
+_cycle_top_cache: dict = {"data": None, "fetched_at": 0, "failed_at": 0}
 
 
 def _coerce_float(value) -> Optional[float]:
@@ -683,6 +683,9 @@ def fetch_cycle_top_indicators(config: dict, db_path: Optional[str] = None) -> O
     now = time.time()
     if _cycle_top_cache["data"] and (now - _cycle_top_cache["fetched_at"]) < cache_secs:
         return _cycle_top_cache["data"]
+    # Back-off after fetch failure — retry at most once per hour to avoid log spam
+    if _cycle_top_cache["failed_at"] and (now - _cycle_top_cache["failed_at"]) < 3600:
+        return None
 
     payload_key = "cycle_top_guard_payload"
     fetched_key = "cycle_top_guard_fetched_at"
@@ -721,7 +724,8 @@ def fetch_cycle_top_indicators(config: dict, db_path: Optional[str] = None) -> O
         nupl_resp = requests.get(guard_cfg.get("nupl_url"), headers=headers, timeout=timeout)
         nupl_resp.raise_for_status()
     except Exception as exc:
-        logger.warning("[CYCLE_TOP] Fetch failed: %s", exc)
+        logger.warning("[CYCLE_TOP] Fetch failed: %s — will retry in 1h", exc)
+        _cycle_top_cache["failed_at"] = now
         return None
 
     mvrv = _extract_latest_indicator_value(

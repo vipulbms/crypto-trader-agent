@@ -2,6 +2,50 @@
 
 ---
 
+## Session: 2026-04-12 (Part B) — Token reduction + LLM logging + observability fixes (#217, #219)
+
+### Features
+- **[#219] Structured LLM interaction logging**: every LLM call written as JSON to `/logs/agent-llm-prompts.log` (100 MB × 5 files). Fields: request_id, session_id, timestamp, model, prompts, raw_output, tool_calls, token counts, estimated_cost_usd, latency_ms. `src/utils/llm_logger.py` (new).
+- **[#219] Session + request ID tracing**: `session_id` UUID4 generated at agent startup; `request_id` UUID4 per LLM call. Both injected into every `agent.log` line as `[S:xxxxxxxx]` via `_TraceFilter`. `src/utils/timing.py` extended with ContextVars.
+- **[#219] kryptos-cli.log CLI audit**: every `kryptos.py` command logged to `/logs/kryptos-cli.log` (100 MB × 5 files) with timestamp, command text, intent, and source.
+- **[#219] `storage.log_dir` config key**: log directory now configurable via `config.yaml → storage.log_dir` (default `/logs`). Both agent.log and LLM log read from config.
+- **[#219] `agent_manager.init_from_config()`**: fixes pre-existing `_LOG_FILE = None` crash in `start()` and `tail_log()`.
+- **scripts/generate_prompt_sample.py** (new): generates `docs/sample_prompt.md` with SYSTEM + CYCLE prompt and token estimates. `--live` reads real DB data; default uses synthetic fixtures.
+
+### Fixes
+- **[#217 Step 3] Cycle prompt token reduction (~1,015 tokens)**:
+  - HOLD-signal pairs filtered out of per-pair blocks — only BUY + SELL sent to LLM (~18 pairs eliminated per typical cycle)
+  - `BB Lower/Upper` and `ATR(14)` lines removed — covered by `reasons` list
+  - Tier + Max buy consolidated from 2 lines → 1
+  - `--- TAKE-PROFIT TARGETS ---` table removed (28 lines)
+  - `patterns`, `position_sizing`, `dynamic_tp` ai_context blocks removed (redundant)
+  - Task instructions condensed from 7 to 5 lines
+- **Duplicate log lines**: `setup_logging()` now clears existing root logger handlers before adding new ones, preventing double-emit when `logging.basicConfig` had already run
+- **CoinGlass 1h failure back-off**: `fetch_cycle_top_indicators` records `failed_at` on 5xx errors; skips retry for 1 hour to suppress repeated `[CYCLE_TOP] Fetch failed` warnings
+- **`@timed("config")` noise**: `compute_indicators` changed to `@timed()` — stops logging entire config dict in timing lines
+
+### Files changed
+`src/agent/prompts.py`, `src/agent/trading_agent.py`, `src/analysis/features.py`, `src/analysis/indicators.py`, `src/cli/agent_manager.py`, `src/utils/llm_logger.py` (new), `src/utils/timing.py`, `main.py`, `kryptos.py`, `config.yaml`, `tests/test_btc_dominance.py`, `tests/test_cycle_top_guard.py`, `tests/test_entry_slippage.py`, `tests/test_sector_tiers.py`, `tests/test_trading_agent.py`, `tests/test_trailing_stop_label.py`, `scripts/generate_prompt_sample.py` (new)
+
+---
+
+## Session: 2026-04-12 (Part A) — H4 gate analysis: hypothesis disproven (#180)
+
+### Analysis
+- **[#180] H4 trend gate hypothesis test**: ran two-pass fast backtest (no LLM) over 2025-10-01 → 2026-04-12 (1,110 baseline trades, 26 pairs). `confirmed_down` entries (EMA9 < EMA21 + MACD histogram < 0) achieved **43.9% win rate** vs **41.4% overall** — 2.5pp above baseline. Applying the gate worsened P&L by −$45.79 and dropped win rate by −2.1pp. Hypothesis NOT supported; issue closed as won't implement.
+
+### Features
+- **`scripts/analyse_h4_gate.py`** (new): vectorised two-pass analysis script. Key optimisations: `_precompute_indicators_all()` runs `ta` library once per pair on trimmed candle window (~6 min for 16-month window vs ~147 min per-step); date-based candle trimming; O(n) incremental EMA for H4 state precomputation; `detect_market_regime()` replaces `build_ai_context()` per cycle.
+
+### Documentation
+- `README.md`: added H4 gate analysis section with usage examples and last-run verdict.
+
+### Files Changed
+- `scripts/analyse_h4_gate.py` (new)
+- `README.md`
+
+---
+
 ## Session: 2026-04-11 (Part AC) — Cycle-top guard via MVRV Z-Score and NUPL (#205)
 
 ### Features

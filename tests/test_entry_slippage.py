@@ -19,6 +19,9 @@ sys.modules.setdefault("src.notifications", types.ModuleType("src.notifications"
 
 timing_mod = types.ModuleType("src.utils.timing")
 timing_mod.timed = lambda *a, **kw: (lambda fn: fn)
+timing_mod.set_cycle_id = lambda *a: None
+timing_mod.set_request_id = lambda *a: None
+timing_mod.current_cycle_id = type("_CV", (), {"get": staticmethod(lambda: 0)})()
 sys.modules.setdefault("src.utils.timing", timing_mod)
 
 from src.exchange.paper_broker import PaperBroker

@@ -234,11 +234,19 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_11aa | Feat: sector rotation tier caps — Tier 3=0.5x, Tier 4=0.3x, non-core Tier 2=0.7x when bearish + rising BTC dominance; prompt shows pair tier; propose_buy now enforces pair_max_usd; 4 new tests; closes #203 |
 | session_2026_04_11ab | Chore: merge `origin/main` into `feature/203`; resolve PR #214 conflicts by preserving existing X/Y/Z docs history and moving the #203 note to Part AA |
 | session_2026_04_11ac | Feat: on-chain cycle-top guard via CoinGlass MVRV Z-Score + NUPL — block Tier 3/4 buys at macro peak, add prompt warning and Telegram alerts; 7 new tests; closes #205 |
+| session_2026_04_12a | Analysis: H4 gate hypothesis disproven — confirmed_down win rate 43.9% vs 41.4% overall; analyse_h4_gate.py committed (vectorised, ~6min for 16-month window); closes #180 |
+| session_2026_04_12b | Fix: cycle prompt token reduction (HOLD pairs filtered, BB/ATR/redundant blocks removed, ~1,015 tokens saved, refs #217); feat: structured LLM JSON logging /logs/agent-llm-prompts.log + session_id/request_id tracing + kryptos-cli.log CLI audit, closes #219; fix: duplicate log lines (root handler accumulation); fix: CoinGlass 1h failure back-off; fix: @timed("config") noise on compute_indicators |
 
 ---
 
 ## Known Behaviours / Gotchas
 
+- **LLM prompt only contains BUY + SELL pairs**: HOLD-signal pairs are never sent to the LLM — they are implicitly held by `_run_cycle_decision`'s post-loop. This saves ~540 tokens per cycle. The `build_cycle_prompt()` `signals` parameter still receives all 27 pairs for counting; only the per-pair blocks are filtered to `actionable = BUY + SELL`.
+- **LLM interaction log**: Every cycle's full LLM request/response is written as a JSON record to `/logs/agent-llm-prompts.log` (100 MB × 5 files). Fields: request_id, session_id, timestamp, model, system_prompt, user_message, raw_output, tool_calls, prompt_tokens, completion_tokens, estimated_cost_usd, latency_ms. `time_to_first_token_ms` and `tool_call_latency_ms` are always null (sync SDK / local tools). Pricing table in `src/utils/llm_logger.py` — update when model pricing changes.
+- **session_id / request_id tracing**: `session_id` (UUID4) is generated once at agent startup in `main.py` and appears as `[S:xxxxxxxx]` on every `agent.log` line. `request_id` (UUID4) is generated per LLM call in `trading_agent.py` and set via ContextVar for the duration of that call. Both are included in `agent-llm-prompts.log` JSON records.
+- **log_dir is config-driven**: `storage.log_dir` in `config.yaml` controls where `agent.log`, `agent-llm-prompts.log`, and `kryptos-cli.log` are written (default `/logs`). Directory is auto-created at startup.
+- **CLI audit log**: Every `kryptos.py` command (REPL input, single command, direct subcommand) is appended to `/logs/kryptos-cli.log` as `timestamp | 'command' | intent=X | source=Y`. Rotation: 100 MB × 5 files.
+- **CoinGlass failure back-off**: When the CoinGlass API returns a 5xx error, `fetch_cycle_top_indicators` records `failed_at` in `_cycle_top_cache` and silently returns `None` for the next 1 hour without retrying or logging. After 1 hour, one retry is made.
 - **Realized P&L at TP is slightly below configured %**: full round-trip friction = entry slippage (0.05%) + entry fee (0.26%) + exit slippage (0.05%) + exit fee (0.26%) ≈ 0.62% per trade. This is intentional simulation of real Kraken maker-fee trading costs (#140).
 - **`usd_value` ≠ cash deducted**: `usd_value` in DB = entry cost only; actual cash deducted = entry cost + entry fee. The fee is shown in Telegram notifications but not in `paper_positions.usd_value`.
 - **`agent_sell` vs `take_profit`**: `exit_reason` in DB distinguishes LLM-initiated sells from automatic TP hits. If you see small-gain exits, check if `exit_reason = agent_sell` — means the LLM sold early.
