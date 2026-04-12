@@ -55,3 +55,23 @@ OVERRIDE RULES:
 MANDATORY TOOL CALLING:
 - Call tools ONLY for pairs you are acting on. All others are implicitly held.
 - Explain your reasoning in 1-2 sentences BEFORE each tool call.
+
+---
+
+## Maintaining the LLM system prompt
+
+SKILL.md is the developer reference — it must remain complete and unabridged. Do NOT edit it to fix the token count.
+
+The LLM system prompt is stored separately in `config.yaml` under `llm.system_prompt` and is what the LLM actually receives each cycle.
+
+**When to update `llm.system_prompt`:** Any commit that touches signal logic, risk rules, or agent decision behaviour must also review and update `config.yaml` `llm.system_prompt` if the change affects what the LLM should do.
+
+**How to regenerate it:**
+1. Read the updated SKILL.md
+2. Distill into a <=1000 token system prompt following these rules:
+   - Role definition: 1–2 sentences only
+   - Decision logic: when to call each tool — concise bullet points, no prose
+   - Only include constraints the LLM must self-enforce (OBI gate, pair_max_usd, max_buys_per_cycle, cycle-top warning)
+   - Omit code-enforced rules (SL%, profit floor, circuit breaker, validate_buy guards) — risk manager rejects silently
+   - No explanations of why rules exist, no historical issue references
+3. Write the result to `config.yaml` under `llm.system_prompt`
