@@ -1,47 +1,54 @@
 """
-cycle_logger.py — Human-readable per-cycle decision trace log.
+cycle_logger.py — Per-cycle decision trace log (JSON Lines / NDJSON format).
 
-Every decision cycle is written as a structured text block to
-logs/cycle_decisions.log, making it easy to understand why each pair
-was bought, sold, or held — without running SQL queries against audit.db.
+Every decision cycle is written as a single JSON record (one line) to
+logs/cycle_decisions.log, making it easy to parse, filter, and ingest
+into external tools without SQL queries against audit.db.
 
-Format per cycle:
-    ════ CYCLE #N  timestamp  Balance $X  Cash $Y  Open N  P&L +X.XX% ════
-    MACRO
-      Regime     : bearish | neutral | bullish
-      Fear&Greed : 38 (fear)
-      BTC Dom    : 52.3% rising
-      Cycle-top  : active / inactive
-
-    ─ BTC/USD  $65000.0000  →  BUY  score=7/28  min=5 ─
-      RSI=28.40  MACD-hist=+0.000120 ← BULLISH TURN  ADX=35.2  BB=at-lower
-      EMA9 > EMA21  Price > EMA50($64000)  Vol-ratio=1.12x
-      REASONS:
-        + RSI oversold (28.4 < 30)                         [+3]
-        + MACD histogram turned positive                   [+3]
-      VERDICT: BUY candidate → LLM: BUY executed $180.00
-
-    ─ SOL/USD  $140.5200  →  HOLD  VETOED ─
-      RSI=72.10 ...
-      REASONS:
-        ✗ BLOCKED: RSI 72.1 >= 70 — overbought, no entry
-      VERDICT: HOLD (hard veto) — not sent to LLM
-
-    ─ ETH/USD  $3000.0000  →  HOLD  score=4/28(need 5) ─
-      REASONS:
-        + ADX 45.0 > 40 — strong trend confirmed           [+1]
-      VERDICT: HOLD (score 4 < min 5, gap 1) — not sent to LLM
-
-    ════ SUMMARY  BUY:3 SELL:1 HOLD:23(2 vetoed)  Sent to LLM:4  Duration:4.2s ════
+Schema per record (one compact JSON object per line):
+    {
+      "cycle_id": 42,
+      "timestamp": "2026-04-12T14:30:00+00:00",
+      "duration_ms": 4200,
+      "portfolio": {
+        "total_usd": 1234.56, "available_cash_usd": 456.78,
+        "open_positions_count": 2, "daily_pnl_usd": 12.34, "daily_pnl_pct": 1.02
+      },
+      "macro": {
+        "regime": "neutral", "caution_factor": 1.0,
+        "fear_greed_value": 38, "fear_greed_label": "fear",
+        "btc_dominance_pct": 52.3, "btc_dominance_trend": "rising",
+        "cycle_top_active": false, "mvrv_z_score": 1.2, "nupl": 0.45
+      },
+      "pairs": [
+        {
+          "pair": "ETH/USD", "signal": "BUY", "price": 3000.0,
+          "strength": 0.25, "buy_score": 7, "sell_score": 0,
+          "buy_min_score": 5, "sell_min_score": 3, "max_score": 28,
+          "is_vetoed": false, "sent_to_llm": true,
+          "llm_result": "BUY executed $180.00", "verdict": "BUY candidate",
+          "reasons": ["RSI oversold (28.4 < 30)"],
+          "indicators": {
+            "rsi_14": 28.4, "macd_histogram": 0.00012,
+            "macd_histogram_prev": -0.00008, "macd_turn": "bullish",
+            "adx_14": 35.2, "bb_zone": "lower", "bb_width": 2.1,
+            "atr_14": 45.2, "ema9_above_ema21": true,
+            "price_above_ema50": true, "ema_50": 2980.0, "volume_ratio": 1.12
+          }
+        }
+      ],
+      "summary": {"n_buy": 1, "n_sell": 0, "n_hold": 0, "n_vetoed": 0, "n_sent_to_llm": 1}
+    }
 
 Public API:
-    init_cycle_logger(log_dir, config)       — call once at startup
+    init_cycle_logger(log_dir, config)        — call once at startup
     write_cycle_report(config, cycle_id, ...) — call at end of run_cycle()
-    format_cycle_report(...)                  — pure function, returns str (testable)
+    format_cycle_report(...)                  — pure function, returns JSON str (testable)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
 import os
@@ -51,11 +58,6 @@ from typing import Any
 # Internal logger — writes only to the cycle_decisions.log handler
 _cycle_log: logging.Logger = logging.getLogger("cycle_decisions")
 _cycle_log.propagate = False  # never bubble to root / agent.log
-
-_WIDTH = 72  # visual width of separator lines
-_DOUBLE = "═" * _WIDTH
-_SINGLE = "─" * _WIDTH
-
 
 def init_cycle_logger(log_dir: str, config: dict) -> None:
     """
@@ -79,7 +81,7 @@ def init_cycle_logger(log_dir: str, config: dict) -> None:
     handler = logging.handlers.RotatingFileHandler(
         log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
     )
-    # Plain text — no timestamp prefix; the cycle header already has the time
+    # Plain text — no timestamp prefix; the JSON record contains the timestamp
     handler.setFormatter(logging.Formatter("%(message)s"))
     _cycle_log.addHandler(handler)
     _cycle_log.setLevel(logging.DEBUG)
@@ -89,102 +91,9 @@ def init_cycle_logger(log_dir: str, config: dict) -> None:
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _indicator_summary(ind: dict) -> str:
-    """Return a compact one-line indicator snapshot for a pair."""
-    parts: list[str] = []
-
-    rsi = ind.get("rsi_14")
-    if rsi is not None:
-        parts.append(f"RSI={rsi:.2f}")
-
-    macd_hist = ind.get("macd_histogram")
-    macd_prev = ind.get("macd_histogram_prev")
-    if macd_hist is not None:
-        hist_str = f"MACD-hist={macd_hist:+.6f}"
-        if macd_prev is not None:
-            if macd_prev <= 0 < macd_hist:
-                hist_str += " \u2190 BULLISH TURN"
-            elif macd_prev >= 0 > macd_hist:
-                hist_str += " \u2190 BEARISH TURN"
-        parts.append(hist_str)
-
-    adx = ind.get("adx_14")
-    if adx is not None:
-        parts.append(f"ADX={adx:.1f}")
-
-    close  = ind.get("close")
-    bb_lo  = ind.get("bb_lower")
-    bb_hi  = ind.get("bb_upper")
-    if close and bb_lo and bb_hi:
-        mid = (bb_lo + bb_hi) / 2
-        band_range = bb_hi - bb_lo
-        if band_range > 0:
-            pct_pos = (close - bb_lo) / band_range
-        else:
-            pct_pos = 0.5
-        if pct_pos <= 0.20:
-            bb_zone = "BB=at-lower(\u2193 BUY zone)"
-        elif pct_pos >= 0.80:
-            bb_zone = "BB=at-upper(\u2191 SELL zone)"
-        else:
-            bb_zone = "BB=mid"
-        parts.append(bb_zone)
-
-    bb_width = ind.get("bb_width")
-    if bb_width is not None:
-        parts.append(f"BB-width={bb_width:.2f}%")
-
-    atr = ind.get("atr_14")
-    if atr is not None:
-        parts.append(f"ATR={atr:.5f}")
-
-    return "  ".join(parts) if parts else ""
-
-
-def _ema_summary(ind: dict) -> str:
-    """Return EMA relationship string."""
-    parts: list[str] = []
-    close = ind.get("close")
-    ema9  = ind.get("ema_9")
-    ema21 = ind.get("ema_21")
-    ema50 = ind.get("ema_50")
-
-    if ema9 is not None and ema21 is not None:
-        parts.append("EMA9 > EMA21" if ema9 > ema21 else "EMA9 < EMA21")
-
-    if close is not None and ema50 is not None:
-        if close > ema50:
-            parts.append(f"Price > EMA50(${ema50:,.4f})")
-        else:
-            parts.append(f"Price < EMA50(${ema50:,.4f}) [VETO]")
-
-    vol_ratio = ind.get("volume_ratio")
-    if vol_ratio is not None:
-        parts.append(f"Vol-ratio={vol_ratio:.2f}x")
-
-    return "  ".join(parts) if parts else ""
-
-
-def _format_reason(r: str) -> str:
-    """Prefix reason lines with +, ✗, or ~ based on content."""
-    rl = r.lower()
-    if any(k in rl for k in ("blocked", "veto", "skip", "halted", "hard stop",
-                              "below", "insufficient", "< min", "overbought",
-                              "no entry", "no candle", "< 0", "dead zone",
-                              "circuit", "loss limit", "drawdown", "cycle top")):
-        return f"    \u2717 {r}"
-    elif any(k in rl for k in ("+ ", "oversold", "turn", "bullish", "strong",
-                                "macd", "rsi", "ema", "fear", "obv", "squeeze")):
-        return f"    + {r}"
-    else:
-        return f"    ~ {r}"
-
-
-def _lpad(text: str, width: int = _WIDTH) -> str:
-    """Return text left-padded to width (truncated if over)."""
-    if len(text) > width:
-        return text[:width - 3] + "..."
-    return text
+def _round(v: Any, n: int) -> Any:
+    """Safely round a float; return None if v is None."""
+    return round(v, n) if v is not None else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -201,7 +110,7 @@ def format_cycle_report(
     duration_ms: int = 0,
 ) -> str:
     """
-    Build and return the full cycle report as a string.
+    Build and return the cycle report as a compact JSON string (one line).
 
     Parameters
     ----------
@@ -215,26 +124,16 @@ def format_cycle_report(
     results     : list of {"pair": str, "result": str} from agent.run_cycle()
     duration_ms : cycle duration in milliseconds
     """
-    lines: list[str] = []
+    # ── Portfolio ───────────────────────────────────────────────
+    portfolio_block = {
+        "total_usd":            _round(portfolio.get("total_usd", 0.0), 2),
+        "available_cash_usd":   _round(portfolio.get("available_cash_usd", 0.0), 2),
+        "open_positions_count": portfolio.get("open_positions_count", 0),
+        "daily_pnl_usd":        _round(portfolio.get("daily_pnl_usd", 0.0), 2),
+        "daily_pnl_pct":        _round(portfolio.get("daily_pnl_pct", 0.0), 4),
+    }
 
-    # ── Header ─────────────────────────────────────────────────
-    ts_str = timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
-    total  = portfolio.get("total_usd", 0.0)
-    cash   = portfolio.get("available_cash_usd", 0.0)
-    n_open = portfolio.get("open_positions_count", 0)
-    dpnl_u = portfolio.get("daily_pnl_usd", 0.0)
-    dpnl_p = portfolio.get("daily_pnl_pct", 0.0)
-    sign   = "+" if dpnl_u >= 0 else ""
-    header = (
-        f"CYCLE #{cycle_id}  {ts_str}  "
-        f"Balance ${total:,.2f}  Cash ${cash:,.2f}  "
-        f"Open {n_open}  Daily P&L {sign}${dpnl_u:.2f} ({sign}{dpnl_p:.2f}%)"
-    )
-    lines.append(_DOUBLE)
-    lines.append(_lpad(header, _WIDTH))
-    lines.append(_DOUBLE)
-
-    # ── Macro section ──────────────────────────────────────────
+    # ── Macro ────────────────────────────────────────────────────
     regime_data  = ai_context.get("regime_data", {})
     regime       = regime_data.get("regime", "unknown")
     caution      = regime_data.get("caution_factor", 1.0)
@@ -245,40 +144,39 @@ def format_cycle_report(
     else:
         fg_val = fg_label = None
 
-    btc_dom = ai_context.get("btc_dominance", {}) or {}
+    btc_dom       = ai_context.get("btc_dominance", {}) or {}
     btc_dom_pct   = btc_dom.get("btc_dominance_pct", btc_dom.get("dominance"))
     btc_dom_trend = btc_dom.get("btc_dominance_trend", btc_dom.get("trend", "unknown"))
 
     cycle_top = ai_context.get("cycle_top_data") or {}
     ct_active = cycle_top.get("cycle_top_active", False)
+    mvrv      = cycle_top.get("mvrv_z_score")
+    nupl      = cycle_top.get("nupl")
 
-    lines.append("MACRO")
-    lines.append(
-        f"  Regime       : {regime}"
-        + (f"  (caution={caution:.2f})" if caution < 1.0 else "")
-    )
-    if fg_val is not None:
-        lines.append(f"  Fear & Greed : {fg_val} ({fg_label})")
-    if btc_dom_pct is not None:
-        lines.append(f"  BTC Dom      : {btc_dom_pct:.1f}% {btc_dom_trend}")
-    mvrv = cycle_top.get("mvrv_z_score")
-    nupl = cycle_top.get("nupl")
-    ct_label = "ACTIVE" if ct_active else "inactive"
-    ct_suffix = f"  mvrv={mvrv:.2f} nupl={nupl:.2f}" if mvrv is not None and nupl is not None else ""
-    lines.append(f"  Cycle-top    : {ct_label}{ct_suffix}")
-    lines.append("")
+    macro_block = {
+        "regime":              regime,
+        "caution_factor":      _round(caution, 4),
+        "fear_greed_value":    fg_val,
+        "fear_greed_label":    fg_label,
+        "btc_dominance_pct":   _round(btc_dom_pct, 2) if btc_dom_pct is not None else None,
+        "btc_dominance_trend": btc_dom_trend,
+        "cycle_top_active":    ct_active,
+        "mvrv_z_score":        _round(mvrv, 4) if mvrv is not None else None,
+        "nupl":                _round(nupl, 4) if nupl is not None else None,
+    }
 
     # ── Build a lookup from pair → LLM result string ───────────
     result_map: dict[str, str] = {r["pair"]: r["result"] for r in results}
 
-    # ── Per-pair blocks ────────────────────────────────────────
-    n_buy = n_sell = n_hold = n_vetoed = 0
-    n_sent_to_llm = 0
+    # ── Per-pair entries ────────────────────────────────────────
+    pairs_list: list[dict] = []
+    n_buy = n_sell = n_hold = n_vetoed = n_sent_to_llm = 0
 
     for sig in signals:
         pair       = sig["pair"]
         signal     = sig["signal"]
         price      = sig.get("price", 0.0)
+        strength   = sig.get("strength", 0.0)
         buy_score  = sig.get("buy_score", 0)
         sell_score = sig.get("sell_score", 0)
         buy_min    = sig.get("buy_min_score", 5)
@@ -287,7 +185,7 @@ def format_cycle_report(
         reasons    = sig.get("reasons", [])
         ind        = sig.get("indicators", {})
 
-        # Has a hard-veto reason?
+        # ── Veto detection ──────────────────────────────────────
         is_vetoed = any(
             any(k in r.lower() for k in ("blocked", "veto", "hard stop",
                                           "overbought", "no entry", "dead zone",
@@ -295,87 +193,113 @@ def format_cycle_report(
             for r in reasons
         )
 
+        # ── Derived indicator fields ────────────────────────────
+        macd_hist = ind.get("macd_histogram")
+        macd_prev = ind.get("macd_histogram_prev")
+        if macd_hist is not None and macd_prev is not None:
+            if macd_prev <= 0 < macd_hist:
+                macd_turn = "bullish"
+            elif macd_prev >= 0 > macd_hist:
+                macd_turn = "bearish"
+            else:
+                macd_turn = None
+        else:
+            macd_turn = None
+
+        close = ind.get("close")
+        bb_lo = ind.get("bb_lower")
+        bb_hi = ind.get("bb_upper")
+        bb_zone = None
+        if close and bb_lo and bb_hi and (bb_hi - bb_lo) > 0:
+            pct_pos = (close - bb_lo) / (bb_hi - bb_lo)
+            if pct_pos <= 0.20:
+                bb_zone = "lower"
+            elif pct_pos >= 0.80:
+                bb_zone = "upper"
+            else:
+                bb_zone = "mid"
+
+        ema9  = ind.get("ema_9")
+        ema21 = ind.get("ema_21")
+        ema50 = ind.get("ema_50")
+        ema9_above_ema21  = (ema9 > ema21)   if ema9  is not None and ema21 is not None else None
+        price_above_ema50 = (close > ema50)  if close is not None and ema50 is not None else None
+
+        indicators_block = {
+            "rsi_14":              _round(ind.get("rsi_14"), 4),
+            "macd_histogram":      _round(macd_hist, 8),
+            "macd_histogram_prev": _round(macd_prev, 8),
+            "macd_turn":           macd_turn,
+            "adx_14":              _round(ind.get("adx_14"), 2),
+            "bb_zone":             bb_zone,
+            "bb_width":            _round(ind.get("bb_width"), 4),
+            "atr_14":              _round(ind.get("atr_14"), 6),
+            "ema9_above_ema21":    ema9_above_ema21,
+            "price_above_ema50":   price_above_ema50,
+            "ema_50":              _round(ema50, 4),
+            "volume_ratio":        _round(ind.get("volume_ratio"), 4),
+        }
+
+        # ── Counts, verdict, and LLM interaction ───────────────
+        sent_to_llm = signal in ("BUY", "SELL")
+        llm_result  = result_map.get(pair)
+
         if signal == "BUY":
             n_buy += 1
-            active_score = buy_score
-            score_label  = f"score={buy_score}/{max_sc}  min={buy_min}"
+            n_sent_to_llm += 1
+            verdict = "BUY candidate"
         elif signal == "SELL":
             n_sell += 1
-            active_score = sell_score
-            score_label  = f"sell_score={sell_score}/{max_sc}  min={sell_min}"
+            n_sent_to_llm += 1
+            verdict = "SELL candidate"
         else:
             n_hold += 1
             if is_vetoed:
                 n_vetoed += 1
-            active_score = buy_score  # show for context even on HOLD
-            gap = buy_min - buy_score
-            if is_vetoed:
-                score_label = "VETOED"
+                verdict = "HOLD (hard veto)"
             else:
-                score_label = f"score={buy_score}/{max_sc}(need {buy_min}) gap={gap}"
+                gap = buy_min - buy_score
+                verdict = f"HOLD (score {buy_score} < min {buy_min}, gap {gap})"
 
-        # ── Sub-header ──
-        sep_label = f"  {pair}  ${price:,.4f}  \u2192  {signal}  {score_label}  "
-        sep_left  = "\u2500\u2500"
-        sep_right = "\u2500" * max(0, _WIDTH - len(sep_label) - len(sep_left))
-        lines.append(sep_left + sep_label + sep_right)
+        pairs_list.append({
+            "pair":           pair,
+            "signal":         signal,
+            "price":          _round(price, 4),
+            "strength":       _round(strength, 4),
+            "buy_score":      buy_score,
+            "sell_score":     sell_score,
+            "buy_min_score":  buy_min,
+            "sell_min_score": sell_min,
+            "max_score":      max_sc,
+            "is_vetoed":      is_vetoed,
+            "sent_to_llm":    sent_to_llm,
+            "llm_result":     llm_result,
+            "verdict":        verdict,
+            "reasons":        reasons,
+            "indicators":     indicators_block,
+        })
 
-        # ── Indicator line 1 ──
-        ind_line = _indicator_summary(ind)
-        if ind_line:
-            lines.append(f"  {ind_line}")
+    # ── Summary ─────────────────────────────────────────────────
+    summary_block = {
+        "n_buy":         n_buy,
+        "n_sell":        n_sell,
+        "n_hold":        n_hold,
+        "n_vetoed":      n_vetoed,
+        "n_sent_to_llm": n_sent_to_llm,
+    }
 
-        # ── Indicator line 2: EMAs + volume ──
-        ema_line = _ema_summary(ind)
-        if ema_line:
-            lines.append(f"  {ema_line}")
+    # ── Assemble and serialise ───────────────────────────────────
+    record = {
+        "cycle_id":    cycle_id,
+        "timestamp":   timestamp.isoformat(),
+        "duration_ms": duration_ms,
+        "portfolio":   portfolio_block,
+        "macro":       macro_block,
+        "pairs":       pairs_list,
+        "summary":     summary_block,
+    }
 
-        # ── Reasons ──
-        if reasons:
-            lines.append("  REASONS:")
-            for r in reasons:
-                lines.append(_format_reason(r))
-
-        # ── Verdict / LLM outcome ──
-        llm_result = result_map.get(pair)
-        if signal == "BUY":
-            n_sent_to_llm += 1
-            if llm_result:
-                lines.append(f"  VERDICT: BUY candidate \u2192 LLM: {llm_result}")
-            else:
-                lines.append("  VERDICT: BUY candidate \u2192 LLM: not reported")
-        elif signal == "SELL":
-            n_sent_to_llm += 1
-            if llm_result:
-                lines.append(f"  VERDICT: SELL candidate \u2192 LLM: {llm_result}")
-            else:
-                lines.append("  VERDICT: SELL candidate \u2192 LLM: not reported")
-        else:
-            if is_vetoed:
-                lines.append("  VERDICT: HOLD (hard veto) \u2014 not sent to LLM")
-            else:
-                gap2 = buy_min - buy_score
-                lines.append(
-                    f"  VERDICT: HOLD (score {buy_score} < min {buy_min}, gap {gap2})"
-                    " \u2014 not sent to LLM"
-                )
-
-        lines.append("")
-
-    # ── Footer summary ─────────────────────────────────────────
-    dur_str = f"{duration_ms / 1000:.1f}s" if duration_ms else "?s"
-    summary = (
-        f"SUMMARY  "
-        f"BUY:{n_buy}  SELL:{n_sell}  HOLD:{n_hold}({n_vetoed} vetoed)  "
-        f"Sent to LLM:{n_sent_to_llm}  "
-        f"Duration:{dur_str}"
-    )
-    lines.append(_SINGLE)
-    lines.append(_lpad(summary, _WIDTH))
-    lines.append(_DOUBLE)
-    lines.append("")
-
-    return "\n".join(lines)
+    return json.dumps(record, default=str)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

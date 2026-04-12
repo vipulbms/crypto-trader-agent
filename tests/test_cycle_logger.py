@@ -14,6 +14,7 @@ Tests:
  10. init_cycle_logger() is idempotent (no handler duplication)
 """
 
+import json
 import logging
 import os
 import sys
@@ -152,6 +153,8 @@ class TestFormatCycleReport:
         )
         assert isinstance(report, str)
         assert len(report) > 100
+        data = json.loads(report)  # must be valid JSON
+        assert data["cycle_id"] == 1
 
     def test_header_contains_cycle_id(self):
         sig = _make_signal()
@@ -163,7 +166,8 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[],
         )
-        assert "CYCLE #42" in report
+        data = json.loads(report)
+        assert data["cycle_id"] == 42
 
     def test_buy_pair_shows_llm_result(self):
         sig = _make_signal(pair="ETH/USD", buy_score=7, sell_score=0)
@@ -175,8 +179,10 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[{"pair": "ETH/USD", "result": "BUY executed $180.00"}],
         )
-        assert "BUY executed $180.00" in report
-        assert "BUY candidate" in report
+        data = json.loads(report)
+        pair_entry = next(p for p in data["pairs"] if p["pair"] == "ETH/USD")
+        assert pair_entry["llm_result"] == "BUY executed $180.00"
+        assert pair_entry["verdict"] == "BUY candidate"
 
     def test_sell_pair_shows_llm_result(self):
         sig = _make_signal(
@@ -194,8 +200,10 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[{"pair": "DOGE/USD", "result": "SELL executed — position closed"}],
         )
-        assert "SELL candidate" in report
-        assert "SELL executed" in report
+        data = json.loads(report)
+        pair_entry = next(p for p in data["pairs"] if p["pair"] == "DOGE/USD")
+        assert pair_entry["verdict"] == "SELL candidate"
+        assert "SELL executed" in pair_entry["llm_result"]
 
     def test_hard_vetoed_hold_labelled_correctly(self):
         veto_reasons = ["BLOCKED: RSI 72.1 >= 70 — overbought, no entry"]
@@ -216,8 +224,11 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[],
         )
-        assert "HOLD (hard veto)" in report
-        assert "not sent to LLM" in report
+        data = json.loads(report)
+        pair_entry = next(p for p in data["pairs"] if p["pair"] == "SOL/USD")
+        assert pair_entry["is_vetoed"] is True
+        assert pair_entry["verdict"] == "HOLD (hard veto)"
+        assert pair_entry["sent_to_llm"] is False
 
     def test_low_score_hold_shows_gap(self):
         sig = _make_signal(
@@ -238,8 +249,12 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[],
         )
-        assert "score 4 < min 5" in report
-        assert "gap 1" in report
+        data = json.loads(report)
+        pair_entry = next(p for p in data["pairs"] if p["pair"] == "BTC/USD")
+        assert pair_entry["buy_score"] == 4
+        assert pair_entry["buy_min_score"] == 5
+        assert "score 4 < min 5" in pair_entry["verdict"]
+        assert "gap 1" in pair_entry["verdict"]
 
     def test_macd_bullish_turn_annotation(self):
         sig = _make_signal(
@@ -256,7 +271,9 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[],
         )
-        assert "BULLISH TURN" in report
+        data = json.loads(report)
+        pair_entry = data["pairs"][0]
+        assert pair_entry["indicators"]["macd_turn"] == "bullish"
 
     def test_macd_bearish_turn_annotation(self):
         sig = _make_signal(
@@ -277,7 +294,9 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[],
         )
-        assert "BEARISH TURN" in report
+        data = json.loads(report)
+        pair_entry = data["pairs"][0]
+        assert pair_entry["indicators"]["macd_turn"] == "bearish"
 
     def test_missing_indicators_graceful(self):
         """Report must not crash when indicators dict is empty."""
@@ -291,7 +310,8 @@ class TestFormatCycleReport:
             ai_context=_make_ai_context(),
             results=[],
         )
-        assert "CYCLE #1" in report
+        data = json.loads(report)  # must not crash, must be valid JSON
+        assert data["cycle_id"] == 1
 
     def test_summary_counts_correct(self):
         buy_sig  = _make_signal(pair="ETH/USD", buy_score=7, sell_score=0)
@@ -314,10 +334,12 @@ class TestFormatCycleReport:
                 {"pair": "DOGE/USD", "result": "SELL executed"},
             ],
         )
-        assert "BUY:1" in report
-        assert "SELL:1" in report
-        assert "HOLD:1" in report
-        assert "Sent to LLM:2" in report
+        data = json.loads(report)
+        summary = data["summary"]
+        assert summary["n_buy"] == 1
+        assert summary["n_sell"] == 1
+        assert summary["n_hold"] == 1
+        assert summary["n_sent_to_llm"] == 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
