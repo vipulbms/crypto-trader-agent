@@ -7,8 +7,160 @@ on:
     branches: ["main"]
 
 jobs:
-  test:
+  copilot-review:
+    name: Copilot Code Review
     runs-on: ubuntu-latest
+    # Only run on pull requests
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      critical_high_found: ${{ steps.check-severity.outputs.critical_high_found }}
+      medium_low_comments: ${{ steps.check-severity.outputs.medium_low_comments }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Request Copilot Code Review
+        uses: github/copilot-code-review@v1
+        id: copilot-review
+        with:
+          # Copilot will post review comments on the PR
+          review-type: "pull_request"
+        continue-on-error: true
+
+      - name: Check review comment severities
+        id: check-severity
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: comments } = await github.rest.pulls.listReviewComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            // Filter Copilot bot review comments (posted in this run window)
+            const copilotComments = comments.filter(c =>
+              c.user.login === 'copilot-code-review[bot]' ||
+              c.user.type === 'Bot' && c.body.match(/\*\*(CRITICAL|HIGH|MEDIUM|LOW)\*\*/i)
+            );
+
+            const criticalHighPattern = /\*\*(CRITICAL|HIGH)\*\*/i;
+            const mediumLowPattern   = /\*\*(MEDIUM|LOW)\*\*/i;
+
+            const criticalHighComments = copilotComments.filter(c => criticalHighPattern.test(c.body));
+            const mediumLowComments    = copilotComments.filter(c => mediumLowPattern.test(c.body));
+
+            console.log(`Critical/High findings : ${criticalHighComments.length}`);
+            console.log(`Medium/Low findings    : ${mediumLowComments.length}`);
+
+            // Encode medium/low comments for downstream job
+            const mlPayload = JSON.stringify(
+              mediumLowComments.map(c => ({
+                path: c.path,
+                line: c.line,
+                body: c.body,
+                url:  c.html_url,
+              }))
+            );
+
+            core.setOutput('critical_high_found', criticalHighComments.length > 0 ? 'true' : 'false');
+            core.setOutput('medium_low_comments', mlPayload);
+
+            if (criticalHighComments.length > 0) {
+              core.setFailed(
+                `❌ ${criticalHighComments.length} CRITICAL/HIGH severity review comment(s) found. ` +
+                `All must be resolved before merging.`
+              );
+            }
+
+  create-backlog-issues:
+    name: Create Backlog Issues for Medium/Low Findings
+    runs-on: ubuntu-latest
+    needs: copilot-review
+    # Run even if copilot-review failed (due to critical/high), but only on PRs
+    if: always() && github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Create GitHub Issues for Medium/Low comments
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const raw = `${{ needs.copilot-review.outputs.medium_low_comments }}`;
+            if (!raw || raw === '' || raw === 'null') {
+              console.log('No Medium/Low comments to process.');
+              return;
+            }
+
+            let mediumLowComments;
+            try {
+              mediumLowComments = JSON.parse(raw);
+            } catch(e) {
+              console.log('Could not parse medium_low_comments output:', e.message);
+              return;
+            }
+
+            if (!mediumLowComments || mediumLowComments.length === 0) {
+              console.log('No Medium/Low severity comments found. No issues to create.');
+              return;
+            }
+
+            const prNumber = context.issue.number;
+            const prUrl    = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${prNumber}`;
+
+            for (const comment of mediumLowComments) {
+              // Extract severity label from comment body
+              const severityMatch = comment.body.match(/\*\*(MEDIUM|LOW)\*\*/i);
+              const severity      = severityMatch ? severityMatch[1].toUpperCase() : 'MEDIUM';
+              const label         = severity === 'MEDIUM' ? 'severity: medium' : 'severity: low';
+
+              const title = `[${severity}] Copilot Review Finding – ${comment.path}:${comment.line ?? '?'}`;
+              const body  = [
+                `## Copilot Code Review Finding (${severity} Severity)`,
+                '',
+                `**Source PR:** ${prUrl}`,
+                `**File:** \\`${comment.path}\\` (line ${comment.line ?? 'N/A'})`,
+                `**Review comment:** ${comment.url}`,
+                '',
+                '### Finding Details',
+                '',
+                comment.body,
+                '',
+                '---',
+                '_This issue was automatically created by the CI workflow from a Copilot code review comment._',
+                '_Medium and Low severity findings do not block merging but should be addressed in the backlog._',
+              ].join('\n');
+
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                title,
+                body,
+                labels: [label, 'copilot-review', 'backlog'],
+              });
+
+              console.log(`Created issue #${issue.number}: ${issue.html_url}`);
+            }
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: copilot-review
+    # For PRs: only run tests if no Critical/High findings.
+    # For pushes (non-PR): always run tests.
+    if: |
+      always() && (
+        github.event_name != 'pull_request' ||
+        needs.copilot-review.outputs.critical_high_found != 'true'
+      )
 
     steps:
       - uses: actions/checkout@v4
