@@ -240,6 +240,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_12d | Fix: duplicate log lines — `console_handler` skipped when `sys.stdout` is not a TTY (background subprocess has stdout redirected to `agent.log`); closes #226 |
 | session_2026_04_12e | Fix: qwen3-32b tool_use_failed — add `reasoning_format=hidden` to `extra_body` for tool calling (Groq requires explicit non-raw format); closes #228 |
 | session_2026_04_13a | Fix: test_circuit_breaker + test_correlation_guard hardcoded production `paper_trading.db` — `_seed_positions()` DELETE wiped live positions mid-cycle, triggering false -60% kill switch; UUID DB isolation applied; closes #234 |
+| session_2026_04_13b | Docs: comprehensive README rewrite (19 sections, 1,474 lines, 68K) — BUY/SELL complete reference, 4 Mermaid sequence diagrams, defence mechanisms; new SETUP.md (10-section install guide) + setup.sh (automated setup script); closes #240 |
 
 ---
 
