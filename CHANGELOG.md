@@ -2,6 +2,22 @@
 
 ---
 
+## Session: 2026-04-13 (Part B) — Docs: comprehensive README rewrite + SETUP.md + setup.sh (#240)
+
+### Documentation
+- **README.md completely rewritten** — 19 sections (was ~8), 1,474 lines / 68 KB. Major additions:
+  - §4 Technical Indicators: all 11 subsections (RSI, MACD, BB, BB Squeeze Release, EMA, ATR, ADX, OBV, RSI Divergence, Candlestick Patterns, Fear & Greed)
+  - §5 BUY Signal — Complete Reference: 19-contributor scoring table (max_score=28), 5 hard vetoes, per-tier min scores, profit factor escalation logic, 3 worked examples (BTC/SOL/PEPE)
+  - §6 SELL Signal — Complete Reference: `propose_sell` pre-flight (3 conditions), `validate_sell` gates, triple-condition rule, automatic exits, `close_position` P&L math, exit reason taxonomy (6 codes)
+  - §7 HOLD Logic: 3 paths (hard-veto, score-miss, LLM HOLD)
+  - §8 Sequence Diagrams: 4 Mermaid diagrams (BUY, SELL, HOLD, automatic SL/TP)
+  - §9 Defence Mechanisms: dynamic TP, partial TP, trailing stop, hard SL + circuit breaker + kill switch, meme coin protections, correlation guard, macro overlays (BTC dominance + MVRV/NUPL cycle-top guard)
+  - §10 Trading Pairs — Full Reference: 4 tier tables, all 27 pairs with TP%, min score, caution factor, slippage, trailing config
+- **SETUP.md** (new) — 10-section first-time installation guide covering system requirements, LLM provider configuration (Groq/Gemini/Ollama), Telegram setup, healthcheck webhook, and paper trading reset
+- **setup.sh** (new, executable) — automated setup script with Python 3.11 check, venv creation, interactive LLM provider selection, `.env` template generation
+
+---
+
 ## Session: 2026-04-12 (Part E) — Fix qwen3-32b tool_use_failed: add reasoning_format=hidden (#228)
 
 ### Bug Fixes
