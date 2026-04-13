@@ -80,17 +80,31 @@ CONFIG = {
 }
 
 
-def _mock_indicator_response(value, key="value"):
+def _mock_mvrv_response(mvrv_value: float):
+    """Return a mock v4 bull-market-peak-indicator response containing MVRV Z-Score."""
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
     mock_resp.json.return_value = {
-        "success": True,
-        "data": {
-            "list": [
-                {"time": 1, key: value - 0.1},
-                {"time": 2, key: value},
-            ]
-        },
+        "code": "0",
+        "msg": "success",
+        "data": [
+            {"indicator_name": "Bitcoin Ahr999 Index", "current_value": "0.78", "hit_status": False},
+            {"indicator_name": "Bitcoin MVRV Z-Score", "current_value": str(mvrv_value), "hit_status": False},
+        ],
+    }
+    return mock_resp
+
+
+def _mock_nupl_response(nupl_value: float):
+    """Return a mock v4 bitcoin-net-unrealized-profit-loss response."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "code": "0",
+        "data": [
+            {"price": 30000, "net_unpnl": nupl_value - 0.05, "timestamp": 1690000000000},
+            {"price": 82000, "net_unpnl": nupl_value, "timestamp": 1744000000000},
+        ],
     }
     return mock_resp
 
@@ -125,8 +139,8 @@ class TestFetchCycleTopIndicators(unittest.TestCase):
         with patch(
             "requests.get",
             side_effect=[
-                _mock_indicator_response(7.4, key="mvrvZScore"),
-                _mock_indicator_response(0.73, key="nupl"),
+                _mock_mvrv_response(7.4),
+                _mock_nupl_response(0.73),
             ],
         ):
             result = fetch_cycle_top_indicators(CONFIG)

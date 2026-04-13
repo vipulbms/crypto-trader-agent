@@ -529,6 +529,31 @@ def _coerce_float(value) -> Optional[float]:
         return None
 
 
+def _extract_mvrv_from_bull_market_indicators(payload: dict) -> Optional[float]:
+    """Extract MVRV Z-Score from CoinGlass v4 /api/bull-market-peak-indicator response.
+
+    The endpoint returns a list of indicators, e.g.::
+
+        {"code": "0", "data": [
+            {"indicator_name": "Bitcoin Ahr999 Index", "current_value": "0.78", ...},
+            {"indicator_name": "Bitcoin MVRV Z-Score", "current_value": "4.2", ...},
+            ...
+        ]}
+
+    We search for the entry whose ``indicator_name`` contains "MVRV" (case-insensitive).
+    """
+    data = payload.get("data", [])
+    if not isinstance(data, list):
+        return None
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("indicator_name", "")
+        if "mvrv" in name.lower():
+            return _coerce_float(entry.get("current_value"))
+    return None
+
+
 def _extract_latest_indicator_value(node, candidate_keys: list[str]) -> Optional[float]:
     """Extract the most recent numeric indicator value from nested API payloads."""
     if isinstance(node, dict):
@@ -728,11 +753,8 @@ def fetch_cycle_top_indicators(config: dict, db_path: Optional[str] = None) -> O
         _cycle_top_cache["failed_at"] = now
         return None
 
-    mvrv = _extract_latest_indicator_value(
-        mvrv_resp.json(),
-        ["mvrvZScore", "mvrv_zscore", "mvrv_z_score", "zscore", "z_score", "value"],
-    )
-    nupl = _extract_latest_indicator_value(nupl_resp.json(), ["nupl", "value"])
+    mvrv = _extract_mvrv_from_bull_market_indicators(mvrv_resp.json())
+    nupl = _extract_latest_indicator_value(nupl_resp.json(), ["net_unpnl", "nupl", "value"])
     if mvrv is None or nupl is None:
         logger.warning("[CYCLE_TOP] Could not parse MVRV/NUPL from CoinGlass responses")
         return None

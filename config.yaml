@@ -721,8 +721,8 @@ risk:
     enabled: true
     mvrv_z_danger: 7.0         # MVRV Z-Score threshold — historically 7+ = cycle top distribution zone
     nupl_danger: 0.70          # NUPL threshold — >0.70 = extreme unrealised profit (2017: 0.74, 2021: 0.71)
-    mvrv_url: "https://open-api.coinglass.com/public/v2/indicator/bitcoin_mvrv_zscore"
-    nupl_url: "https://open-api.coinglass.com/public/v2/indicator/bitcoin_nupl"
+    mvrv_url: "https://open-api-v4.coinglass.com/api/bull-market-peak-indicator"
+    nupl_url: "https://open-api-v4.coinglass.com/api/index/bitcoin-net-unrealized-profit-loss"
     fetch_timeout_secs: 8
     cache_hours: 24            # Re-fetch at most once per UTC day (on-chain data changes daily)
     # Set COINGLASS_API_KEY environment variable — guard silently skips if key absent or API fails
