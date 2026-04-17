@@ -2,7 +2,20 @@
 
 ---
 
-## Session: 2026-04-17 (Part B) — Fix volume dead-zone guard uses partial candle (#262)
+## Session: 2026-04-17 (Part C) — Fix null macro data causes LLM over-hold (#259)
+
+### Bug Fixes
+- **[#259] Null macro data causes LLM to HOLD every BUY candidate**: `fetch_fear_greed()` and `fetch_btc_dominance()` returned `None` on API failure even when fresh data was in cache. `build_sentiment_context()` showed `"unavailable"` with no guidance. Combined with bearish regime, the LLM interpreted maximum uncertainty and held everything.
+  - `fetch_fear_greed()`: On exception, fall back to stale cache within `stale_ttl_hours: 4` (hours). Returns stale dict with `stale_age_hours` key. None returned only when cache is cold or exceeds TTL.
+  - `build_sentiment_context()`: Cold cache shows `"treat as neutral, not bearish"` message. Stale data shows `"[stale Xh ago]"` label. 
+  - `fetch_btc_dominance()`: Same stale carry-forward, TTL 24h.
+  - `build_cycle_prompt()` rule 6: `"If any macro block shows 'unavailable', rely on technical signal scores alone. Missing macro data is NOT a reason to hold."`
+  - `config.yaml`: `sentiment.stale_ttl_hours: 4`, `btc_dominance.stale_ttl_hours: 24`
+  - **Files:** `src/analysis/features.py`, `src/agent/prompts.py`, `config.yaml`, `tests/test_stale_macro.py` (11 new tests)
+
+---
+
+ Fix volume dead-zone guard uses partial candle (#262)
 
 ### Bug Fixes
 - **[#262] Volume dead-zone guard uses in-progress candle instead of last completed candle**: `compute_indicators()` extracted `volume` from `df["volume"].iloc[-1]` which is the current open 15-min candle — partially accumulated. `rolling_volume_p15` is computed from 400 completed candles, so the comparison was systematically false (e.g. ETH 3.29 actual vs 24.48 floor mid-candle), blocking nearly every pair every cycle. Fix: dynamically select `_vol_idx` using `candle_interval` from config + last candle's Unix timestamp — if `last_ts + interval_secs <= time.now()` use `iloc[-1]` (candle closed), else `iloc[-2]` (last completed). **Files:** `src/analysis/indicators.py`
