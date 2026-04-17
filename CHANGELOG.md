@@ -2,6 +2,21 @@
 
 ---
 
+## Session: 2026-04-17 (Part A) — Fix display.py PF tuple, CI simplified, README additions, UI design docs
+
+### Bug Fixes
+- **[#252] display.py `print_portfolio_summary()` crashes — `pf_by_pair` returns `(float, int)` tuple, not `float`**: `get_signal_driver_report()` passes `(profit_factor, n_trades)` tuples in `profit_factors` dict. `display.py` compared the value directly against float thresholds causing `TypeError`. Fix: unpack safely — `pf_entry[0] if isinstance(pf_entry, tuple) else pf_entry`. **Files:** `src/cli/display.py`
+
+### Chores
+- **[#181] CI pipeline simplified — remove Copilot review gate**: Removed `copilot-review` and `create-backlog-issues` jobs from `.github/workflows/ci.yml`. `test` job now runs unconditionally on every push/PR. Tests gate merges without Copilot review blocking them. **Files:** `.github/workflows/ci.yml`
+
+### Documentation
+- **[#253] README: Telegram Setup (§3) + Market Sentiment in Practice (§9) added**: Step-by-step Telegram bot creation guide (BotFather → chat ID → env config) and a live decision walkthrough showing how Fear & Greed, RSI, MACD, ATR, and OBV combine into a BUY score. **Files:** `README.md`
+- **[#253] `.gitignore` excludes `.claude/settings.json`** (Claude Code auto-generated tool state)
+- **[#251] UI design blueprint and mockups committed**: `docs/ui-designer.md` (1,297 lines, full SPA architecture + data contracts) and `docs/user-interface/` (HTML mockups, CSS, screenshots) — the design specification that drove the kryptos-ui + kryptos-api implementation. **Files:** `docs/ui-designer.md` (new), `docs/user-interface/` (new, 9 files)
+
+---
+
 ## Session: 2026-04-13 (Part B) — Docs: comprehensive README rewrite + SETUP.md + setup.sh (#240)
 
 ### Documentation
