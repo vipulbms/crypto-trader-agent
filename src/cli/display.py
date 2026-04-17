@@ -165,7 +165,8 @@ def print_portfolio_summary(data: dict) -> None:
         pf_by_pair = data.get("profit_factors", {})
         for p in positions:
             pair_name = p.get("pair", "?")
-            pf        = pf_by_pair.get(pair_name)
+            pf_entry  = pf_by_pair.get(pair_name)
+            pf        = pf_entry[0] if isinstance(pf_entry, tuple) else pf_entry
             if pf is not None:
                 if pf < 0.7:
                     pf_str = f"  [bold red]PF:{pf:.2f}[/bold red]"
