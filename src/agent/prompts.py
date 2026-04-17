@@ -128,6 +128,7 @@ def build_cycle_prompt(
         "3. Call propose_sell for SELL-signal open positions with confirmed momentum reversal.",
         "4. Reason briefly (1 sentence) before each tool call. Make zero calls if no pairs meet your bar.",
         "5. If a [CYCLE TOP WARNING] block is present, treat Tier 3 / Tier 4 BUYs as blocked.",
+        "6. If any macro block shows 'unavailable', rely on the technical signal scores and reasons alone. Missing macro data is NOT a reason to hold.",
     ]
 
     return "\n".join(lines)

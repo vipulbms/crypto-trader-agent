@@ -243,6 +243,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_13b | Docs: comprehensive README rewrite (19 sections, 1,474 lines, 68K) — BUY/SELL complete reference, 4 Mermaid sequence diagrams, defence mechanisms; new SETUP.md (10-section install guide) + setup.sh (automated setup script); closes #240 |
 | session_2026_04_17a | Fix: display.py PF tuple crash (#252); CI simplified — remove copilot-review gate, tests run unconditionally (#181); README Telegram Setup + Market Sentiment walkthrough sections (#253); UI design docs committed: docs/ui-designer.md + docs/user-interface/ (#251) |
 | session_2026_04_17b | Fix: volume dead-zone guard uses partial in-progress candle instead of last completed candle — dynamic `_vol_idx` via candle_interval config + timestamp comparison; closes #262 |
+| session_2026_04_17c | Fix: null macro data causes LLM to over-hold — stale carry-forward for Fear & Greed (4h) + BTC dominance (24h); cold-cache prompt says "treat as neutral"; prompt rule 6 for null-macro; 11 tests; closes #259 |
 
 ---
 

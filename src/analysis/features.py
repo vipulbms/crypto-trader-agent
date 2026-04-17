@@ -506,6 +506,14 @@ def fetch_fear_greed(config: dict) -> Optional[dict]:
         return data
     except Exception as e:
         logger.warning("Fear & Greed fetch failed: %s", e)
+        # Fall back to stale cache rather than returning None (#259)
+        stale_ttl_secs = snt_cfg.get("stale_ttl_hours", 4) * 3600
+        if _sentiment_cache["data"] and (now - _sentiment_cache["fetched_at"]) < stale_ttl_secs:
+            age_hours = (now - _sentiment_cache["fetched_at"]) / 3600
+            stale = dict(_sentiment_cache["data"])
+            stale["stale_age_hours"] = round(age_hours, 1)
+            logger.info("Fear & Greed using stale data (age=%.1fh)", age_hours)
+            return stale
         return None
 
 
@@ -630,6 +638,14 @@ def fetch_btc_dominance(config: dict, db_path: Optional[str] = None) -> Optional
         btc_dom_pct = float(global_data.get("market_cap_percentage", {}).get("btc", 0.0))
     except Exception as e:
         logger.warning("[BTC_DOM] Fetch failed: %s", e)
+        # Fall back to stale cache rather than returning None (#259)
+        stale_ttl_secs = dom_cfg.get("stale_ttl_hours", 24) * 3600
+        if _btc_dom_cache["data"] and (now - _btc_dom_cache["fetched_at"]) < stale_ttl_secs:
+            age_hours = (now - _btc_dom_cache["fetched_at"]) / 3600
+            stale = dict(_btc_dom_cache["data"])
+            stale["stale_age_hours"] = round(age_hours, 1)
+            logger.info("[BTC_DOM] Using stale data (age=%.1fh)", age_hours)
+            return stale
         return None
 
     # Persist today's reading to DB for trend calculation
@@ -843,12 +859,17 @@ def build_sentiment_context(config: dict) -> str:
 
     data = fetch_fear_greed(config)
     if not data:
-        return "--- MARKET SENTIMENT ---\nFear & Greed Index: unavailable"
+        return (
+            "--- MARKET SENTIMENT ---\n"
+            "Fear & Greed Index: Data temporarily unavailable — treat as neutral, not bearish."
+        )
 
     value         = data["value"]
     label         = data["label"]
     fear_thresh   = snt_cfg.get("extreme_fear_threshold", 25)
     greed_thresh  = snt_cfg.get("extreme_greed_threshold", 75)
+    stale_age     = data.get("stale_age_hours")
+    stale_suffix  = f" [stale {stale_age:.0f}h ago]" if stale_age is not None else ""
 
     if value <= fear_thresh:
         interpretation = "EXTREME FEAR — market is oversold; historically a buy zone. BUY signals are more reliable."
@@ -863,7 +884,7 @@ def build_sentiment_context(config: dict) -> str:
 
     return (
         f"--- MARKET SENTIMENT (Fear & Greed Index) ---\n"
-        f"  Index: {value}/100 ({label})\n"
+        f"  Index: {value}/100 ({label}){stale_suffix}\n"
         f"  Interpretation: {interpretation}"
     )
 

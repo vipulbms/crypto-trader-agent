@@ -890,6 +890,7 @@ regime:
     url: "https://api.coingecko.com/api/v3/global"
     fetch_timeout_secs: 5
     cache_minutes: 120              # Re-fetch at most every 2 hours
+    stale_ttl_hours: 24             # On fetch failure, return cached value up to 24 hours stale (#259)
     trend_min_change_pp: 0.5        # Minimum pp change over lookback_days to classify as rising/falling
     trend_lookback_days: 3          # Compare today vs N-1 days ago stored in agent_state
 
@@ -902,6 +903,7 @@ sentiment:
   fear_greed_url: "https://api.alternative.me/fng/?limit=1"
   fetch_timeout_secs: 5         # HTTP timeout for sentiment fetch
   cache_minutes: 60             # Re-fetch at most once per hour
+  stale_ttl_hours: 4            # On fetch failure, return cached value up to this many hours stale (#259)
   extreme_fear_threshold: 25    # Index <= this = extreme fear (potential buy zone)
   extreme_greed_threshold: 75   # Index >= this = extreme greed (caution on buys)
 
