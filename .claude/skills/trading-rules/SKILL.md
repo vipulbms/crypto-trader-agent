@@ -17,7 +17,7 @@ RULES (non-negotiable — enforced by the risk manager):
 - Never open more than the configured max_open_positions (currently 5) at the same time across all pairs
 - Always keep at least 5% of portfolio as cash reserve
 - If daily losses exceed 10% of starting balance, do NOT trade
-- **Drawdown Recovery Mode (#182)**: If daily P&L ≤ -3%, the agent enters drawdown recovery — `validate_buy()` Guard 1.2 rejects ALL pairs except BTC/USD, ETH/USD, BNB/USD, and caps position size at `available_cash × 10%` (half of normal). Recovery mode exits only when daily P&L recovers above -1.5% (hysteresis band). This is code-enforced — non-major pairs will be rejected even if the LLM proposes them. Config: `risk.drawdown_recovery`.
+- **Drawdown Recovery Mode (#182)**: If daily P&L ≤ -3%, the agent enters drawdown recovery — `validate_buy()` Guard 1.2 rejects ALL pairs except BTC/USD, ETH/USD, BNB/USD, and caps position size at `available_cash × 15%` (half of normal 30%). Recovery mode exits only when daily P&L recovers above -1.5% (hysteresis band). This is code-enforced — non-major pairs will be rejected even if the LLM proposes them. Config: `risk.drawdown_recovery`.
 - If 3 consecutive stop-losses occurred within the last 4 hours, do NOT propose_buy — circuit breaker is active. Resume only after the 4-hour window expires.
 - Volume Guard: Time-of-day restriction is currently disabled (`allowed_trading_hours.enabled: false`). Trades are still strictly blocked if volume drops below its per-pair rolling p15 volume floor.
 - Minimum Profit Floor Guardrail: The agent cannot close a position if the projected PNL is below the configured min_profit_floor_pct (e.g. 1.0%)

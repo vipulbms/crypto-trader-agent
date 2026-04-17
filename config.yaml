@@ -17,7 +17,7 @@ trading:
   # Allowed take-profit levels — validated at startup
   allowed_take_profit_pcts: [5, 8, 12, 16, 20, 25]
 
-  max_position_pct: 20        # Max % of portfolio per single trade (Fix #130 — was 15)
+  max_position_pct: 30        # Max % of portfolio per single trade (was 20; #265)
   max_open_positions: 10      # Safety ceiling only — cash guards are primary gate (#167; was 5)
   max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
   cycle_interval_minutes: 15  # How often the agent runs a decision cycle
@@ -695,7 +695,7 @@ risk:
     trigger_pct: 3.0           # Enter recovery at -3% daily loss
     exit_pct: 1.5              # Exit recovery when daily loss recovers to -1.5% (hysteresis band)
     allowed_pairs: [BTC/USD, ETH/USD, BNB/USD]
-    max_position_pct_override: 10  # Half of normal 20% max during recovery
+    max_position_pct_override: 15  # Half of normal 30% max during recovery
 
   # Correlation guard — block stacking highly-correlated pairs (#139)
   correlation_clusters:
@@ -737,7 +737,7 @@ position_sizing:
   strength_weight: 0.5          # How much signal strength influences size (0=ignore, 1=full)
   volatility_weight: 0.5        # How much ATR volatility reduces size (0=ignore, 1=full)
   min_position_pct: 5           # Never allocate less than this % of portfolio
-  max_position_pct: 20          # Hard cap (aligned with risk.max_position_pct; Fix #130 — was 15)
+  max_position_pct: 30          # Hard cap (aligned with trading.max_position_pct; was 20; #265)
 
 # ──────────────────────────────────────────────
 # Feature: ATR-based stop-loss at entry (S12.4.1 — #86)
