@@ -10,23 +10,25 @@
 
 1. [Features](#features)
 2. [Quick Start — Paper Trading](#quick-start--paper-trading)
-3. [How the Decision Cycle Works](#how-the-decision-cycle-works)
-4. [Technical Indicators](#technical-indicators)
-5. [BUY Signal — Complete Reference](#buy-signal--complete-reference)
-6. [SELL Signal — Complete Reference](#sell-signal--complete-reference)
-7. [HOLD Logic](#hold-logic)
-8. [Sequence Diagrams](#sequence-diagrams)
-9. [Defence Mechanisms](#defence-mechanisms)
-10. [Trading Pairs — Full Reference](#trading-pairs--full-reference)
-11. [Kryptos CLI](#kryptos-cli)
-12. [Database Storage](#database-storage)
-13. [Risk Rules](#risk-rules)
-14. [Paper vs Live Mode](#paper-vs-live-mode)
-15. [Backtesting & Live Readiness](#backtesting--live-readiness)
-16. [File Structure](#file-structure)
-17. [Configuration (`config.yaml`)](#configuration-configyaml)
-18. [Documentation Index](#documentation-index)
-19. [Known Behaviours](#known-behaviours)
+3. [Telegram Setup](#telegram-setup)
+4. [How the Decision Cycle Works](#how-the-decision-cycle-works)
+5. [Technical Indicators](#technical-indicators)
+6. [BUY Signal — Complete Reference](#buy-signal--complete-reference)
+7. [SELL Signal — Complete Reference](#sell-signal--complete-reference)
+8. [HOLD Logic](#hold-logic)
+9. [Sequence Diagrams](#sequence-diagrams)
+10. [Defence Mechanisms](#defence-mechanisms)
+11. [Market Sentiment in Practice](#market-sentiment-in-practice)
+12. [Trading Pairs — Full Reference](#trading-pairs--full-reference)
+13. [Kryptos CLI](#kryptos-cli)
+14. [Database Storage](#database-storage)
+15. [Risk Rules](#risk-rules)
+16. [Paper vs Live Mode](#paper-vs-live-mode)
+17. [Backtesting & Live Readiness](#backtesting--live-readiness)
+18. [File Structure](#file-structure)
+19. [Configuration (`config.yaml`)](#configuration-configyaml)
+20. [Documentation Index](#documentation-index)
+21. [Known Behaviours](#known-behaviours)
 
 ---
 
@@ -81,6 +83,62 @@ Check status at any time:
 python kryptos.py status
 python kryptos.py positions
 ```
+
+---
+
+## Telegram Setup
+
+Kryptos can send real-time trade alerts, daily summaries, and hourly heartbeats to a Telegram chat. This is optional — the agent runs fine without it.
+
+### 1. Create a Bot
+
+1. Open Telegram and message **@BotFather**
+2. Send `/newbot` and follow the prompts to name your bot
+3. BotFather replies with a token like `7123456789:ABCdef...` — copy it
+
+### 2. Get Your Chat ID
+
+1. Send any message to your new bot to start the conversation
+2. Visit `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser
+3. Find `"chat":{"id":xxxxxxxxx}` in the JSON — that number is your chat ID
+
+> If the result is empty, send another message to the bot and refresh the page.
+
+### 3. Set Environment Variables
+
+Add both values to your `.env` file:
+
+```bash
+echo "TELEGRAM_BOT_TOKEN=7123456789:ABCdef..." >> .env
+echo "TELEGRAM_CHAT_ID=xxxxxxxxx"              >> .env
+```
+
+### 4. Verify
+
+```bash
+python kryptos.py test-telegram
+```
+
+You should receive a test message within a few seconds.
+
+### What You Receive
+
+| Event | Content |
+|---|---|
+| Trade opens | Pair, direction, entry price, size, SL/TP levels |
+| Trade closes | Exit price, P&L (USD + %), exit reason |
+| Partial TP | Fraction closed, remaining position |
+| Daily summary | Total P&L, win rate, open positions (midnight SGT) |
+| Hourly heartbeat | Balance, hourly P&L delta, cycle count, circuit breaker state |
+| 6-hour P&L report | Running P&L since midnight with pair breakdown |
+| Error alert | Exception type and message for unhandled errors |
+| Kill switch | Emergency market-sell triggered at −7% drawdown |
+| Drawdown recovery | Entry (≤ −3%) and exit (> −1.5%) of recovery mode |
+| Cycle-top guard | Activation / deactivation when MVRV + NUPL cross threshold |
+
+### Disabling Notifications
+
+Set `notifications.telegram_enabled: false` in `config.yaml`, or simply omit the environment variables — the notifier silently no-ops when the token is missing.
 
 ---
 
@@ -981,6 +1039,85 @@ BTC dominance measures BTC's share of total crypto market cap (fetched from Coin
 | Flat | Any | No reduction |
 
 Trend is computed by comparing current BTC% vs 3 days ago (min 0.5pp change required for classification).
+
+---
+
+## Market Sentiment in Practice
+
+Kryptos layers three sources of market sentiment on top of technical signals. Each layer can independently reduce position size or block a trade entirely. Here is how they interact in a live cycle.
+
+### The Three Sentiment Layers
+
+| Layer | Source | Cache | Effect |
+|---|---|---|---|
+| **Fear & Greed Index** | Alternative.me API | 1h in-memory | +1 / +2 BUY score contribution |
+| **BTC Dominance Trend** | CoinGecko Global API | In-memory per cycle | Tier 3/4 position size caps |
+| **Cycle-Top Guard** | CoinGlass MVRV Z-Score + NUPL | 24h in `agent_state` DB | Hard block on Tier 3/4 buys |
+
+### Layer 1 — Fear & Greed Index
+
+The Fear & Greed Index (0–100) measures overall crypto market sentiment and contributes directly to the BUY confluence score:
+
+| Index Value | Classification | BUY Score Contribution |
+|---|---|---|
+| ≤ 25 | Extreme Fear | +2 (contrarian buy signal) |
+| 26–40 | Fear | +1 |
+| 41–100 | Neutral / Greed | 0 |
+
+> The index contributes **to** but never **alone** determines a BUY. A pair still needs to meet `buy_min_score` (5–9 depending on the pair) from multiple sources.
+
+### Layer 2 — BTC Dominance Trend
+
+When Bitcoin's market dominance rises, capital rotates out of altcoins into BTC (risk-off). The agent detects this and applies size caps per tier:
+
+| BTC Dom Trend | Effect on Tier 3 (Speculative Alts) | Effect on Tier 4 (Memes) |
+|---|---|---|
+| Rising | Capped at **50%** of computed size | Capped at **30%** of computed size |
+| Falling | No reduction — altseason favourable | No reduction |
+| Flat | No reduction | No reduction |
+
+Trend is compared vs 3 days ago; requires ≥ 0.5pp change to classify as `rising` or `falling`. Non-core Tier 2 alts also face a 0.70× multiplier when dominance is rising.
+
+**Example**: SOL/USD (Tier 2) proposes a `$200` buy. BTC dominance is rising. Bearish `caution_factor = 0.5` already applies. The sector rotation multiplier (`0.7` for non-core Tier 2) further reduces it: `$200 × 0.5 × 0.7 = $70`.
+
+### Layer 3 — Cycle-Top On-Chain Guard
+
+Two on-chain metrics flag a macro cycle peak:
+
+| Metric | Danger Threshold | Interpretation |
+|---|---|---|
+| MVRV Z-Score | ≥ 7.0 | Market historically overvalued vs realised value |
+| NUPL | ≥ 0.75 | Net unrealised profit in euphoria zone |
+
+When **both** thresholds are simultaneously breached:
+
+- Prompt shows a `[CYCLE TOP WARNING]` block visible to the LLM
+- All Tier 3 and Tier 4 raw BUY signals are downgraded to **HOLD before the LLM is called**
+- `RiskManager.validate_buy()` hard-blocks Tier 3/4 proposals even if the LLM proposes them
+- Only Tier 1 (BTC) and Tier 2 L1s (ETH, BNB, SOL, etc.) remain eligible
+
+A Telegram alert is sent on guard activation and deactivation. If CoinGlass is unavailable, the guard silently disables (no false block). CoinGlass 5xx errors trigger a 1-hour back-off before retry.
+
+### Worked Example — Three Layers Combined
+
+**Setup**: 14:00 UTC. BTC dominance has risen 1.2pp in 3 days. MVRV Z-Score = 7.8, NUPL = 0.81. Fear & Greed = 32 (Fear).
+
+1. **Fear & Greed = 32** → +1 BUY score added to all pairs in `generate_signal()`
+2. **BTC dominance rising** → Tier 3/4 size caps activated
+3. **MVRV + NUPL both above danger threshold** → Cycle-top guard activates; Tier 3/4 BUY signals downgraded to HOLD
+
+**WIF/USD (Tier 4 meme, `buy_min_score = 6`)**:
+- `generate_signal()` scores 7/28 → classifies as BUY
+- Cycle-top guard downgrades signal → **HOLD**
+- WIF never reaches the LLM prompt
+- No trade placed
+
+**ETH/USD (Tier 2 L1, `buy_min_score = 5`)**:
+- `generate_signal()` scores 9/28 → BUY
+- Cycle-top guard does **not** apply to Tier 1/2
+- Proposed size `$200`; bearish caution 0.5 → `$100`; BTC dominance rising Tier 2 multiplier 0.7 → `$70`
+- LLM calls `propose_buy("ETH/USD", 70)`
+- Risk manager validates all 12 gates → **approved**, trade placed at `$70`
 
 ---
 

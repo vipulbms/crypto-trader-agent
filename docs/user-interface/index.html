@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kryptos // AI Crypto Trading Agent</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div id="login-screen" class="overlay">
+        <div class="login-card">
+            <h1>Kryptos Terminal Access</h1>
+            <p>Secure authentication required via Telegram.</p>
+            <div id="telegram-login-button"></div>
+        </div>
+    </div>
+
+    <div id="app" style="display: none;">
+        <header class="terminal-header">
+            <div class="brand">KRYPTOS // AI Crypto Trading Agent</div>
+            <div class="agent-stats">
+                Cycle: <span id="cycle-id">4128</span> | 
+                LLM Calls: <span id="llm-count">12,842</span> | 
+                Heartbeat: <span class="status-active">ACTIVE</span>
+            </div>
+            <div class="user-meta">Welcome, User | <a href="#">LOGOUT</a></div>
+        </header>
+
+        <div class="main-container" style="display: flex;">
+            <nav class="sidebar">
+                <div class="nav-section">
+                    <a href="#" class="nav-link active">Main Dashboard</a>
+                    <a href="#" class="nav-link">My Holdings</a>
+                    <a href="#" class="nav-link">Trade History</a>
+                </div>
+                
+                <h3>Pair Watchlist</h3>
+                <div id="pair-list">
+                    <a href="javascript:void(0)" onclick="loadPair('BTC/USD')">BTC/USD</a>
+                    <a href="javascript:void(0)" onclick="loadPair('SOL/USD')">SOL/USD</a>
+                </div>
+
+                <div class="sentiment-box">
+                    <p>Fear & Greed: 12 (Extreme Fear)</p>
+                    <p>BTC Dom: 57.29% (Rising)</p>
+                </div>
+            </nav>
+
+            <main class="content-area">
+                <section id="dashboard-view">
+                    <h2>Portfolio Summary: $1,245.50</h2>
+                    <div id="chart-container">
+                        <img src="XRPUSD.20260414-0633.png" alt="XRP Candle Chart">
+                    </div>
+
+                    <div class="history-table">
+                        <h3>10 Recent Transactions</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Pair</th>
+                                    <th>Action</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody id="txn-body">
+                                </tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <footer>
+            AI Crypto Trading Agent | <a href="#">About</a> | <a href="#">Contact US</a>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
