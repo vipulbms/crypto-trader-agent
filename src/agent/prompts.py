@@ -58,7 +58,7 @@ def build_cycle_prompt(
         f"Available Cash:       ${portfolio['available_cash_usd']:.2f}",
         f"Open Positions:       {portfolio['open_positions_count']}",
         f"Daily P&L:            ${portfolio['daily_pnl_usd']:+.2f} ({portfolio['daily_pnl_pct']:+.2f}%)",
-        f"Max per new trade:    ${portfolio['max_per_trade']:.2f}  (20% of ${portfolio['total_usd']:.2f}, regime-adjusted)",
+        f"Max per new trade:    ${portfolio['max_per_trade']:.2f}  (30% of ${portfolio['total_usd']:.2f}, regime-adjusted)",
     ]
 
     if portfolio.get("open_positions"):

@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-17 (Part D) — Raise max_position_pct 20% → 30% (#265)
+
+### Config
+- **[#265] Raise max_position_pct from 20% to 30%**: `trading.max_position_pct` and `position_sizing.max_position_pct` both updated to 30. Drawdown recovery override updated to 15% (half of new 30%). Prompt label updated. `base_position_pct` remains 16% (pre-scaling base, not the ceiling). 309 tests pass.
+
+---
+
 ## Session: 2026-04-17 (Part C) — Fix null macro data causes LLM over-hold (#259)
 
 ### Bug Fixes
