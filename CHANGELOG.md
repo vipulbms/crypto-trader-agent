@@ -2,6 +2,18 @@
 
 ---
 
+## Session: 2026-04-18 (Part A) — Fix: max_open_positions raised 10→15 (#258)
+
+### Bug Fixes
+- **[#258] max_open_positions=10 blocking high-conviction buys when cash available**: Count ceiling was acting as primary gate instead of failsafe. In production, 10 caution-sized positions filled up (~$63 each in bearish regime) while $373 cash remained idle, blocking a score-9 STX/USD signal. Raised `max_open_positions: 10 → 15`. At `min_order_usd=$20` and `min_cash_reserve_pct=5%`, the cash guards will exhaust buying power long before 15 slots fill normally.
+  - `config.yaml` `trading.max_open_positions`: 10 → 15
+  - `config.yaml` `llm.system_prompt`: "Max **5** → **15** open positions" 
+  - `.claude/skills/trading-rules/SKILL.md`: "currently 5" → "currently 15"
+  - `tests/test_risk_manager.py`: `test_max_open_positions_ceiling_hard_blocks_at_10` renamed to `_at_15`; `test_max_open_positions_allowed_when_cash_available` ceiling updated to 15
+  - **Files:** `config.yaml`, `.claude/skills/trading-rules/SKILL.md`, `tests/test_risk_manager.py`
+
+---
+
 ## Session: 2026-04-17 (Part D) — Raise max_position_pct 20% → 30% (#265)
 
 ### Config

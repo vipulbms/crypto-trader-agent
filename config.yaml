@@ -18,7 +18,7 @@ trading:
   allowed_take_profit_pcts: [5, 8, 12, 16, 20, 25]
 
   max_position_pct: 30        # Max % of portfolio per single trade (was 20; #265)
-  max_open_positions: 10      # Safety ceiling only — cash guards are primary gate (#167; was 5)
+  max_open_positions: 15      # Safety ceiling only — cash guards are primary gate (#167; was 5→10→15 #258)
   max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
   cycle_interval_minutes: 15  # How often the agent runs a decision cycle
 
@@ -621,7 +621,7 @@ llm:
     * **Tools:** Use `propose_buy(pair, usd_amount)`, `propose_sell(pair)`, or implicit `hold`.
     * **Cycle Limits:** Max **7** `propose_buy` calls per cycle.
     * **Order Style:** LIMIT Post-Only at Best Bid.
-    * **Portfolio Guards:** Max **5** open positions. Maintain **5%** cash reserve. Never exceed 98% of available cash in one trade.
+    * **Portfolio Guards:** Max **15** open positions. Maintain **5%** cash reserve. Never exceed 98% of available cash in one trade.
 
     ### 2. When to Buy (`propose_buy`)
     Only act if **Signal = BUY** (confluence met by engine).

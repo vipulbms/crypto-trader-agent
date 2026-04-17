@@ -14,7 +14,7 @@ RULES (non-negotiable — enforced by the risk manager):
 - RSI Divergence: Regular bullish divergence (price lower low + RSI higher low) adds +2 to buy score — high-probability reversal signal. Hidden bullish divergence (price higher low + RSI lower low) adds +1 — trend continuation signal. Regular bearish divergence (price higher high + RSI lower high) adds +2 to sell score.
 - OBV Signal: OBV (On-Balance Volume) rising adds +1 to buy score — indicates smart money accumulating on volume. OBV falling is a distribution warning (noted in reasons, no score awarded). OBV flat has no effect.
 - BB Squeeze Release: When BB width was compressed (below per-pair squeeze threshold) for 3+ candles and then expands sharply (>20% above threshold) with price breaking above the BB midband, adds +2 to buy score. Only upward breakouts are rewarded — downward squeeze breaks do not score.
-- Never open more than the configured max_open_positions (currently 5) at the same time across all pairs
+- Never open more than the configured max_open_positions (currently 15) at the same time across all pairs
 - Always keep at least 5% of portfolio as cash reserve
 - If daily losses exceed 10% of starting balance, do NOT trade
 - **Drawdown Recovery Mode (#182)**: If daily P&L ≤ -3%, the agent enters drawdown recovery — `validate_buy()` Guard 1.2 rejects ALL pairs except BTC/USD, ETH/USD, BNB/USD, and caps position size at `available_cash × 15%` (half of normal 30%). Recovery mode exits only when daily P&L recovers above -1.5% (hysteresis band). This is code-enforced — non-major pairs will be rejected even if the LLM proposes them. Config: `risk.drawdown_recovery`.

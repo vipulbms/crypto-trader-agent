@@ -370,15 +370,15 @@ class TestMinOrderUsdFloor(unittest.TestCase):
         self.assertIn("Deployable cash", reason)
 
     def test_max_open_positions_allowed_when_cash_available(self):
-        """Cash guards pass then count ceiling (10) not reached — buy approved (#167).
-        5 positions open, $594 cash: cash guards pass, count 5 < 10 → approved."""
+        """Cash guards pass then count ceiling (15) not reached — buy approved (#167, raised #258).
+        5 positions open, $594 cash: cash guards pass, count 5 < 15 → approved."""
         # max_open_positions defaults to 3 in this config; override via a fresh manager.
         cfg = {
             "trading": {
                 "stop_loss_pct": 5,
                 "take_profit_pct": 10,
                 "max_position_pct": 30,
-                "max_open_positions": 10,
+                "max_open_positions": 15,
             },
             "risk": {
                 "min_cash_reserve_pct": 5,
@@ -398,14 +398,14 @@ class TestMinOrderUsdFloor(unittest.TestCase):
         self.assertTrue(approved, f"Expected approved but got: {reason}")
         self.assertGreater(amount, 0.0)
 
-    def test_max_open_positions_ceiling_hard_blocks_at_10(self):
-        """Count ceiling fires unconditionally at max_open_positions regardless of cash (#167)."""
+    def test_max_open_positions_ceiling_hard_blocks_at_15(self):
+        """Count ceiling fires unconditionally at max_open_positions regardless of cash (#258; was 10)."""
         cfg = {
             "trading": {
                 "stop_loss_pct": 5,
                 "take_profit_pct": 10,
                 "max_position_pct": 30,
-                "max_open_positions": 10,
+                "max_open_positions": 15,
             },
             "risk": {
                 "min_cash_reserve_pct": 5,
@@ -418,7 +418,7 @@ class TestMinOrderUsdFloor(unittest.TestCase):
             proposed_usd=50.0,
             portfolio_balance_usd=1000.0,
             available_cash_usd=800.0,   # plenty of cash — cash guards pass
-            open_positions_count=10,    # exactly at ceiling
+            open_positions_count=15,    # exactly at new ceiling
             daily_loss_usd=0.0,
             starting_balance_usd=1000.0,
         )
