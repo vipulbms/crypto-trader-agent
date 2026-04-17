@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-17 (Part B) — Fix volume dead-zone guard uses partial candle (#262)
+
+### Bug Fixes
+- **[#262] Volume dead-zone guard uses in-progress candle instead of last completed candle**: `compute_indicators()` extracted `volume` from `df["volume"].iloc[-1]` which is the current open 15-min candle — partially accumulated. `rolling_volume_p15` is computed from 400 completed candles, so the comparison was systematically false (e.g. ETH 3.29 actual vs 24.48 floor mid-candle), blocking nearly every pair every cycle. Fix: dynamically select `_vol_idx` using `candle_interval` from config + last candle's Unix timestamp — if `last_ts + interval_secs <= time.now()` use `iloc[-1]` (candle closed), else `iloc[-2]` (last completed). **Files:** `src/analysis/indicators.py`
+
+---
+
 ## Session: 2026-04-17 (Part A) — Fix display.py PF tuple, CI simplified, README additions, UI design docs
 
 ### Bug Fixes

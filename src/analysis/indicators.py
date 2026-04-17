@@ -5,6 +5,7 @@ Accepts a list of OHLCV dicts and returns a dict of latest indicator values.
 
 import logging
 import math
+import time
 from typing import Optional
 
 import pandas as pd
@@ -146,6 +147,14 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     _bb_len = min(10, len(bb_width_series_full))
     bb_width_series = [safe(v) for v in bb_width_series_full.iloc[-_bb_len:]]
 
+    # Use last completed candle for volume guard (#262).
+    # The WebSocket feed updates the last candle in-place while it is still open, so
+    # iloc[-1] has only partial accumulated volume. Compare its expected close time
+    # against now; fall back to iloc[-2] (last closed candle) when still in progress.
+    _candle_interval_secs = config.get("trading", {}).get("candle_interval", 15) * 60
+    _last_ts = candles[-1].get("timestamp", 0)
+    _vol_idx = -1 if (_last_ts + _candle_interval_secs) <= time.time() else -2
+
     return {
         "rsi_14":               safe(rsi.iloc[-1]),
         "macd_line":            safe(macd_line.iloc[-1]),
@@ -161,8 +170,8 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         "bb_lower":             safe(bb_lower.iloc[-1]),
         "atr_14":               safe(atr.iloc[-1]),
         "adx_14":               safe(adx_series.iloc[-1]),
-        "volume":               safe(df["volume"].iloc[-1]),
-        "volume_sma_20":        safe(volume_sma_20.iloc[-1]),
+        "volume":               safe(df["volume"].iloc[_vol_idx]),
+        "volume_sma_20":        safe(volume_sma_20.iloc[_vol_idx]),
         "close":                safe(df["close"].iloc[-1]),
         # Series for divergence detection (signals.py) — last 30 candles
         "rsi_series":           rsi_series,
