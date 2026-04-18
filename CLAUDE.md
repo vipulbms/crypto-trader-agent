@@ -245,6 +245,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_17b | Fix: volume dead-zone guard uses partial in-progress candle instead of last completed candle — dynamic `_vol_idx` via candle_interval config + timestamp comparison; closes #262 |
 | session_2026_04_17c | Fix: null macro data causes LLM to over-hold — stale carry-forward for Fear & Greed (4h) + BTC dominance (24h); cold-cache prompt says "treat as neutral"; prompt rule 6 for null-macro; 11 tests; closes #259 |
 | session_2026_04_17d | Chore: raise max_position_pct 20% → 30%; drawdown recovery override 10% → 15%; prompt label updated; closes #265 |
+| session_2026_04_18d | Fix: `send_daily_summary()` never called — `_get_or_set_sod_balance()` returns `(float, bool)` tuple; `is_new_day=True` triggers `get_performance_metrics` + daily summary Telegram at midnight rollover; wins/losses split in message; closes #249 |
 | session_2026_04_18c | Fix: html.escape all dynamic fields in `notifier.py` — exception messages with `<`/`>` broke Telegram HTML parser; `import html` added; `component`, `error`, `reason` escaped; manual `&amp;` replaced; closes #247 |
 | session_2026_04_18b | Fix: missing pnl_pct in Telegram trade close message — `send_trade_executed()` now shows `(+8.12%)` alongside USD P&L; closes #248 |
 

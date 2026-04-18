@@ -94,18 +94,17 @@ def setup_logging(config: dict, session_id: str = "") -> None:
         root.addHandler(console_handler)
 
 
-def _get_or_set_sod_balance(db_path: str, current_balance: float) -> float:
+def _get_or_set_sod_balance(db_path: str, current_balance: float) -> tuple:
     """
     Return today's start-of-day balance from agent_state DB.
     Works for both paper (paper_trading.db) and live (live_trading.db) modes.
 
     Key: start_of_day_balance_YYYY-MM-DD (UTC date).
-    - If the key exists for today → return it (stable across cycles).
-    - If absent (new day or DB was reset) → store current_balance and return it.
+    - If the key exists for today → return (balance, False).
+    - If absent (new day or DB was reset) → store current_balance, return (balance, True).
 
-    This makes the daily P&L baseline self-healing: a reset_paper.py run while
-    the agent is alive will clear agent_state, so the next cycle writes a fresh
-    $1,000 baseline instead of using the stale in-memory value.
+    The boolean being True signals the caller that midnight just rolled over and a
+    daily summary should be sent.
     """
     from src.storage.database import get_connection
     today_key = f"start_of_day_balance_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
@@ -116,7 +115,7 @@ def _get_or_set_sod_balance(db_path: str, current_balance: float) -> float:
         ).fetchone()
         if row:
             conn.close()
-            return float(row["value"])
+            return float(row["value"]), False
         # New day or post-reset — write and return current balance
         conn.execute(
             "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
@@ -126,9 +125,10 @@ def _get_or_set_sod_balance(db_path: str, current_balance: float) -> float:
         conn.close()
         logger.info("[SOD] Wrote start-of-day balance $%.2f to agent_state (key=%s)",
                     current_balance, today_key)
+        return current_balance, True
     except Exception as exc:
         logger.warning("[SOD] Could not persist start-of-day balance: %s — falling back to current", exc)
-    return current_balance
+    return current_balance, False
 
 
 def print_banner(mode: str, balance: float, pairs: list) -> None:
@@ -288,7 +288,26 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                 else:
                     sod_db_path = config.get("storage", {}).get("live_db", "live_trading.db")
                 current_bal_for_sod = broker.get_balance()["total_usd"]
-                start_of_day_bal = _get_or_set_sod_balance(sod_db_path, current_bal_for_sod)
+                start_of_day_bal, is_new_day = _get_or_set_sod_balance(sod_db_path, current_bal_for_sod)
+                if is_new_day:
+                    # Midnight rollover — send yesterday's daily summary (#249)
+                    try:
+                        from src.reports.trade_report import get_performance_metrics
+                        yesterday_metrics = get_performance_metrics(mode, config, days=1)
+                        sod_prev = current_bal_for_sod  # balance at SOD transition
+                        pnl_usd = yesterday_metrics.get("total_pnl_usd", 0.0)
+                        pnl_pct = (pnl_usd / sod_prev * 100) if sod_prev else 0.0
+                        notifier.send_daily_summary({
+                            "balance": current_bal_for_sod,
+                            "pnl_usd": pnl_usd,
+                            "pnl_pct": pnl_pct,
+                            "trades_today": yesterday_metrics.get("total_trades", 0),
+                            "wins": yesterday_metrics.get("wins", 0),
+                            "losses": yesterday_metrics.get("losses", 0),
+                            "win_rate_pct": yesterday_metrics.get("win_rate_pct", 0.0),
+                        })
+                    except Exception as _summary_exc:
+                        logger.warning("[SOD] send_daily_summary failed: %s", _summary_exc)
 
             # Stop-loss / take-profit checks run FIRST — highest priority, before LLM decisions
             # In backtest mode, pass the candle timestamp so closed trades record candle time.

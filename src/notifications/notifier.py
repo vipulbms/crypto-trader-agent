@@ -132,12 +132,15 @@ class Notifier:
     def send_daily_summary(self, summary: dict) -> None:
         """Send end-of-day P&L summary."""
         mode_label = "📄 PAPER" if self._mode == "paper" else "💰 LIVE"
+        wins   = summary.get("wins", 0)
+        losses = summary.get("losses", 0)
+        trades = summary.get("trades_today", 0)
+        wl_str = f" ({wins}W / {losses}L)" if trades > 0 else ""
         msg = (
             f"{self._prefix}{mode_label} <b>Daily Summary</b>\n"
             f"Balance: ${summary.get('balance', 0):.2f}\n"
             f"Daily P&L: ${summary.get('pnl_usd', 0):+.2f} ({summary.get('pnl_pct', 0):+.2f}%)\n"
-            f"Trades today: {summary.get('trades_today', 0)}\n"
-            f"Win rate: {summary.get('win_rate_pct', 0):.1f}%"
+            f"Trades: {trades}{wl_str} | Win rate: {summary.get('win_rate_pct', 0):.1f}%"
         )
         self._send(msg)
 
