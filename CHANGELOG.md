@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-18 (Part D) — Wire send_daily_summary at midnight rollover (#249)
+
+### Bug Fixes
+- **[#249] `send_daily_summary()` was never called**: `_get_or_set_sod_balance()` now returns a `(float, bool)` tuple where the bool is `True` when a new UTC day is first written (midnight rollover). The main loop unpacks the tuple; on `is_new_day=True`, it calls `get_performance_metrics(mode, config, days=1)` and fires `notifier.send_daily_summary()` with balance, P&L (USD + %), trade count, wins/losses, and win-rate. `send_daily_summary()` format improved to include `(Nw / Nl)` split. `test_sod_balance.py` updated to unpack the new tuple return. 309 tests pass.
+
+---
+
 ## Session: 2026-04-18 (Part C) — Fix HTML injection risk in Telegram notifications (#247)
 
 ### Bug Fixes

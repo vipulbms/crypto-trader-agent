@@ -45,7 +45,7 @@ def _fresh_paper_db() -> str:
 def _get_sod_balance(db_path: str, current_balance: float, utc_date_str: str) -> float:
     """
     Invoke _get_or_set_sod_balance as if it is the given UTC date (mocked).
-    We patch datetime.now inside main._get_or_set_sod_balance.
+    Returns only the float portion (strips the is_new_day bool).
     """
     import main as main_module
 
@@ -57,7 +57,8 @@ def _get_sod_balance(db_path: str, current_balance: float, utc_date_str: str) ->
             return fake_now
 
     with patch("main.datetime", _FakeDatetime):
-        return main_module._get_or_set_sod_balance(db_path, current_balance)
+        balance, _ = main_module._get_or_set_sod_balance(db_path, current_balance)
+        return balance
 
 
 def _read_agent_state(db_path: str, key: str):
@@ -149,9 +150,9 @@ class TestSodBalanceLiveMode:
         back to returning current_balance — no exception propagated.
         """
         import main as main_module
-        result = main_module._get_or_set_sod_balance("nonexistent_live.db", 9999.99)
-        # Should return current_balance without raising
-        assert result == 9999.99
+        balance, is_new_day = main_module._get_or_set_sod_balance("nonexistent_live.db", 9999.99)
+        assert balance == 9999.99
+        assert is_new_day is False
 
 
 class TestSodBalancePaperMode:
