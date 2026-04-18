@@ -4,6 +4,7 @@ In paper mode, all messages are prefixed with [PAPER] and no approval is needed.
 In live mode, hybrid approval flow waits for user confirmation.
 """
 
+import html
 import logging
 import os
 from typing import Optional
@@ -96,7 +97,7 @@ class Notifier:
             msg = (
                 f"{self._prefix}{emoji} <b>{side} CLOSED</b>: {pair}\n"
                 f"Exit: ${price:.2f} | Vol: {volume:.6f}\n"
-                f"P&L: ${pnl_usd:+.2f} ({pnl_pct:+.2f}%) | Reason: {reason}"
+                f"P&L: ${pnl_usd:+.2f} ({pnl_pct:+.2f}%) | Reason: {html.escape(str(reason))}"
             )
         else:
             # Opening trade
@@ -167,7 +168,7 @@ class Notifier:
 
     def send_error_alert(self, component: str, error: str) -> None:
         """Alert on critical errors."""
-        msg = f"{self._prefix}⚠️ <b>Error in {component}</b>: {error}"
+        msg = f"{self._prefix}⚠️ <b>Error in {html.escape(str(component))}</b>: {html.escape(str(error))}"
         self._send(msg)
 
     def send_daily_loss_limit_reached(self, loss_pct: float) -> None:
@@ -189,10 +190,10 @@ class Notifier:
 
     def send_drawdown_recovery_entered(self, daily_pnl_pct: float, allowed_pairs: list) -> None:
         """Alert when drawdown recovery mode is activated."""
-        pairs_str = ", ".join(allowed_pairs)
+        pairs_str = html.escape(", ".join(allowed_pairs))
         msg = (
             f"{self._prefix}⚠️ <b>Drawdown Recovery Mode Activated</b>\n"
-            f"Daily P&amp;L: {daily_pnl_pct:.1f}%. Only {pairs_str} at half size until recovery."
+            f"Daily P&L: {daily_pnl_pct:.1f}%. Only {pairs_str} at half size until recovery."
         )
         self._send(msg)
 
@@ -200,7 +201,7 @@ class Notifier:
         """Alert when drawdown recovery mode is lifted."""
         msg = (
             f"{self._prefix}✅ <b>Recovery Mode Lifted</b>\n"
-            f"Daily P&amp;L recovered to {daily_pnl_pct:.1f}%. Full trading resumed."
+            f"Daily P&L recovered to {daily_pnl_pct:.1f}%. Full trading resumed."
         )
         self._send(msg)
 
