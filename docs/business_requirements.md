@@ -17,6 +17,7 @@
 | 2.0 | **Volatility-Adaptive Quant Migration**: replaced reversal-gate signals with 10-point confluence scoring; ATR-proportional position sizing; dynamic per-order Take Profit (ATR-adjusted); EMA 9/21/50 trend + momentum filters; Order Book Imbalance (OBI) streaming; Post-Only Limit orders with 60-second chase; Minimum Profit Floor (1.0%); Time-of-Day trading window (16:00–20:00 UTC); Volume Dead Zone guard (50% SMA); Global Kill Switch (−7% daily drawdown); Circuit Breaker (3 consecutive stop-losses → 4-hour pause); Fat Finger guard (98% cash buffer / $5 minimum); Bearish-regime caution factor (0.5×); Fear & Greed Index signal injection; 2-hour Telegram heartbeat; 6-hour PNL report; 15-minute healthchecks.io webhook; full backtesting pipeline; audit-rejection analysis script; expanded to 15 trading pairs |
 | 2.1 | Added 10 new trading pairs (WIF, TON, OP, ARB, JUP, PEPE, TIA, RENDER, FET, STX) expanding to 24 active pairs (25 configured, RAILS/USD disabled); calibrated per-pair signal parameters; trailing-stop overrides for Tier 2 volatile pairs; closes #145–#154 |
 | 2.2 | Added 3 new trading pairs (PENDLE, ONDO, BONK) expanding to 27 active pairs (28 configured, RAILS/USD disabled); TP whitelist extended to include 25%; PENDLE in eth_ecosystem cluster; BONK in memecoins cluster; per-pair trailing stop overrides for PENDLE/BONK; closes #186–#188 |
+| 2.3 | Added MOVR/USD (Moonriver, TP 20%, alt_l1 cluster, Tier 3) expanding to 28 active pairs (29 configured, RAILS/USD disabled); calibrated signal parameters (92% win rate in 7-day backtest); closes #274 |
 
 ---
 
@@ -62,7 +63,7 @@ In its second major version, Kryptos graduates from a signal-gate pattern to a f
 
 ### 4.1 In Scope
 
-- Automated monitoring and trading of twenty-seven cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD, PENDLE/USD, ONDO/USD, BONK/USD** (RAILS/USD configured but disabled)
+- Automated monitoring and trading of twenty-eight cryptocurrency pairs: **BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD, PENDLE/USD, ONDO/USD, BONK/USD, MOVR/USD** (RAILS/USD configured but disabled)
 - Technical analysis using RSI, MACD, EMA 9/21/50, ATR, Bollinger Bands, Volume SMA, and Fear & Greed Index
 - Real-time Level 2 Order Book Imbalance (OBI) streaming per pair
 - AI-assisted buy, sell, and hold decisions using a locally hosted LLM (configurable via `config.yaml`)
@@ -97,7 +98,7 @@ In its second major version, Kryptos graduates from a signal-gate pattern to a f
 
 | ID | Requirement |
 |---|---|
-| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD, PENDLE/USD, ONDO/USD, BONK/USD |
+| FR-01 | The system MUST monitor the following pairs: BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD, PENDLE/USD, ONDO/USD, BONK/USD, MOVR/USD |
 | FR-02 | The system MUST receive real-time price data from the Kraken public WebSocket feed (`wss://ws.kraken.com/v2`) |
 | FR-03 | The system MUST stream Level 2 Order Book data per pair and compute Order Book Imbalance (OBI) = `(BidVol − AskVol) / (BidVol + AskVol)` on every WebSocket update |
 | FR-04 | The system MUST back-fill historical OHLCV candles from the Kraken public REST API on startup |
@@ -337,6 +338,7 @@ In its second major version, Kryptos graduates from a signal-gate pattern to a f
 | PENDLE/USD | 20% | 5% | Pendle Finance DeFi yield protocol; expiry-driven BB squeeze breakouts; ETH ecosystem |
 | ONDO/USD | 16% | 5% | Ondo Finance RWA tokenisation; TradFi institutional narrative; steady trending profile |
 | BONK/USD | 25% | 5% | Solana memecoin; extreme parabolic spikes with SOL bull runs; buy_min_score=9 maximum gate |
+| MOVR/USD | 20% | 5% | Moonriver (Moonbeam/Polkadot parachain); high-vol speculative alt; buy_min_score=6; caution=0.40 |
 
 All dynamic TP values (when `dynamic_tp.enabled: true`) are computed as `Entry + (k × ATR)` and logged as `[DYNAMIC_TP]`. If the ATR-adjusted TP would be below the 1.0% profit floor, the pair is vetoed from buying.
 

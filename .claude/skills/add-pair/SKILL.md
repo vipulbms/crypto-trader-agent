@@ -236,6 +236,23 @@ When creating a new cluster:
       pairs: [PAIR1/USD, PAIR2/USD]
 ```
 
+**k) `.claude/skills/trading-rules/SKILL.md`** — three surgical updates required:
+
+1. **Pair count + list** — in `YOUR ROLE`, increment the monitored pair count and append `PAIR/USD` to the list.
+2. **Per-pair Max Buy Size rule** — in `OVERRIDE RULES`, find the sentence listing caution groups (`WIF/HYPE/ARB/OP/STX/PENDLE/MOVR cut to 40–50%...`). Add `PAIR` to the appropriate group based on its `caution_factor_bearish`:
+   - 1.0 (buy the dip) → winners group with ETH/BNB/DOGE
+   - 0.8 → stable large-cap group
+   - 0.6 → mid-vol group
+   - 0.4–0.5 → `WIF/HYPE/ARB/OP/STX/PENDLE/MOVR` group
+   - ≤ 0.35 → underperformer group with INJ/SUI/JUP/TIA
+   - 0.20–0.25 → extreme meme group with PEPE/BONK
+3. **Bearish decision guide** — in `DECISION STYLE`, find the `In bearish regime:` bullet. Add `PAIR` to the correct cut group sentence (e.g. `PENDLE/MOVR in bearish: 40% of normal size`).
+
+```bash
+# Verify the three changes are present
+grep -n "PAIR" .claude/skills/trading-rules/SKILL.md
+```
+
 ### 6. Run 7-day fast backtest to validate signal parameters
 
 Before committing, validate that the new pair's signal parameters produce acceptable win rates.
@@ -315,6 +332,7 @@ exec(open('tests/test_per_pair_params.py').read())
 - [ ] `CLAUDE.md`: pairs table updated
 - [ ] `trailing_stop.per_pair_overrides` updated — or confirmed global default (5%/3%) is appropriate
 - [ ] `risk.correlation_clusters` reviewed — pair added to existing cluster, new cluster created, or left unclustered with rationale
+- [ ] `.claude/skills/trading-rules/SKILL.md`: pair count, caution group, bearish guide updated (step 5k)
 - [ ] All existing tests pass
 
 ### 8. Create a GitHub issue before committing

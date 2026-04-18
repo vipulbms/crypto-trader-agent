@@ -37,7 +37,7 @@
 
 #### Story S1.1.1
 **As a** quantitative analyst,  
-**I want** the system to maintain a rolling buffer of 15-minute OHLCV candles for all 27 pairs,  
+**I want** the system to maintain a rolling buffer of 15-minute OHLCV candles for all 28 pairs,  
 **so that** indicators have a consistent, live data source without polling REST every cycle.
 
 **Acceptance Criteria:**
@@ -193,11 +193,11 @@
 
 #### Story S3.2.1
 **As an** LLM,  
-**I want** to receive a compact, normalized summary of all 27 pairs in a single prompt,  
+**I want** to receive a compact, normalized summary of all 28 pairs in a single prompt,  
 **so that** I can rank opportunities and make decisions without exceeding token limits.
 
 **Acceptance Criteria:**
-- [ ] AC1: `build_cycle_prompt()` produces a prompt under 2,000 tokens for all 27 pairs.  
+- [ ] AC1: `build_cycle_prompt()` produces a prompt under 2,000 tokens for all 28 pairs.  
 - [ ] AC2: Each pair entry includes: `score`, `direction`, `regime`, `ema_cross_bullish`, `obi`, `reasons`, `open_position` flag.  
 - [ ] AC3: Raw OHLCV prices are never included in the prompt — only derived metrics.  
 - [ ] AC4: Portfolio state (cash, open positions, daily PNL%) is included in every prompt.  
