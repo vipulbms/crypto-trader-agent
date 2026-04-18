@@ -165,6 +165,11 @@ class TradingAgent:
             for sig in signals
             if sig.get("pair_max_usd") is not None
         })
+        self._tools.set_signal_scores({
+            sig["pair"]: sig.get("score", 0)
+            for sig in signals
+            if sig.get("signal") == "BUY"
+        })
         cycle_time = now_sgt().strftime("%Y-%m-%d %H:%M:%S")
 
         cycle_prompt = build_cycle_prompt(

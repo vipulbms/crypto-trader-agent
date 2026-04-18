@@ -365,15 +365,33 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                 hourly_pnl_pct = (hourly_pnl_usd / loop_state["balance_at_heartbeat"] * 100) if loop_state["balance_at_heartbeat"] else 0
                 open_pos = broker.get_open_positions()
                 cb_active, _ = risk.is_circuit_open()
+                # Build per-position detail for heartbeat (#268)
+                open_active = [p for p in open_pos if p.get("status", "open") == "open"]
+                positions_detail = []
+                for _p in open_active:
+                    _cprice = ws_feed.get_latest_price(_p["pair"])
+                    if _cprice and _p.get("volume") and _p.get("usd_value"):
+                        _unreal_pnl = round(_cprice * _p["volume"] - _p["usd_value"], 2)
+                        _unreal_pct = round(_unreal_pnl / _p["usd_value"] * 100, 1) if _p["usd_value"] else 0.0
+                        _sl_dist = round((_cprice - _p["stop_loss_price"]) / _cprice * 100, 1) if _p.get("stop_loss_price") else None
+                        _tp_dist = round((_p["take_profit_price"] - _cprice) / _cprice * 100, 1) if _p.get("take_profit_price") else None
+                        positions_detail.append({
+                            "pair": _p["pair"],
+                            "pnl_usd": _unreal_pnl,
+                            "pnl_pct": _unreal_pct,
+                            "sl_dist_pct": _sl_dist,
+                            "tp_dist_pct": _tp_dist,
+                        })
                 notifier.send_heartbeat({
                     "balance_usd":          bal["total_usd"],
                     "hourly_pnl_usd":       round(hourly_pnl_usd, 2),
                     "hourly_pnl_pct":       round(hourly_pnl_pct, 2),
                     "cycles_completed":     loop_state["cycles_since_heartbeat"],
-                    "open_positions":       len([p for p in open_pos if p.get("status") == "open"]),
+                    "open_positions":       len(open_active),
                     "buys_last_hour":       loop_state["buys_since_heartbeat"],
                     "sells_last_hour":      loop_state["sells_since_heartbeat"],
                     "circuit_breaker_active": cb_active,
+                    "positions_detail":     positions_detail,
                 })
                 loop_state["last_heartbeat_time"]    = time.time()
                 loop_state["cycles_since_heartbeat"] = 0
