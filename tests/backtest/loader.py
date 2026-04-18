@@ -58,6 +58,7 @@ PAIR_FILE_MAP = {
     "BONK/USD":   ("BONKUSD_candle.json",   "BONKUSD"),
     # New pair added
     "MOVR/USD":   ("MOVRUSD_candle.json",   "MOVRUSD"),
+    "RAVE/USD":   ("RAVEUSD_candle.json",   "RAVEUSD"),
 }
 
 

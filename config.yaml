@@ -525,6 +525,25 @@ trading:
       slippage_pct: 0.20          # thinner book alt (#204)
       pair_tier: 3                  # speculative altcoin Tier 3 (#203)
 
+    - pair: RAVE/USD           # High-vol NFT/DeFi token — calibrated 2026-04-18 (723 candles)
+      ws_name: RAVE/USD
+      rest_name: RAVEUSD
+      take_profit_pct: 20     # High-vol speculative alt — large HL swings (p75 4.17%)
+      stop_loss_pct: 5
+      atr_tp_min_pct: 1.52    # calibrated (p25 ATR 1.90% × 0.8)
+      rsi_oversold: 36        # calibrated (RSI p5=38, data-backed above cap)
+      rsi_overbought: 80      # calibrated (RSI p95=81.8, capped at 80)
+      bb_squeeze_threshold_pct: 7.85  # calibrated — p10 BB width; pair rarely squeezes (extremely wide BB)
+      min_volume_ratio: 0.40  # calibrated — dead zone at 0.40 threshold is only 2%
+      adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.40   # high-vol speculative — cut harder in bear regime
+      buy_min_score: 7               # new pair, no track record — requires strong confluence
+      rsi_divergence_lookback: 15    # high-vol / fast cycles
+      obv_trend_period: 7            # high-vol — captures shorter OBV cycles
+      obv_noise_threshold: 0.020     # high-vol — 2% floor same as DOGE/HYPE
+      slippage_pct: 0.20          # thinner book alt (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
+
 # ──────────────────────────────────────────────
 # Paper trading mode
 # ──────────────────────────────────────────────
@@ -868,6 +887,9 @@ trailing_stop:
     MOVR/USD:
       trail_pct: 6.0          # high-vol speculative parachain — same tier as RENDER/FET/STX
       activate_after_pct: 4.0
+    RAVE/USD:
+      trail_pct: 7.0          # high-vol NFT/DeFi — meme-like volatility profile
+      activate_after_pct: 5.0
 
 # ──────────────────────────────────────────────
 # Feature: Breakeven stop (S12.3.1 — #85)

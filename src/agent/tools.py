@@ -82,7 +82,7 @@ class TradingTools:
         Stop-loss and take-profit are set automatically.
 
         Args:
-            pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', 'LTC/USD', 'RAILS/USD', 'AVAX/USD', 'SUI/USD', 'HYPE/USD', 'UNI/USD', 'INJ/USD', 'WIF/USD', 'TON/USD', 'OP/USD', 'ARB/USD', 'JUP/USD', 'PEPE/USD', 'TIA/USD', 'RENDER/USD', 'FET/USD', 'STX/USD', 'PENDLE/USD', 'ONDO/USD', 'BONK/USD', 'MOVR/USD'
+            pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', 'LTC/USD', 'RAILS/USD', 'AVAX/USD', 'SUI/USD', 'HYPE/USD', 'UNI/USD', 'INJ/USD', 'WIF/USD', 'TON/USD', 'OP/USD', 'ARB/USD', 'JUP/USD', 'PEPE/USD', 'TIA/USD', 'RENDER/USD', 'FET/USD', 'STX/USD', 'PENDLE/USD', 'ONDO/USD', 'BONK/USD', 'MOVR/USD', 'RAVE/USD'
             usd_amount: Amount in USD to invest (will be capped at 30% of portfolio)
 
         Returns:

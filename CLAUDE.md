@@ -116,6 +116,7 @@ src/
 | ONDO/USD | 16% | Ondo Finance RWA tokenisation; buy_min_score=6; caution=0.50 (#187) |
 | BONK/USD | 25% | Solana memecoin (extreme); buy_min_score=9; caution=0.20; trailing 7%/5% (#188) |
 | MOVR/USD | 20% | Moonriver (Moonbeam/Polkadot parachain); buy_min_score=6; caution=0.40; trailing 6%/4% |
+| RAVE/USD | 20% | High-vol NFT/DeFi token; buy_min_score=7; caution=0.40; trailing 7%/5% |
 
 All pairs use 5% stop-loss.
 
@@ -248,6 +249,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_17d | Chore: raise max_position_pct 20% → 30%; drawdown recovery override 10% → 15%; prompt label updated; closes #265 |
 | session_2026_04_18e | Feat: heartbeat open-position detail (pair, unrealised P&L, SL/TP dist) + missed-signal Telegram alert for score≥8 BUY rejections; `set_signal_scores()` in tools + trading_agent; `send_missed_signal()` in notifier; closes #268 |
 | session_2026_04_18f | Fix: concurrent HTTP fetches — `fetch_fear_greed`/`fetch_btc_dominance`/`fetch_cycle_top_indicators` moved to `asyncio.gather(asyncio.to_thread(...))` to prevent event loop stall on cache expiry; Feat: add MOVR/USD (Moonriver, TP 20%, buy_min_score=6, caution=0.40, trailing 6%/4%); 28 active pairs; closes #274 |
+| session_2026_04_18g | Feat: add RAVE/USD (NFT/DeFi token, TP 20%, buy_min_score=7, caution=0.40, trailing 7%/5%); SAROS/USD rejected (near-zero Kraken liquidity); 29 active pairs; 7-day backtest 60% win; closes #276 |
 | session_2026_04_18d | Fix: `send_daily_summary()` never called — `_get_or_set_sod_balance()` returns `(float, bool)` tuple; `is_new_day=True` triggers `get_performance_metrics` + daily summary Telegram at midnight rollover; wins/losses split in message; closes #249 |
 | session_2026_04_18c | Fix: html.escape all dynamic fields in `notifier.py` — exception messages with `<`/`>` broke Telegram HTML parser; `import html` added; `component`, `error`, `reason` escaped; manual `&amp;` replaced; closes #247 |
 | session_2026_04_18b | Fix: missing pnl_pct in Telegram trade close message — `send_trade_executed()` now shows `(+8.12%)` alongside USD P&L; closes #248 |
