@@ -91,11 +91,12 @@ class Notifier:
 
         if pnl_usd is not None:
             # Closing trade
+            pnl_pct = trade.get("pnl_pct", 0.0)
             emoji = "✅" if pnl_usd >= 0 else "🔴"
             msg = (
                 f"{self._prefix}{emoji} <b>{side} CLOSED</b>: {pair}\n"
                 f"Exit: ${price:.2f} | Vol: {volume:.6f}\n"
-                f"P&L: ${pnl_usd:+.2f} | Reason: {reason}"
+                f"P&L: ${pnl_usd:+.2f} ({pnl_pct:+.2f}%) | Reason: {reason}"
             )
         else:
             # Opening trade

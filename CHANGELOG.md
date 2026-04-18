@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-18 (Part B) — Fix missing pnl_pct in Telegram trade close notification (#248)
+
+### Bug Fixes
+- **[#248] Telegram close message missing P&L percentage**: `send_trade_executed()` closing branch now reads `pnl_pct` from the trade dict (already populated by `close_position()`) and formats it as `P&L: +$14.23 (+8.12%) | Reason: take_profit`. One-line change in `src/notifications/notifier.py`. 309 tests pass.
+
+---
+
 ## Session: 2026-04-17 (Part D) — Raise max_position_pct 20% → 30% (#265)
 
 ### Config
