@@ -46,6 +46,7 @@ class TradingTools:
         self._dynamic_tp_values: dict = {}
         self._dynamic_sl_values: dict = {}
         self._pair_max_usd: dict = {}
+        self._signal_scores: dict = {}  # pair → score for missed-signal alerting (#268)
 
     def set_cycle_context(self, cycle_id: int) -> None:
         self._current_cycle_id = cycle_id
@@ -58,6 +59,13 @@ class TradingTools:
 
     def set_dynamic_sl_values(self, values: dict) -> None:
         self._dynamic_sl_values = values or {}
+
+    def set_pair_max_usd(self, values: dict) -> None:
+        self._pair_max_usd = values or {}
+
+    def set_signal_scores(self, scores: dict) -> None:
+        """Inject per-pair signal scores so missed-signal alerts can include the score."""
+        self._signal_scores = scores or {}
 
     def set_pair_max_usd(self, values: dict) -> None:
         self._pair_max_usd = values or {}
@@ -135,6 +143,12 @@ class TradingTools:
 
         if not approved:
             logger.warning("[RISK] BUY rejected for %s: %s", pair, reason)
+            # Fire Telegram alert for high-conviction rejections (#268)
+            missed_threshold = self._config.get("signals", {}).get("missed_signal_min_score", 8)
+            score = self._signal_scores.get(pair, 0)
+            if score >= missed_threshold and self._notifier:
+                max_score = self._config.get("signals", {}).get("max_score", 28)
+                self._notifier.send_missed_signal(pair, score, max_score, reason)
             return f"REJECTED: {reason}"
 
         sl_pct = self._dynamic_sl_values.get(pair) or self._risk.get_stop_loss_pct(pair)

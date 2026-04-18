@@ -2,6 +2,14 @@
 
 ---
 
+## Session: 2026-04-18 (Part E) — Heartbeat open-position detail + missed-signal alert (#268)
+
+### Features
+- **[#268] Heartbeat per-position detail**: `send_heartbeat()` now renders a `──────────` separator followed by one line per open position showing pair, unrealised P&L (USD + %) and remaining distance to SL and TP (e.g. `📌 ETH/USD  +$4.12 (+2.3%)  SL:-2.7%  TP:+9.7%`). `main.py` builds `positions_detail` from `broker.get_open_positions()` + `ws_feed.get_latest_price()` at heartbeat time and passes it in the summary dict.
+- **[#268] Missed-signal Telegram alert**: `TradingTools.propose_buy()` now calls `notifier.send_missed_signal(pair, score, max_score, reason)` when a BUY is rejected and the signal score is ≥ `signals.missed_signal_min_score` (default 8). Score is injected per-cycle by a new `set_signal_scores()` method called from `TradingAgent.run_cycle()`. Score < 8 rejections remain silent. 309 tests pass.
+
+---
+
 ## Session: 2026-04-18 (Part D) — Wire send_daily_summary at midnight rollover (#249)
 
 ### Bug Fixes

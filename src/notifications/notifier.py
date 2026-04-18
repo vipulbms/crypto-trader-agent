@@ -239,10 +239,29 @@ class Notifier:
         sells      = summary.get("sells_last_hour", 0)
         circuit    = summary.get("circuit_breaker_active", False)
         cb_note    = " | ⚡ Circuit breaker ACTIVE" if circuit else ""
+        lines = [
+            f"{self._prefix}💓 <b>Heartbeat</b>{cb_note}",
+            f"Balance: ${balance:.2f} ({pnl_usd:+.2f} / {pnl_pct:+.2f}% last hour)",
+            f"Cycles: {cycles} | Open: {open_pos} | Buys: {buys} | Sells: {sells}",
+        ]
+        positions_detail = summary.get("positions_detail", [])
+        if positions_detail:
+            lines.append("──────────")
+            for p in positions_detail:
+                pnl_sign  = "+" if p["pnl_pct"] >= 0 else ""
+                sl_str = f"  SL:{p['sl_dist_pct']:+.1f}%" if p.get("sl_dist_pct") is not None else ""
+                tp_str = f"  TP:+{p['tp_dist_pct']:.1f}%" if p.get("tp_dist_pct") is not None else ""
+                lines.append(
+                    f"📌 {p['pair']}  {pnl_sign}${p['pnl_usd']:.2f} ({pnl_sign}{p['pnl_pct']:.1f}%){sl_str}{tp_str}"
+                )
+        msg = "\n".join(lines)
+        self._send(msg)
+
+    def send_missed_signal(self, pair: str, score: int, max_score: int, reason: str) -> None:
+        """Alert when a high-conviction buy signal is rejected by the risk manager."""
         msg = (
-            f"{self._prefix}💓 <b>Heartbeat</b>{cb_note}\n"
-            f"Balance: ${balance:.2f} ({pnl_usd:+.2f} / {pnl_pct:+.2f}% last hour)\n"
-            f"Cycles: {cycles} | Open: {open_pos} | Buys: {buys} | Sells: {sells}"
+            f"{self._prefix}⚠️ <b>Missed Signal: {pair}</b> (score {score}/{max_score})\n"
+            f"Rejected: {html.escape(str(reason))}"
         )
         self._send(msg)
 
