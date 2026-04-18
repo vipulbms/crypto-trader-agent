@@ -506,6 +506,25 @@ trading:
       slippage_pct: 0.40          # meme/micro (#204)
       pair_tier: 4                  # meme/momentum-only Tier 4 (#203)
 
+    - pair: MOVR/USD           # Closes #274 — MOVR (Moonriver/Moonbeam parachain, Tier 3)
+      ws_name: MOVR/USD
+      rest_name: MOVRUSD
+      take_profit_pct: 20     # High-vol speculative alt — Polkadot/Kusama parachain
+      stop_loss_pct: 5
+      atr_tp_min_pct: 0.10    # calibrated (p25 ATR × 0.8; 723 candles)
+      rsi_oversold: 28        # calibrated
+      rsi_overbought: 78      # calibrated
+      bb_squeeze_threshold_pct: 0.00  # calibrated — rarely squeezes at this volatility tier
+      min_volume_ratio: 0.50  # calibrated — confirmed volume entry only
+      adaptive_atr_floor_lookback: 400
+      caution_factor_bearish: 0.40   # speculative alt — cut harder in bear regime
+      buy_min_score: 6               # speculative alt — requires decent confluence
+      rsi_divergence_lookback: 20    # mid-tier default
+      obv_trend_period: 10           # mid-tier default
+      obv_noise_threshold: 0.010     # niche speculative alt — 1% floor (same as INJ/TIA)
+      slippage_pct: 0.20          # thinner book alt (#204)
+      pair_tier: 3                  # speculative altcoin Tier 3 (#203)
+
 # ──────────────────────────────────────────────
 # Paper trading mode
 # ──────────────────────────────────────────────
@@ -704,7 +723,7 @@ risk:
     - name: memecoins
       pairs: [DOGE/USD, HYPE/USD, WIF/USD, PEPE/USD, BONK/USD]  # meme sentiment co-movement
     - name: alt_l1
-      pairs: [SUI/USD, AVAX/USD, INJ/USD, TIA/USD]   # newer L1s — risk-off correlation
+      pairs: [SUI/USD, AVAX/USD, INJ/USD, TIA/USD, MOVR/USD]   # newer L1s — risk-off correlation
     - name: payment_legacy
       pairs: [XRP/USD, TRX/USD, ADA/USD, LTC/USD]
     - name: eth_ecosystem
@@ -846,6 +865,9 @@ trailing_stop:
     BONK/USD:
       trail_pct: 7.0          # extreme Solana meme — same profile as DOGE/WIF/PEPE (#188)
       activate_after_pct: 5.0
+    MOVR/USD:
+      trail_pct: 6.0          # high-vol speculative parachain — same tier as RENDER/FET/STX
+      activate_after_pct: 4.0
 
 # ──────────────────────────────────────────────
 # Feature: Breakeven stop (S12.3.1 — #85)

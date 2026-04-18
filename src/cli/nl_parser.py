@@ -43,11 +43,11 @@ PAIRS = [
     "ADA/USD", "LTC/USD", "RAILS/USD", "AVAX/USD", "SUI/USD", "HYPE/USD", "UNI/USD", "INJ/USD",
     "WIF/USD", "TON/USD", "OP/USD", "ARB/USD", "JUP/USD", "PEPE/USD", "TIA/USD",
     "RENDER/USD", "FET/USD", "STX/USD",
-    "PENDLE/USD", "ONDO/USD", "BONK/USD",
+    "PENDLE/USD", "ONDO/USD", "BONK/USD", "MOVR/USD",
     "BTC", "ETH", "BNB", "SOL", "XRP", "TRX", "DOGE", "XDG", "ADA", "LTC", "RAILS",
     "AVAX", "SUI", "HYPE", "UNI", "INJ",
     "WIF", "TON", "OP", "ARB", "JUP", "PEPE", "TIA", "RENDER", "FET", "STX",
-    "PENDLE", "ONDO", "BONK",
+    "PENDLE", "ONDO", "BONK", "MOVR",
 ]
 
 _SYSTEM_PROMPT = """You are an intent-classification assistant for a crypto trading CLI called Kryptos.
@@ -59,7 +59,7 @@ Available intents:
 
 Parameters you can extract:
 - mode: "paper" or "live"  (default: "paper")
-- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD, PENDLE/USD, ONDO/USD, BONK/USD  (or null)
+- pair: one of BTC/USD, ETH/USD, BNB/USD, SOL/USD, XRP/USD, TRX/USD, DOGE/USD, ADA/USD, LTC/USD, RAILS/USD, AVAX/USD, SUI/USD, HYPE/USD, UNI/USD, INJ/USD, WIF/USD, TON/USD, OP/USD, ARB/USD, JUP/USD, PEPE/USD, TIA/USD, RENDER/USD, FET/USD, STX/USD, PENDLE/USD, ONDO/USD, BONK/USD, MOVR/USD  (or null)
 - days: integer number of days  (default: 7 for decisions, 30 for trades, 14 for review)
 - days_ago: integer offset from today for daily_report (0=today, 1=yesterday, etc.)
 - count: integer number of records to show

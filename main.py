@@ -562,18 +562,27 @@ async def run_cycle(
             notifier.send_drawdown_recovery_exited(daily_pnl["pnl_pct"])
             loop_state["drawdown_recovery_active"] = False
 
-    # Fetch Fear & Greed once per cycle — injected into each pair's indicators dict
+    # Fetch Fear & Greed, BTC dominance, and cycle-top indicators once per cycle.
+    # Each function uses synchronous requests.get() internally. In live/paper mode,
+    # offload all three to asyncio.to_thread() and run concurrently so a slow
+    # CoinGecko or CoinGlass response on a cache-miss cycle cannot block the event
+    # loop (which previously caused 13–20 s cycles and stalled the WebSocket feed).
     from src.analysis.features import (
         fetch_fear_greed,
         fetch_btc_dominance,
         fetch_cycle_top_indicators,
     )
-    fear_greed_data = fetch_fear_greed(config)
+    if is_backtest:
+        fear_greed_data = fetch_fear_greed(config)
+        btc_dom_data    = None
+        cycle_top_data  = None
+    else:
+        fear_greed_data, btc_dom_data, cycle_top_data = await asyncio.gather(
+            asyncio.to_thread(fetch_fear_greed, config),
+            asyncio.to_thread(fetch_btc_dominance, config, trading_db_path),
+            asyncio.to_thread(fetch_cycle_top_indicators, config, trading_db_path),
+        )
     fear_greed_index = fear_greed_data["value"] if fear_greed_data else None
-
-    # Fetch BTC dominance trend once per cycle (#206)
-    btc_dom_data = fetch_btc_dominance(config, db_path=trading_db_path) if not is_backtest else None
-    cycle_top_data = fetch_cycle_top_indicators(config, db_path=trading_db_path) if not is_backtest else None
     cycle_top_active = bool(cycle_top_data and cycle_top_data.get("cycle_top_active"))
     risk.set_cycle_top_state(cycle_top_active, cycle_top_data)
 

@@ -2,6 +2,16 @@
 
 ---
 
+## Session: 2026-04-18 (Part F) — Fix cycle stall + add MOVR/USD (#274)
+
+### Bug Fix
+- **Cycle stall (no issue)**: `fetch_fear_greed`, `fetch_btc_dominance`, and `fetch_cycle_top_indicators` in `features.py` use synchronous `requests.get()`. When called inside the `run_cycle()` async coroutine, cache expiry (1h / 2h / 24h) blocked the entire asyncio event loop for 2–8s per call, causing `compute_indicators()` to spike to 200–900ms per pair (27× = ~8s). Fix: `asyncio.gather(asyncio.to_thread(...))` for all three calls in the non-backtest path.
+
+### Features
+- **[#274] Add MOVR/USD (Moonriver)**: 18-field config block, 92% win rate in 7-day backtest (+8.42%). Signal params: TP=20%, SL=5%, `atr_tp_min_pct=0.10`, `rsi_oversold=28`, `rsi_overbought=78`, `buy_min_score=6`, `caution_factor_bearish=0.40`, `pair_tier=3`, `slippage_pct=0.20`. Trailing stop 6%/4%. Added to `alt_l1` correlation cluster. 28 active pairs total.
+
+---
+
 ## Session: 2026-04-18 (Part E) — Heartbeat open-position detail + missed-signal alert (#268)
 
 ### Features
