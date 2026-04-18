@@ -2,6 +2,13 @@
 
 ---
 
+## Session: 2026-04-18 (Part C) — Fix HTML injection risk in Telegram notifications (#247)
+
+### Bug Fixes
+- **[#247] `html.escape()` applied to all dynamic strings in `notifier.py`**: Exception messages containing `<class 'ConnectionError'>` and similar angle-bracket text broke Telegram's HTML parser, causing critical error alerts to fail silently. Added `import html`; wrapped `component` and `error` in `send_error_alert()`, `reason` in `send_trade_executed()` closing branch with `html.escape(str(...))`. Replaced manual `&amp;` with `html.escape()` in `send_drawdown_recovery_entered/exited()` for consistency. 309 tests pass.
+
+---
+
 ## Session: 2026-04-18 (Part B) — Fix missing pnl_pct in Telegram trade close notification (#248)
 
 ### Bug Fixes
