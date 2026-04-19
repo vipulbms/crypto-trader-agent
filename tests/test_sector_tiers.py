@@ -121,8 +121,9 @@ class TestPromptShowsTier(unittest.TestCase):
             min_order_usd=20.0,
         )
 
-        # Tier and Max buy are now consolidated on one line (issue #217 Step 3)
-        self.assertIn("Tier 3 (speculative altcoin) | Max buy: $17.50", prompt)
+        # New pipe format: max_buy_usd is embedded as a pipe field (rounds to nearest int)
+        self.assertIn("pair|INJ/USD", prompt)
+        self.assertIn("max_buy_usd|18", prompt)  # 17.5 rounds to 18 with :.0f
 
 
 class TestTradingToolsPairCap(unittest.TestCase):

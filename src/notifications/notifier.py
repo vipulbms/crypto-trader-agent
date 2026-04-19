@@ -270,6 +270,16 @@ class Notifier:
         )
         self._send(msg)
 
+    def send_feed_frozen_alert(self, pair: str, n_cycles: int) -> None:
+        """Alert when a pair's feed has been FROZEN for n_cycles consecutive cycles (S13.2.2)."""
+        pair_esc = html.escape(pair)
+        msg = (
+            f"{self._prefix}🧊 <b>Feed Frozen: {pair_esc}</b>\n"
+            f"No new OHLCV data for {n_cycles} consecutive cycles.\n"
+            f"Signal suppressed until feed recovers."
+        )
+        self._send(msg)
+
     def ping_healthcheck(self) -> None:
         """Pings an external webhook (e.g. healthchecks.io) to signal the bot is alive."""
         if not self._healthcheck_url:
