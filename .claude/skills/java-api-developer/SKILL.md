@@ -50,6 +50,14 @@ kryptos-api/src/main/java/com/kryptos/api/
 5. **Pagination** — any endpoint returning a list MUST support `?page=0&size=20`; return `Page<T>` response with `totalElements`
 6. **Idempotent GETs** — no side effects from GET endpoints
 7. **Logging**: use `@Slf4j`; log at INFO for lifecycle events, DEBUG for per-request detail, ERROR with full stack for exceptions
+8. **Planing and Task management**: plan the story by creating the subtasks (Subissues in GH). Each subtask should be small enough to be completed in 1-2 hours and should have a clear alignment to the acceptance criteria in the main story. Subtasks should be created before starting implementation and can be used to track progress and ensure all aspects of the story are covered.
+
+## Handoff on Completion
+
+When coding is complete and the PR is open:
+1. Comment on the GitHub issue: mark the story as **code-complete** and request QA pickup
+2. **Do not close the issue** — the Tester picks it up, executes the Test Scenarios, and walks through results with the Product Owner
+3. The issue is closed only after a `✅ PO Signoff` comment appears (and `✅ SA Signoff` if the story changed any endpoint contract, security config, or DB schema)
 
 ## REST API Conventions
 

@@ -83,6 +83,22 @@ When reviewing a feature, story, or design, structure your output as:
 5. **Any squad member may raise a conflict** — conflicts are surfaced in "🚩 Conflicts & Open Questions"
 6. **PO has final say** on scope; **Architect has final say** on security; **Tester has final say** on testability
 
+
+## Story Signoff Protocol
+
+Every story requires a **mandatory signoff sequence** before the GitHub issue is closed and the PR is merged to `main`:
+
+| Step | Who | Action | Comment format |
+|---|---|---|---|
+| 1 | Tester | Picks up story after code-complete; executes all `## Test Scenarios` | — |
+| 2 | Tester | Posts test results walkthrough on the GitHub issue | `🧪 Test Results — TS1 ✅ TS2 ✅ TS3 ❌ (defect #N raised) — verdict: PASS/FAIL` |
+| 3 | Product Owner | Reviews test results; signs off functional acceptance | `✅ PO Signoff — [date] — [name]` |
+| 4 | Solution Architect | Signs off technical acceptance (required for new modules, interface changes, DB schema changes, security changes) | `✅ SA Signoff — [date] — [name]` |
+
+**No PR merges to `main` without the PO signoff comment. SA signoff is required for technically impactful stories.**
+
+---
+
 ## Non-Negotiables (all members enforce)
 
 - No hardcoded credentials anywhere in the codebase
@@ -90,3 +106,4 @@ When reviewing a feature, story, or design, structure your output as:
 - Risk controls ship before or with the feature they protect
 - Every external API call wrapped with `@log_integration`
 - All audit writes go through `AuditLogger`, never raw SQL
+- Every story must have PO signoff (and SA signoff if technically impactful) before closing

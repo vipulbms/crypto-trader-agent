@@ -2,6 +2,16 @@
 
 ---
 
+## Session: 2026-04-19 (Part B) — Story signoff workflow in squad skills
+
+### Process / Skills
+- **Story Signoff Workflow** added to `tester/SKILL.md` and `product-owner/SKILL.md`: after code-complete, Tester executes Test Scenarios, walks results with PO, PO posts `✅ PO Signoff`, SA posts `✅ SA Signoff` (when technically impactful). Mandatory before issue close.
+- **DoD updated** in `product-owner/SKILL.md`: three new checklist items covering Tester execution, PO signoff, and SA signoff.
+- **Story Signoff Protocol table** added to `squad/SKILL.md`; Non-Negotiables bullet added.
+- **`## Handoff on Completion`** section added to `python-developer`, `java-api-developer`, and `ui-developer` skills: instructs developers not to close the issue; issue closes only after `✅ PO Signoff` comment appears.
+
+---
+
 ## Session: 2026-04-19 (Part A) — v3 Agentic Architecture Design & Discovery
 
 ### Documentation

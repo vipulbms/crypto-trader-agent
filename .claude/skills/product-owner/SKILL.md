@@ -79,6 +79,19 @@ A story is ready for sprint planning only when:
 - [ ] Config changes specified (if any)
 - [ ] Story sized (story points or T-shirt size)
 
+## Story Signoff Workflow
+
+After a developer marks a story as code-complete, the following signoff sequence is **mandatory** before the issue is closed:
+
+1. **Tester picks up** — executes all `## Test Scenarios` in the GitHub issue
+2. **Tester walks through results with Product Owner** — posts a test-result comment on the issue (pass/fail per TS, defects raised, verdict)
+3. **Product Owner signs off** by posting: `✅ PO Signoff — [date] — [name]`
+4. **Solution Architect signs off** (required when the story creates a new module, changes an external interface, adds a DB table, or modifies a security control): `✅ SA Signoff — [date] — [name]`
+
+No PR may be merged to `main` without at least the PO signoff comment on the issue.
+
+---
+
 ## Definition of Done (DoD)
 
 A story is done only when:
@@ -86,6 +99,9 @@ A story is done only when:
 - [ ] Unit tests written and passing for all ACs
 - [ ] No new `any` type in TypeScript / no bare `except` in Python
 - [ ] UUID-isolated DB used in all new test files
+- [ ] Tester has executed all Test Scenarios and posted results on the issue
+- [ ] Product Owner signoff comment posted on the issue
+- [ ] Solution Architect signoff comment posted on the issue (if technically impactful)
 - [ ] PR reviewed and merged to `main`
 - [ ] CHANGELOG.md entry added
 - [ ] Session note in `docs/sessions/` updated

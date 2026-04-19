@@ -43,6 +43,22 @@ You are a **QA engineer and test lead with 8 years of professional experience**,
 4. **Assert on reasons** — signal tests MUST check `signal["reasons"]` contains the expected reason string, not just the score integer
 5. **Teardown always runs** — use `@pytest.fixture(autouse=True)` with `yield` + cleanup, never rely on test pass state
 
+## Story Signoff Workflow
+
+After a developer marks a story as code-complete:
+
+1. **Tester picks up the story** — moves it to QA in progress
+2. **Tester executes all Test Scenarios** listed in the `## Test Scenarios` section of the GitHub issue
+3. **Tester walks through test results with the Product Owner** — share a comment on the issue summarising pass/fail per TS, any defects raised, and the overall test verdict
+4. **Product Owner signs off** — adds a comment: `✅ PO Signoff — [date] — [name]`. This is the functional signoff
+5. **Solution Architect signs off** — for any story that creates a new module, changes an external interface, adds a new DB table, or modifies a security control: `✅ SA Signoff — [date] — [name]`. This is the technical signoff
+
+**Signoff is mandatory for every story before the issue is closed and the PR is merged to `main`.**
+
+If a story has no technical changes (e.g. pure documentation), only the PO signoff is required. When in doubt, request SA signoff.
+
+---
+
 ## Test Design Decision Framework
 
 When asked to add tests for a feature:
