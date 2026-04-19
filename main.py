@@ -153,7 +153,7 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
            When provided, the live WebSocket is not started and the main loop
            steps through candles via feed.advance() instead of sleeping.
     """
-    from src.storage.database import init_all_databases
+    from src.storage.database import init_all_databases, resolve_trading_db
     from src.storage.audit_logger import AuditLogger
     from src.exchange.websocket_feed import WebSocketFeed
     from src.analysis.indicators import compute_indicators
@@ -181,9 +181,14 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
     audit       = AuditLogger(audit_db=audit_db, mode=mode)
 
     ws_feed     = feed if is_backtest else WebSocketFeed(config)
-    _trading_db = storage_cfg.get("paper_db" if mode == "paper" else "live_db", "paper_trading.db")
+    _trading_db = resolve_trading_db(config, mode)   # S12.1.3: persona-aware DB naming
     risk        = RiskManager(config, db_path=_trading_db)
-    notifier    = Notifier(config, mode)
+
+    # Persona resolved once at startup (disk re-read per cycle handles runtime switches)
+    _agent_cfg      = config.get("agent", {})
+    _active_persona = _agent_cfg.get("persona", "conservative")
+    _concurrent     = bool(_agent_cfg.get("concurrent_mode", False))
+    notifier    = Notifier(config, mode, persona=_active_persona if _concurrent else "")
 
     trading_cfg = config.get("trading", {})
     pairs       = [p["pair"] for p in trading_cfg.get("pairs", [])]
@@ -195,8 +200,13 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
         paper_cfg   = config.get("paper", {})
         slippage    = paper_cfg.get("slippage_pct", 0.05)
         maker_fee   = paper_cfg.get("maker_fee_pct", 0.26)
-        paper_db    = storage_cfg.get("paper_db", "paper_trading.db")
-        broker      = PaperBroker(paper_db=paper_db, slippage_pct=slippage, maker_fee_pct=maker_fee, config=config)
+        broker      = PaperBroker(
+            paper_db=_trading_db,
+            slippage_pct=slippage,
+            maker_fee_pct=maker_fee,
+            config=config,
+            persona=_active_persona,
+        )
     else:
         from src.exchange.kraken_client import KrakenClient
         api_key    = os.getenv("KRAKEN_API_KEY")
@@ -445,6 +455,7 @@ async def run_cycle(
     from src.analysis.indicators import compute_indicators
     from src.analysis.signals import generate_signal
     from src.utils.timing import set_cycle_id
+    from src.core.cycle_context import CycleContext
 
     cycle_start_ms = int(time.time() * 1000)
     ind_cfg = config.get("indicators", {})
@@ -480,6 +491,35 @@ async def run_cycle(
         daily_pnl_pct=daily_pnl["pnl_pct"],
     )
     set_cycle_id(cycle_id)  # propagate to all @timed calls in this cycle
+
+    # Build CycleContext — single source of truth for persona thresholds this cycle (S12.1.2)
+    _btc_trend = ""
+    ctx = CycleContext.from_config(
+        config,
+        cycle_id=str(cycle_id),
+        open_positions=open_positions,
+        btc_dominance_trend=_btc_trend,
+    )
+    risk.apply_persona_config(ctx.persona_config)
+    logger.info(
+        "[PERSONA] Active: %s | buy_min_score=%d | max_open=%d | max_pos=%.0f%% | floor=%.2f%%",
+        ctx.persona, ctx.buy_min_score, ctx.max_open_positions,
+        ctx.max_position_pct, ctx.min_profit_floor_pct,
+    )
+
+    # Persist active persona to agent_state for traceability and hot-reload detection (S12.1.3 AC1)
+    if trading_db_path:
+        try:
+            from src.storage.database import get_connection
+            _conn = get_connection(trading_db_path)
+            _conn.execute(
+                "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+                ("active_persona", ctx.persona),
+            )
+            _conn.commit()
+            _conn.close()
+        except Exception as _pe:
+            logger.warning("[PERSONA] Failed to persist active_persona to agent_state: %s", _pe)
 
     # Check daily loss limit
     trading_cfg     = config.get("trading", {})
@@ -799,11 +839,22 @@ async def run_cycle(
         )
 
     # Run LLM agent
+    # Patch btc_dominance_trend into ctx now that macro data is available
+    if btc_dom_data:
+        ctx = CycleContext.from_config(
+            config,
+            cycle_id=str(cycle_id),
+            open_positions=open_positions,
+            btc_dominance_trend=btc_dom_data.get("trend", ""),
+        )
+        risk.apply_persona_config(ctx.persona_config)
+
     results = agent.run_cycle(
         cycle_id=cycle_id,
         portfolio=portfolio,
         signals=signals,
         ai_context=ai_context,
+        cycle_context=ctx,
     )
 
     buys = sells = 0

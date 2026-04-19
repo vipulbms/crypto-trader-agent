@@ -21,7 +21,8 @@ def validate_config(config: dict) -> None:
     """
     Called once at startup. Raises ValueError if any take-profit value
     is not in the allowed set. Prevents misconfigured agents from starting.
-    Also validates mutually exclusive features (trailing_stop / breakeven_stop).
+    Also validates mutually exclusive features (trailing_stop / breakeven_stop)
+    and the persona config schema (S12.1.1 — AC4).
     """
     allowed = config.get("trading", {}).get(
         "allowed_take_profit_pcts", ALLOWED_TAKE_PROFIT_PCTS
@@ -47,6 +48,40 @@ def validate_config(config: dict) -> None:
             "trailing_stop and breakeven_stop cannot both be enabled simultaneously. "
             "Disable one in config.yaml."
         )
+    # Persona config schema validation (S12.1.1 — AC4)
+    _REQUIRED_PERSONA_KEYS = {
+        "buy_min_score", "max_open_positions", "max_position_pct",
+        "min_profit_floor_pct", "rsi_overbought_veto",
+        "momentum_bypass_rsi", "momentum_bypass_adx",
+        "reallocation_enabled", "llm_temperature", "llm_max_tokens",
+        "llm_system_role", "velocity_circuit_breaker_pct", "velocity_halt_hours",
+    }
+    _VALID_PERSONAS = {"conservative", "medium", "high"}
+    agent_cfg = config.get("agent", {})
+    active_persona = agent_cfg.get("persona")
+    if active_persona is not None and active_persona not in _VALID_PERSONAS:
+        raise ValueError(
+            f"Invalid agent.persona: '{active_persona}'. "
+            f"Must be one of: {sorted(_VALID_PERSONAS)}"
+        )
+    personas_cfg = config.get("personas", {})
+    if not personas_cfg:
+        raise ValueError(
+            "Missing 'personas:' block in config.yaml. "
+            "All three profiles (conservative, medium, high) are required."
+        )
+    for persona_name in _VALID_PERSONAS:
+        if persona_name not in personas_cfg:
+            raise ValueError(
+                f"Missing persona profile '{persona_name}' in config.yaml personas block."
+            )
+        profile = personas_cfg[persona_name]
+        missing = _REQUIRED_PERSONA_KEYS - set(profile.keys())
+        if missing:
+            raise ValueError(
+                f"Persona '{persona_name}' is missing required keys: {sorted(missing)}. "
+                f"Add the missing keys to config.yaml under personas.{persona_name}."
+            )
     # Sanity check: max_open_positions × max_position_pct must not exceed deployable capital
     trading = config.get("trading", {})
     max_pos = trading.get("max_open_positions", 3)
@@ -61,7 +96,7 @@ def validate_config(config: dict) -> None:
             max_pos, base_pct, max_pos * base_pct, max_deployable_pct, reserve_pct,
             int(max_deployable_pct // base_pct),
         )
-    logger.info("Config validation passed — all take-profit values are valid")
+    logger.info("Config validation passed — all take-profit values and persona profiles are valid")
 
 
 class RiskManager:
@@ -150,6 +185,34 @@ class RiskManager:
         """Update the current cycle-top guard state for validate_buy()."""
         self._cycle_top_active = bool(active and self._cycle_top_guard_enabled)
         self._cycle_top_data = data or {}
+
+    def apply_persona_config(self, persona_config: dict) -> None:
+        """
+        Update persona-driven thresholds from the active CycleContext.
+
+        Called once per cycle in main.py after CycleContext is constructed.
+        Overrides the three risk fields that vary by persona so validate_buy()
+        and validate_sell() operate under the correct persona thresholds.
+
+        Args:
+            persona_config: The dict at config["personas"][active_persona].
+
+        Story: S12.1.2 — Persona runtime injection into CycleContext (AC3)
+        """
+        if "max_open_positions" in persona_config:
+            self._max_open_positions = int(persona_config["max_open_positions"])
+        if "max_position_pct" in persona_config:
+            self._max_position_pct = float(persona_config["max_position_pct"])
+        if "min_profit_floor_pct" in persona_config:
+            self._min_profit_floor_pct = float(persona_config["min_profit_floor_pct"])
+        logger.debug(
+            "[PERSONA] RiskManager thresholds applied — persona=%s "
+            "max_open=%d max_pos=%.0f%% min_floor=%.2f%%",
+            persona_config.get("_persona_name", "?"),
+            self._max_open_positions,
+            self._max_position_pct,
+            self._min_profit_floor_pct,
+        )
 
     # ── Circuit breaker — derived from trade history ──────────────────────────
     # Queries the last N trades that closed within the pause window.

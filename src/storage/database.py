@@ -23,6 +23,42 @@ def get_db_path(db_filename: str) -> str:
     return _get_db_path(db_filename)
 
 
+def resolve_trading_db(config: dict, mode: str) -> str:
+    """
+    Return the bare trading DB filename for the current mode and persona.
+
+    When ``agent.concurrent_mode`` is True, the active persona name is embedded
+    in the filename so each persona operates on its own isolated database::
+
+        paper_trading_conservative.db
+        paper_trading_medium.db
+        paper_trading_high.db
+
+    When ``concurrent_mode`` is False (default for S1), the canonical name is
+    used unchanged::
+
+        paper_trading.db  /  live_trading.db
+
+    Story: S12.1.3 — Persona persistence (concurrent_mode DB naming)
+    """
+    storage_cfg = config.get("storage", {})
+    agent_cfg   = config.get("agent", {})
+    concurrent  = bool(agent_cfg.get("concurrent_mode", False))
+
+    base_name = (
+        storage_cfg.get("paper_db", "paper_trading.db")
+        if mode == "paper"
+        else storage_cfg.get("live_db", "live_trading.db")
+    )
+
+    if not concurrent:
+        return base_name
+
+    persona = agent_cfg.get("persona", "conservative")
+    stem, ext = os.path.splitext(base_name)
+    return f"{stem}_{persona}{ext}"
+
+
 def get_connection(db_filename: str) -> sqlite3.Connection:
     """Open and return a SQLite connection with foreign keys enabled."""
     path = _get_db_path(db_filename)
@@ -83,7 +119,8 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     hold_duration_secs  INTEGER NOT NULL,
     fee_usd             REAL NOT NULL DEFAULT 0.0,
     stop_loss_pct       REAL NOT NULL,
-    take_profit_pct     REAL NOT NULL
+    take_profit_pct     REAL NOT NULL,
+    persona             TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS agent_state (
@@ -135,7 +172,8 @@ CREATE TABLE IF NOT EXISTS live_trades (
     stop_loss_pct           REAL NOT NULL,
     take_profit_pct         REAL NOT NULL,
     entry_order_id          TEXT,
-    exit_order_id           TEXT
+    exit_order_id           TEXT,
+    persona                 TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS daily_pnl (
@@ -310,6 +348,7 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
         "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE paper_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "ALTER TABLE paper_trades ADD COLUMN persona TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(col_ddl)
@@ -338,6 +377,7 @@ def init_live_db(live_db: str) -> None:
         "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "ALTER TABLE live_trades ADD COLUMN persona TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(col_ddl)
@@ -358,18 +398,20 @@ def init_all_databases(config: dict, mode: str) -> None:
     """
     Initialise all required databases based on mode.
     mode: 'paper' or 'live'
+
+    Uses resolve_trading_db() so that concurrent_mode personas get their own
+    isolated DB file (e.g. paper_trading_conservative.db). Story: S12.1.3.
     """
     storage = config.get("storage", {})
     audit_db = storage.get("audit_db", "audit.db")
     init_audit_db(audit_db)
     logger.info("Audit DB ready: %s", audit_db)
 
+    trading_db = resolve_trading_db(config, mode)
     if mode == "paper":
-        paper_db = storage.get("paper_db", "paper_trading.db")
         starting_balance = config.get("paper", {}).get("starting_balance_usd", 1000.0)
-        init_paper_db(paper_db, starting_balance)
-        logger.info("Paper trading DB ready: %s", paper_db)
+        init_paper_db(trading_db, starting_balance)
+        logger.info("Paper trading DB ready: %s", trading_db)
     else:
-        live_db = storage.get("live_db", "live_trading.db")
-        init_live_db(live_db)
-        logger.info("Live trading DB ready: %s", live_db)
+        init_live_db(trading_db)
+        logger.info("Live trading DB ready: %s", trading_db)

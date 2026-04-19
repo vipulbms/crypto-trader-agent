@@ -26,11 +26,16 @@ class Notifier:
     Can be used without Telegram (logs to console only).
     """
 
-    def __init__(self, config: dict, mode: str):
+    def __init__(self, config: dict, mode: str, persona: str = ""):
         notif_cfg = config.get("notifications", {})
         self._enabled = notif_cfg.get("telegram_enabled", True) and TELEGRAM_AVAILABLE
         self._mode    = mode
-        self._prefix  = "[PAPER] " if mode == "paper" else "[LIVE] "
+        # In concurrent_mode each persona runs as a separate process; include the
+        # persona name in the Telegram prefix so recipients can tell them apart.
+        # When persona is empty (non-concurrent, default), use the plain mode tag.
+        # Story: S12.1.3 — Notifier persona prefix
+        mode_tag = "PAPER" if mode == "paper" else "LIVE"
+        self._prefix = f"[{mode_tag}|{persona.upper()}] " if persona else f"[{mode_tag}] "
         self._bot: Optional[object] = None
         self._chat_id: Optional[str] = None
         self._healthcheck_url = notif_cfg.get("healthcheck_url", "")

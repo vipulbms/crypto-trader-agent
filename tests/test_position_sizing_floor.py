@@ -32,6 +32,21 @@ def _base_config(
     }
 
 
+# Minimal personas block required by validate_config() since S12.1.1
+_MINIMAL_PERSONA = {
+    "buy_min_score": 5, "max_open_positions": 10, "max_position_pct": 30,
+    "min_profit_floor_pct": 1.0, "rsi_overbought_veto": 70, "momentum_bypass_rsi": 65,
+    "momentum_bypass_adx": 0, "reallocation_enabled": False, "llm_temperature": 0.1,
+    "llm_max_tokens": 1024, "llm_system_role": "standard",
+    "velocity_circuit_breaker_pct": 3.0, "velocity_halt_hours": 4,
+}
+_MINIMAL_PERSONAS = {
+    "conservative": _MINIMAL_PERSONA,
+    "medium": _MINIMAL_PERSONA,
+    "high": _MINIMAL_PERSONA,
+}
+
+
 def _full_config(
     max_open_positions: int = 5,
     base_position_pct: int = 16,
@@ -50,6 +65,7 @@ def _full_config(
             "min_cash_reserve_pct": min_cash_reserve_pct,
             "min_order_usd": 20.0,
         },
+        "personas": _MINIMAL_PERSONAS,
     }
 
 

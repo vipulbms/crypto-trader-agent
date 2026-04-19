@@ -2,6 +2,23 @@
 
 ---
 
+## Session: 2026-04-19 (Part C) — Sprint S1 E12 Persona Infrastructure
+
+### Features
+- **S12.1.1 — Persona config schema** (`config.yaml`, `src/risk/risk_manager.py`): Added `agent.persona` + `agent.concurrent_mode` config keys. Full `personas:` block with three risk profiles (conservative / medium / high), each with 13 knobs: `max_open_positions`, `max_position_pct`, `base_position_pct`, `min_cash_reserve_pct`, `max_buys_per_cycle`, `buy_min_score_override`, `min_profit_floor_pct`, `trailing_stop_*`, `rsi_overbought_override`, `bearish_caution_factor_override`, `prompt_style`. Added `qsa.enabled: false` placeholder. `validate_config()` extended to enforce all 13 keys across all 3 profiles — raises `ConfigError` on missing. Closes #279.
+- **S12.1.2 — Persona loader and runtime injection** (`src/core/cycle_context.py` NEW, `main.py`, `trading_agent.py`, `risk_manager.py`): `CycleContext` dataclass with `from_config()` factory + 8 convenience `@property` accessors. `apply_persona_config()` hot-patches `_max_open_positions`, `_max_position_pct`, `_min_profit_floor_pct` at cycle start. Wired into `main.py:run_cycle()` so limits are persona-aligned before every trade decision. Closes #280.
+- **S12.1.3 — Persona persistence / concurrent-mode DB naming** (`src/storage/database.py`, `paper_broker.py`, `notifier.py`, `main.py`): `resolve_trading_db(config, mode)` returns persona-suffixed filename when `concurrent_mode: true` (`paper_trading_conservative.db`). `persona TEXT NOT NULL DEFAULT ''` column added to `paper_trades` + `live_trades` with idempotent `ALTER TABLE` migration guards. `PaperBroker` stores `self._persona` and stamps every closed trade row. `Notifier` prefix becomes `[PAPER|CONSERVATIVE]` in concurrent mode. `run_cycle()` writes `active_persona` to `agent_state`. Closes #281.
+- **ADR-008 / ADR-009** (`docs/v2-agentic/Architecture-Design-v3.md` §10): Monorepo layout decision for `mocha-python-libraries`; full directory structure, CI workflow design, semver strategy.
+
+### Tests
+- `tests/test_persona_config_loading.py` (NEW) — 12 tests
+- `tests/test_persona_injection.py` (NEW) — 10 tests
+- `tests/test_concurrent_mode_db_naming.py` (NEW) — 19 tests
+- `tests/test_position_sizing_floor.py` — regression fix (`_MINIMAL_PERSONAS` constant in `_full_config()`)
+- **Total: 370 passed** (was 351 before sprint)
+
+---
+
 ## Session: 2026-04-19 (Part B) — Story signoff workflow in squad skills
 
 ### Process / Skills

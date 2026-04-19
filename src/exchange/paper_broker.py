@@ -35,11 +35,12 @@ class PaperBroker:
     Reads/writes paper_trading.db exclusively.
     """
 
-    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.16, config: dict = None):
+    def __init__(self, paper_db: str, slippage_pct: float = 0.05, maker_fee_pct: float = 0.16, config: dict = None, persona: str = ""):
         self._db = paper_db
         self._slippage  = slippage_pct / 100  # global fallback (e.g. 0.0005 = 0.05%)
         self._maker_fee = maker_fee_pct / 100
         self._config = config or {}
+        self._persona = persona  # written to paper_trades.persona (S12.1.3)
 
     def _get_pair_slippage(self, pair: str) -> float:
         """Resolve per-pair slippage (as fraction) from config, falling back to global. (#204)"""
@@ -267,13 +268,13 @@ class PaperBroker:
             """INSERT INTO paper_trades
                (opened_at, closed_at, pair, side, entry_price, exit_price,
                 volume, usd_invested, pnl_usd, pnl_pct, exit_reason,
-                hold_duration_secs, fee_usd, stop_loss_pct, take_profit_pct)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                hold_duration_secs, fee_usd, stop_loss_pct, take_profit_pct, persona)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 pos["opened_at"], closed_at, pos["pair"], pos["side"],
                 pos["entry_price"], fill_price, close_volume, cost_basis,
                 pnl_usd, pnl_pct, exit_reason, hold_secs,
-                fee_usd, pos["stop_loss_pct"], pos["take_profit_pct"],
+                fee_usd, pos["stop_loss_pct"], pos["take_profit_pct"], self._persona,
             ),
         )
 

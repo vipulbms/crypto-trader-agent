@@ -64,6 +64,7 @@ class TradingAgent:
         self._min_order_usd = config.get("risk", {}).get("min_order_usd", 20.0)
         self._disable_thinking = llm_cfg.get("disable_thinking", False)
         self._system_prompt = llm_cfg.get("system_prompt") or SYSTEM_PROMPT
+        self._current_ctx = None  # set per cycle by run_cycle() (S12.1.2 AC4)
         if not llm_cfg.get("system_prompt"):
             logger.warning("[AGENT] llm.system_prompt not found in config — using fallback")
 
@@ -152,11 +153,13 @@ class TradingAgent:
         portfolio: dict,
         signals: list,
         ai_context: dict = None,
+        cycle_context=None,
     ) -> list:
         """
         Run one full decision cycle across all pairs with a single LLM call.
         Returns list of action summaries.
         """
+        self._current_ctx = cycle_context  # persona LLM params (S12.1.2 AC4)
         set_cycle_id(cycle_id)
         self._tools.set_cycle_context(cycle_id)
         self._tools.set_dynamic_tp_values((ai_context or {}).get("dynamic_tp_values", {}))
@@ -402,7 +405,7 @@ class TradingAgent:
             model=model,
             messages=messages,
             tools=self._TOOL_DEFS,
-            options={"temperature": 0.1},
+            options={"temperature": self._current_ctx.llm_temperature if self._current_ctx else 0.1},
         )
         latency_ms = int((time.time() - call_start) * 1000)
 
@@ -454,7 +457,8 @@ class TradingAgent:
             messages=messages,
             tools=self._TOOL_DEFS,
             tool_choice="required",
-            temperature=0.1,
+            temperature=self._current_ctx.llm_temperature if self._current_ctx else 0.1,
+            max_tokens=self._current_ctx.llm_max_tokens if self._current_ctx else 1024,
         )
         # For qwen3-class reasoning models on Groq: disable thinking via reasoning_effort.
         # Without this, qwen3 generates a <think> block before the tool call JSON, which
