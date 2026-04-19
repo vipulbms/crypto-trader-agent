@@ -160,6 +160,20 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
     sell_score = 0
     reasons    = []
 
+    # ── QSA S13.2.1 — Feed freeze check ─────────────────────────────────────
+    # Before any scoring: if the OHLCV feed for this pair is frozen,
+    # force HOLD regardless of indicator values.
+    feed_status = indicators.get("feed_status", "OK")
+    if feed_status == "FROZEN":
+        logger.warning("[QSA] FEED_FROZEN %s — signal suppressed", pair)
+        return {
+            "pair":     pair,
+            "signal":   "HOLD",
+            "strength": 0.0,
+            "reasons":  ["feed_frozen"],
+            "price":    price,
+        }
+
     # Profit factor auto-escalation: raise buy_min_score for underperforming pairs (#183)
     pf_cfg = sig_cfg.get("profit_factor_escalation", {})
     if pf_cfg.get("enabled", True):
@@ -219,15 +233,27 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
             return _build_result(pair, 0, sell_score, buy_min_score, sell_min_score, max_score, reasons, price)
 
     # ── Hard blocker 3: Volume drop-off (Dead Zones) ──────────────────────────
-    # Priority: adaptive rolling floor injected by main.py > per-pair static > global
+    # Priority chain (highest → lowest):
+    #   1. QSA Winsorized EMA floor (S13.1.1) — when algorithm = winsorized_ema
+    #   2. Adaptive rolling floor injected by main.py (rolling_volume_p15)
+    #   3. Ratio-based floor: volume < min_vol_ratio × volume_sma_20
     rolling_vol_p15 = indicators.get("rolling_volume_p15")   # injected by main.py when adaptive enabled
+    winsorized_vol_ema = indicators.get("winsorized_vol_ema")  # QSA S13.1.1
+    vf_algo = config.get("qsa", {}).get("volume_floor", {}).get("algorithm", "winsorized_ema")
     min_vol_ratio = (
         pair_cfg.get("min_volume_ratio")                      # per-pair static (Fix #111)
         or config.get("trading", {}).get("allowed_trading_hours", {}).get("min_volume_ratio", 0.5)
     )
     if volume is not None:
+        # S13.1.1: Use Winsorized EMA floor when available and algorithm is configured
+        if winsorized_vol_ema is not None and vf_algo == "winsorized_ema":
+            vol_blocked = volume < winsorized_vol_ema
+            vol_reason = (
+                f"BLOCKED: Volume ({volume:.2f}) below Winsorized EMA floor "
+                f"({winsorized_vol_ema:.2f}) — dead zone detected"
+            )
         # Adaptive floor (rolling p15) takes priority over ratio-based check when injected
-        if rolling_vol_p15 is not None:
+        elif rolling_vol_p15 is not None:
             vol_blocked = volume < rolling_vol_p15
             vol_reason = (
                 f"BLOCKED: Volume ({volume:.2f}) below rolling p15 floor ({rolling_vol_p15:.2f})"
