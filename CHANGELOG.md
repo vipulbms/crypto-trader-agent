@@ -2,6 +2,33 @@
 
 ---
 
+## Session: 2026-04-19 (Part E) — Sprint S3 QSA Resilience, Prompt Rewrite, AIClient, DataCollector
+
+### Features
+- **S13.2.2 — Feed-frozen Telegram alert** (`src/notifications/notifier.py`, `main.py`): `send_feed_frozen_alert(pair, n_cycles)` sends ⚠️ alert. `main.py` tracks `_freeze_alert_sent` per-pair, resets on thaw.
+- **S13.2.3 — BTC spot failover** (`src/analysis/features.py`, `main.py`): `fetch_btc_spot_price(config)` falls back to CoinGecko REST when BTC/USD WS feed is FROZEN. Config: `qsa.btc_failover`.
+- **S13.3.1 — Volume bypass for momentum breakout** (`src/analysis/signals.py`, `main.py`, `config.yaml`): bypass block before `if vol_blocked:` return. Fires when price > bb_upper AND MACD turning positive. Conservative persona: disabled. Medium/high: enabled.
+- **S14.1.1 — Pipe-format signal blocks** (`src/agent/prompts.py`): `build_pipe_signal_block()` replaces verbose multi-line blocks. Single pipe-delimited row per pair.
+- **S14.1.2 — Token budget trimming** (`src/agent/prompts.py`): `estimate_tokens(prompt)` + trimming loop; weakest BUY signals dropped when over `llm.max_prompt_tokens` budget.
+- **S14.2.1 — Current portfolio block** (`src/agent/prompts.py`): `## CURRENT PORTFOLIO ##` pipe row always emitted; `SYSTEM_PROMPT` updated with no-rebuy guard.
+- **S14.2.2 — Risk constraints block** (`src/agent/prompts.py`): `## RISK CONSTRAINTS ##` pipe row emitted when `risk_state` dict passed to `build_cycle_prompt()`.
+- **S20.2.1 — AIClient in mocha-python-ai** (`mocha-python-libraries/packages/mocha_python_ai`): `ModelConfig` dataclass + `AIClient` with 3-attempt retry/fallback. Lazy `openai` import. Exported from `__init__.py`.
+- **S21.1.1 — DataCollector standalone runtime** (`src/runtime/data_collector.py`, `src/storage/database.py`): standalone asyncio process; Kraken WS v2 ohlc+book; `COLLECTOR_SCHEMA` (`candle_buffer`, `orderbook_snapshots`); `/health` aiohttp endpoint; REST backfill on startup.
+
+### Tests
+- `tests/test_vol_bypass.py` (NEW) — 6 tests: S13.3.1 bypass logic
+- `tests/test_feed_freeze_alert.py` (NEW) — 5 tests: S13.2.2 method + signature + message content
+- `tests/test_btc_failover.py` (NEW) — 6 tests: S13.2.3 CoinGecko fallback
+- `tests/test_pipe_format.py` (NEW) — 12 tests: S14.1.1 pipe block structure
+- `tests/test_token_budget.py` (NEW) — 4 tests: S14.1.2 estimate_tokens + trimming
+- `tests/test_portfolio_block.py` (NEW) — 8 tests: S14.2.1 portfolio block in prompt
+- `tests/test_risk_constraints_block.py` (NEW) — 10 tests: S14.2.2 risk state block
+- `tests/test_data_collector.py` (NEW) — 8 tests: S21.1.1 schema + helper functions
+- `mocha_python_ai/tests/test_ai_client.py` (NEW) — 11 tests: S20.2.1 ModelConfig, retry, fallback, lazy import
+- **Total: 448 kryptos + 11 mocha passed** (was 385 kryptos before sprint)
+
+---
+
 ## Session: 2026-04-19 (Part D) — Sprint S2 QSA Data Resilience
 
 ### Features

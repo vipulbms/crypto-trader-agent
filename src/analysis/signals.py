@@ -268,6 +268,28 @@ def generate_signal(pair: str, indicators: dict, config: dict) -> dict:
         else:
             vol_blocked = False
             vol_reason = ""
+        # S13.3.1 — Volume bypass: suspend veto on confirmed momentum geometry (Medium/High personas)
+        vol_bypass_active = False
+        if vol_blocked:
+            volume_bypass_enabled = indicators.get("volume_bypass_enabled", False)
+            if (
+                volume_bypass_enabled
+                and bb_upper is not None
+                and price is not None
+                and price > bb_upper
+                and macd_hist is not None
+                and macd_hist >= 0
+                and macd_hist_prev is not None
+                and macd_hist_prev < 0
+            ):
+                vol_blocked = False
+                vol_bypass_active = True
+                logger.info(
+                    "[QSA] VOL_BYPASS %s — MACD crossover + price > BB upper; veto suspended",
+                    pair,
+                )
+        if vol_bypass_active:
+            reasons.append("vol_bypass_momentum_geometry")
         if vol_blocked:
             reasons.append(vol_reason)
             sell_score = _score_sell(

@@ -284,6 +284,9 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
         "buys_since_heartbeat": 0,
         "sells_since_heartbeat": 0,
         "balance_at_heartbeat": start_of_day_bal,
+        # S13.2.2 — per-pair OHLCV freeze tracking
+        "freeze_cycle_count": {},   # {pair: int} consecutive FROZEN cycles
+        "freeze_alert_sent":  {},   # {pair: bool} alert emitted for current episode
     }
     try:
         while True:
@@ -653,6 +656,33 @@ async def run_cycle(
             logger.warning("Insufficient candles for %s indicators — skipping", pair)
             continue
 
+        # S13.2.2 — Track per-pair OHLCV freeze and alert once per episode
+        if loop_state is not None and not is_backtest:
+            feed_status = indicators.get("feed_status", "OK")
+            fh_cfg = config.get("qsa", {}).get("feed_heartbeat", {})
+            freeze_alert_cycles = int(fh_cfg.get("freeze_alert_cycles", 3))
+            if feed_status == "FROZEN":
+                loop_state["freeze_cycle_count"][pair] = (
+                    loop_state["freeze_cycle_count"].get(pair, 0) + 1
+                )
+                n_frozen = loop_state["freeze_cycle_count"][pair]
+                if n_frozen >= freeze_alert_cycles and not loop_state["freeze_alert_sent"].get(pair, False):
+                    notifier.send_feed_frozen_alert(pair, n_frozen)
+                    loop_state["freeze_alert_sent"][pair] = True
+                    logger.warning("[QSA] Feed frozen alert sent for %s (%d cycles)", pair, n_frozen)
+                # S13.2.3 — BTC/USD failover price for regime context
+                if pair == "BTC/USD":
+                    from src.analysis.features import fetch_btc_spot_price as _fetch_btc_spot
+                    btc_spot = _fetch_btc_spot(config)
+                    if btc_spot:
+                        indicators["btc_failover_price"] = btc_spot
+            else:
+                # Feed recovered — reset episode state
+                if loop_state["freeze_cycle_count"].get(pair, 0) > 0:
+                    logger.info("[QSA] Feed recovered for %s", pair)
+                loop_state["freeze_cycle_count"][pair] = 0
+                loop_state["freeze_alert_sent"][pair] = False
+
         # Inject sentiment so generate_signal() can score it
         if fear_greed_index is not None:
             indicators["fear_greed_index"] = fear_greed_index
@@ -751,6 +781,11 @@ async def run_cycle(
                         logger.debug("[PF] %s: profit_factor=%.2f (n=%d)", pair, pf_value, len(_pf_trades))
             except Exception as _pf_err:
                 logger.debug("[PF] %s: skipped — %s", pair, _pf_err)
+
+        # S13.3.1 — Inject volume bypass flag from active persona config
+        _active_persona = config.get("agent", {}).get("persona", "medium")
+        _persona_vol_cfg = config.get("personas", {}).get(_active_persona, {})
+        indicators["volume_bypass_enabled"] = _persona_vol_cfg.get("volume_bypass_enabled", True)
 
         sig = generate_signal(pair, indicators, config)
         sig["indicators"] = indicators  # attach raw indicators for prompt

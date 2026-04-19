@@ -76,6 +76,37 @@ def get_connection(db_filename: str) -> sqlite3.Connection:
 
 
 # ──────────────────────────────────────────────────────────────
+# DataCollector DB schema — shared by paper and live modes (S21.1.1)
+# ──────────────────────────────────────────────────────────────
+
+COLLECTOR_SCHEMA = """
+CREATE TABLE IF NOT EXISTS candle_buffer (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair        TEXT NOT NULL,
+    ts          INTEGER NOT NULL,   -- UNIX epoch seconds (candle open time)
+    open_price  REAL NOT NULL,
+    high        REAL NOT NULL,
+    low         REAL NOT NULL,
+    close       REAL NOT NULL,
+    volume      REAL NOT NULL,
+    is_closed   INTEGER NOT NULL DEFAULT 1,  -- 1 = completed candle
+    inserted_at TEXT NOT NULL       -- ISO-8601 UTC timestamp
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uix_candle_buffer_pair_ts ON candle_buffer(pair, ts);
+
+CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair        TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    best_bid    REAL NOT NULL,
+    best_ask    REAL NOT NULL,
+    obi         REAL NOT NULL,      -- Order Book Imbalance: (bid-ask)/(bid+ask)
+    inserted_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_ob_pair_ts ON orderbook_snapshots(pair, ts);
+"""
+
+# ──────────────────────────────────────────────────────────────
 # Paper trading DB schema
 # ──────────────────────────────────────────────────────────────
 
@@ -343,6 +374,7 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     """Initialise paper trading DB. Seeds wallet if first run."""
     conn = get_connection(paper_db)
     _init_db(conn, PAPER_SCHEMA, paper_db)
+    _init_db(conn, COLLECTOR_SCHEMA, paper_db)  # S21.1.1: candle_buffer + orderbook_snapshots
     # Idempotent migrations for columns/tables added after initial schema creation
     for col_ddl in [
         "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
@@ -373,6 +405,7 @@ def init_live_db(live_db: str) -> None:
     """Initialise live trading DB."""
     conn = get_connection(live_db)
     _init_db(conn, LIVE_SCHEMA, live_db)
+    _init_db(conn, COLLECTOR_SCHEMA, live_db)  # S21.1.1: candle_buffer + orderbook_snapshots
     for col_ddl in [
         "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
