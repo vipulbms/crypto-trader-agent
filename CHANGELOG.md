@@ -2,6 +2,38 @@
 
 ---
 
+## Session: 2026-04-19 (Part B) — Story signoff workflow in squad skills
+
+### Process / Skills
+- **Story Signoff Workflow** added to `tester/SKILL.md` and `product-owner/SKILL.md`: after code-complete, Tester executes Test Scenarios, walks results with PO, PO posts `✅ PO Signoff`, SA posts `✅ SA Signoff` (when technically impactful). Mandatory before issue close.
+- **DoD updated** in `product-owner/SKILL.md`: three new checklist items covering Tester execution, PO signoff, and SA signoff.
+- **Story Signoff Protocol table** added to `squad/SKILL.md`; Non-Negotiables bullet added.
+- **`## Handoff on Completion`** section added to `python-developer`, `java-api-developer`, and `ui-developer` skills: instructs developers not to close the issue; issue closes only after `✅ PO Signoff` comment appears.
+
+---
+
+## Session: 2026-04-19 (Part A) — v3 Agentic Architecture Design & Discovery
+
+### Documentation
+- **BRD v3.0** (`docs/v2-agentic/BRD-v3.md`): Full requirements rewrite; 75 FRs across 13 epics (E12–E24). Supersedes `docs/business_requirements.md` v2.4.
+- **Architecture-Design-v3** (`docs/v2-agentic/Architecture-Design-v3.md`): Multi-agent v3 design — Orchestrator, QSA, AIE, ROM, SHIELDA, RAA, Audit Agent; pipe-format LLM payload ≤6 000 tokens/call.
+- **Problem statement** (`docs/v2-agentic/problem-statement-crypto-Bot-Missed-Upswing.md`): Root cause analysis of April 18 2026 zero-entry event (18 valid signals, 0 trades).
+- **System-Interface-Changes-v3** / **Traceability-Matrix-v3** / **User-Stories-Sprint-Plan-v3**: delta spec, FR↔story traceability (75×62), 62 stories across 11 sprints.
+- **Generic-multi-Agent-Design** / **Persona-Based-Crypto-Bot-Design**: conceptual design artefacts.
+
+### GitHub Infrastructure
+- 30 labels + 11 milestones (S1–S11) created on `vipulbms/crypto-trader-agent`.
+- 62 GitHub issues created (#279–#340) via `scripts/create_v3_issues.py`.
+
+### Skills
+- 6 new Claude specialist skills: `python-developer`, `product-owner`, `solution-architect`, `java-api-developer`, `tester`, `ui-developer`, `squad`.
+
+### Scripts
+- `scripts/create_v3_issues.py` — 62-issue creation script (Python, `gh` CLI subprocess).
+- `scripts/charts_open_positions.py`, `diagnose_cycle370.py`, `probe_coinglass_v4*.py`, `_today_buys.py` — diagnostic utilities.
+
+---
+
 ## Session: 2026-04-18 (Part F) — Fix cycle stall + add MOVR/USD (#274)
 
 ### Bug Fix
