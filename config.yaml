@@ -3,6 +3,73 @@
 # ══════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────
+# Agent identity & runtime mode  (S12.1.1 — E12)
+# ──────────────────────────────────────────────
+agent:
+  persona: conservative         # Active persona: conservative | medium | high
+  concurrent_mode: false        # When true, each persona uses persona-suffixed DB (AC2 S12.1.3)
+
+# ──────────────────────────────────────────────
+# Persona profiles  (S12.1.1 — E12)
+# Each key here is the canonical source of truth for that persona's thresholds.
+# RiskManager and TradingAgent read these via CycleContext.persona_config (S12.1.2).
+# conservative values MUST match current v2 production defaults (AC3).
+# ──────────────────────────────────────────────
+personas:
+  conservative:
+    # Signal gate
+    buy_min_score: 5              # v2 default (signals.buy_min_score)
+    # Position limits
+    max_open_positions: 10        # v2 default — cash guards are primary gate
+    max_position_pct: 30          # v2 default (% of portfolio per trade)
+    # P&L floor
+    min_profit_floor_pct: 1.0     # v2 default — covers round-trip fees
+    # Signal vetoes
+    rsi_overbought_veto: 70       # v2 default (exit_timing.rsi_exit_overbought)
+    # Momentum bypass (S13.3.1) — disabled for conservative
+    momentum_bypass_rsi: 65       # Minimum RSI floor to allow volume veto bypass (effectively off)
+    momentum_bypass_adx: 0        # ADX gate for bypass — 0 = feature disabled
+    # Reallocation (ROM — S15)
+    reallocation_enabled: false   # Conservative never reallocates capital
+    # LLM parameters
+    llm_temperature: 0            # Deterministic output for tool calling
+    llm_max_tokens: 1024          # Bounded context window
+    llm_system_role: standard     # System prompt variant: standard | aggressive
+    # Velocity circuit breaker (S16) — trips when intraday P&L drops faster than threshold
+    velocity_circuit_breaker_pct: 3.0   # Trip at -3% hourly velocity loss
+    velocity_halt_hours: 4              # Halt new buys for 4h after velocity trip
+
+  medium:
+    buy_min_score: 6              # Slightly higher bar — more selective entries
+    max_open_positions: 10
+    max_position_pct: 30
+    min_profit_floor_pct: 1.0
+    rsi_overbought_veto: 72       # Slightly relaxed — stays in trending moves longer
+    momentum_bypass_rsi: 60       # Allow bypass when RSI supports momentum
+    momentum_bypass_adx: 25       # Require ADX > 25 for bypass eligibility
+    reallocation_enabled: true    # ROM capital reallocation active
+    llm_temperature: 0.1          # Light randomness for more varied position sizing
+    llm_max_tokens: 2048
+    llm_system_role: standard
+    velocity_circuit_breaker_pct: 5.0
+    velocity_halt_hours: 2
+
+  high:
+    buy_min_score: 5              # Aggressive — lowest entry bar
+    max_open_positions: 10
+    max_position_pct: 30
+    min_profit_floor_pct: 0.5     # Reduced floor — captures smaller moves net of fees
+    rsi_overbought_veto: 75       # Hold longer in strong uptrends
+    momentum_bypass_rsi: 55       # Bypass volume veto on any confirmed momentum
+    momentum_bypass_adx: 30       # Require stronger trend before bypassing volume guard
+    reallocation_enabled: true
+    llm_temperature: 0.2          # More creative position sizing
+    llm_max_tokens: 2048
+    llm_system_role: aggressive   # Extended system prompt with higher-risk directives
+    velocity_circuit_breaker_pct: 7.0
+    velocity_halt_hours: 1
+
+# ──────────────────────────────────────────────
 # Trading parameters
 # ──────────────────────────────────────────────
 trading:
@@ -978,3 +1045,28 @@ storage:
   log_max_bytes: 104857600    # 100 MB per log file before rotation
   log_backup_count: 4         # Keep 1 active + 4 previous log files
   llm_debug_logging: false    # Set true to log full LLM prompts + HTTP responses to agent.log
+
+# ──────────────────────────────────────────────
+# QSA — Quantitative Signal Analysis  (E13)
+# Controls volume floor algorithm, feed heartbeat, and momentum bypass
+# ──────────────────────────────────────────────
+qsa:
+  # Volume floor algorithm — selects between Winsorized EMA and legacy SMA (S13.1.1)
+  volume_floor:
+    algorithm: winsorized_ema     # winsorized_ema | sma  (sma = v2 backward-compat mode)
+    period: 14                    # EMA smoothing window
+    winsorize_percentile: 95      # Cap spikes above this percentile before EMA
+    winsorize_lookback: 100       # Candles used to compute the winsorize cap
+
+  # Feed heartbeat — detect frozen WebSocket price feeds (S13.2.1)
+  feed_heartbeat:
+    enabled: true
+    variance_lookback: 3          # Candles checked for zero-variance freeze detection
+    freeze_alert_cycles: 3        # Alert Telegram after N consecutive frozen cycles (S13.2.2)
+
+  # BTC/USD failover to secondary price source when Kraken feed is frozen (S13.2.3)
+  failover:
+    enabled: true
+    secondary: coingecko
+    failover_pairs: [BTC/USD]
+    cache_seconds: 60
