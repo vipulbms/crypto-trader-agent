@@ -155,6 +155,44 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
     _last_ts = candles[-1].get("timestamp", 0)
     _vol_idx = -1 if (_last_ts + _candle_interval_secs) <= time.time() else -2
 
+    # ── QSA S13.1.1 — Winsorized EMA volume floor ────────────────────────────
+    # Replace SMA-20 as the primary volume floor so that a single liquidation spike
+    # does not inflate the floor and block organic accumulation.
+    qsa_cfg = config.get("qsa", {})
+    vf_cfg  = qsa_cfg.get("volume_floor", {})
+    vf_algo      = vf_cfg.get("algorithm", "winsorized_ema")
+    vf_period    = int(vf_cfg.get("period", 14))
+    vf_pct       = float(vf_cfg.get("winsorize_percentile", 95))
+    vf_lookback  = int(vf_cfg.get("winsorize_lookback", 100))
+
+    # S13.1.2 – invalid algorithm raises ValueError immediately
+    if vf_algo not in ("winsorized_ema", "sma"):
+        raise ValueError(
+            f"Invalid qsa.volume_floor.algorithm: {vf_algo!r}. "
+            "Must be 'winsorized_ema' or 'sma'."
+        )
+
+    winsorized_vol_ema: Optional[float] = None
+    if vf_algo == "winsorized_ema":
+        # Cap volumes above the p95 of the last `vf_lookback` candles, then apply EMA-14
+        vol_window = df["volume"].iloc[-vf_lookback:] if len(df) >= vf_lookback else df["volume"]
+        vol_cap = float(vol_window.quantile(vf_pct / 100.0))
+        vol_capped = df["volume"].clip(upper=vol_cap)
+        alpha = 2.0 / (vf_period + 1)
+        ema_vol_series = vol_capped.ewm(alpha=alpha, adjust=False).mean()
+        winsorized_vol_ema = safe(ema_vol_series.iloc[_vol_idx])
+
+    # ── QSA S13.2.1 — OHLCV variance heartbeat (frozen feed detection) ───────
+    # Compute variance of all OHLCV columns across the last 3 completed candles.
+    # Zero variance across ALL columns means the feed is stuck on a repeated tick.
+    fh_cfg          = qsa_cfg.get("feed_heartbeat", {})
+    fh_lookback     = int(fh_cfg.get("variance_lookback", 3))
+    feed_status     = "OK"
+    if fh_cfg.get("enabled", True) and len(df) >= fh_lookback:
+        last_n = df[["open", "high", "low", "close", "volume"]].iloc[-fh_lookback:]
+        if (last_n.var(ddof=0) == 0).all():
+            feed_status = "FROZEN"
+
     return {
         "rsi_14":               safe(rsi.iloc[-1]),
         "macd_line":            safe(macd_line.iloc[-1]),
@@ -182,6 +220,10 @@ def compute_indicators(candles: list, config: dict) -> Optional[dict]:
         "bb_width_series":      bb_width_series,
         # Candlestick reversal patterns — hammer, bullish_engulfing, doji_at_support (#184)
         "candlestick_patterns": candlestick_patterns,
+        # QSA S13.1.1 — Winsorized EMA volume floor (None when algorithm=sma)
+        "winsorized_vol_ema":   winsorized_vol_ema,
+        # QSA S13.2.1 — OHLCV feed health: 'OK' or 'FROZEN'
+        "feed_status":          feed_status,
     }
 
 

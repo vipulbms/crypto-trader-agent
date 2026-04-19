@@ -2,7 +2,21 @@
 
 ---
 
-## Session: 2026-04-19 (Part C) — Sprint S1 E12 Persona Infrastructure
+## Session: 2026-04-19 (Part D) — Sprint S2 QSA Data Resilience
+
+### Features
+- **S13.1.1 — Winsorized EMA-14 volume floor** (`src/analysis/indicators.py`, `src/analysis/signals.py`): `compute_indicators()` now returns `winsorized_vol_ema` (float or None). The last `winsorize_lookback` (100) candles are p95-capped, then an EWM with α = 2/(period+1) is applied. Hard Blocker 3 in `signals.py` uses this as highest-priority volume veto when `algorithm=winsorized_ema`.
+- **S13.1.2 — Config-driven algorithm with validation** (`src/analysis/indicators.py`): `qsa.volume_floor.algorithm` must be `"winsorized_ema"` or `"sma"`; any other value raises `ValueError` immediately at indicator computation time.
+- **S13.2.1 — OHLCV variance heartbeat** (`src/analysis/indicators.py`, `src/analysis/signals.py`): `compute_indicators()` returns `feed_status` ("OK" | "FROZEN"). When all 5 OHLCV columns have zero variance across the last `variance_lookback` (3) candles, status is `"FROZEN"`. `generate_signal()` returns HOLD with `reason="feed_frozen"` immediately, skipping all scoring.
+
+### Tests
+- `tests/test_winsorized_ema.py` (NEW) — 7 tests across 5 classes (key present, spike neutralisation, SMA backward-compat, small candle count, invalid algo ValueError)
+- `tests/test_feed_heartbeat.py` (NEW) — 8 tests across 3 classes (feed_status key, OK/FROZEN detection, disabled bypass, HOLD forcing, strength=0)
+- **Total: 385 passed** (was 370 before sprint)
+
+---
+
+
 
 ### Features
 - **S12.1.1 — Persona config schema** (`config.yaml`, `src/risk/risk_manager.py`): Added `agent.persona` + `agent.concurrent_mode` config keys. Full `personas:` block with three risk profiles (conservative / medium / high), each with 13 knobs: `max_open_positions`, `max_position_pct`, `base_position_pct`, `min_cash_reserve_pct`, `max_buys_per_cycle`, `buy_min_score_override`, `min_profit_floor_pct`, `trailing_stop_*`, `rsi_overbought_override`, `bearish_caution_factor_override`, `prompt_style`. Added `qsa.enabled: false` placeholder. `validate_config()` extended to enforce all 13 keys across all 3 profiles — raises `ConfigError` on missing. Closes #279.
