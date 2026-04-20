@@ -169,6 +169,35 @@ class TradingAgent:
             if self._persona_config
             else self._system_prompt
         )
+
+        # S23.2.3 — Append AIE negative few-shot patterns when feedback is enabled.
+        # Fetches last 3 llm_reflection_log rows (agent='AIE', injected=1).
+        # Appended as compact "PATTERNS TO AVOID" block, ≤200 extra tokens.
+        if self._config.get("feedback", {}).get("enabled", False):
+            try:
+                from src.runtime.audit_agent import _get_conn as _aa_conn
+                _db = self._config.get("storage", {}).get(
+                    "paper_db" if self._mode == "paper" else "live_db",
+                    "paper_trading.db" if self._mode == "paper" else "live_trading.db",
+                )
+                _conn = _aa_conn(_db)
+                _lessons = _conn.execute(
+                    """SELECT lesson_text FROM llm_reflection_log
+                       WHERE agent='AIE' AND injected=1
+                       ORDER BY ts DESC LIMIT 3"""
+                ).fetchall()
+                _conn.close()
+                if _lessons:
+                    _block = "\n\n## PATTERNS TO AVOID\n" + "\n".join(
+                        f"- {r[0]}" for r in _lessons
+                    )
+                    # Hard cap: limit block to 800 chars (~200 tokens)
+                    if len(_block) > 800:
+                        _block = _block[:800] + "…"
+                    persona_system_msg = persona_system_msg + _block
+            except Exception as _aie_err:
+                logger.debug("[S23.2.3] AIE reflection fetch skipped: %s", _aie_err)
+
         set_cycle_id(cycle_id)
         self._tools.set_cycle_context(cycle_id)
         self._tools.set_signals_by_pair(signals)  # S15.1.2 — ADX for reallocation checks

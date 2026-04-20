@@ -113,6 +113,7 @@ class RiskManager:
     """
 
     def __init__(self, config: dict, db_path: Optional[str] = None):
+        self._config = config
         trading = config.get("trading", {})
         risk    = config.get("risk", {})
         self._stop_loss_pct       = trading.get("stop_loss_pct", 5)
@@ -657,6 +658,122 @@ class RiskManager:
         except Exception as exc:
             logger.warning("[ROM] velocity_circuit check failed: %s", exc)
             return False, 0.0
+
+    # ─────────────────────────────────────────────────────────
+    # RAA Universe Proposal Validation — S22.1.2
+    # ─────────────────────────────────────────────────────────
+
+    def validate_universe_proposal(
+        self,
+        pair: str,
+        classification: str,
+        replace_target: Optional[str],
+        replace_class: Optional[str],
+        n_current: int,
+        projected_alpha: float,
+        persona_config: dict,
+        psv_vector: str,
+        db_path: str,
+    ) -> dict:
+        """
+        Validate a RAA universe addition proposal.
+
+        Rules applied in order:
+          1. MEME_BLOCK — reject if target_class=MEME and replace_class=FOUNDATIONAL.
+          2. UNIVERSE_AT_CAP — reject when n_current == universe_cap and no replace_target.
+          3. ALPHA_SPREAD_INSUFFICIENT — reject when projected_alpha < min_alpha_pct.
+          4. On accept: write universe row + universe_events (ADD_PAIR + REMOVE_PAIR if displaced).
+
+        Returns:
+            {
+              "status":       "approved" | "rejected",
+              "reason":       rejection code or None,
+              "http_status":  200 | 422 | 400,
+            }
+
+        Story: S22.1.2
+        """
+        from src.storage.database import get_connection
+
+        universe_cap = int(self._config.get("raa", {}).get("universe_cap", 35))
+        min_alpha = float(
+            self._config.get("raa", {}).get("alpha_spread_gate", {}).get("min_alpha_pct", 2.0)
+        )
+
+        # Rule 1 — MEME_BLOCK (hard rule, no config override)
+        if classification == "MEME" and replace_class == "FOUNDATIONAL":
+            logger.warning(
+                "[RISK] MEME_BLOCK_REJECT: %s (MEME) cannot displace %s (FOUNDATIONAL)",
+                pair, replace_target,
+            )
+            return {"status": "rejected", "reason": "MEME_BLOCK", "http_status": 422}
+
+        # Rule 2 — Universe at cap without a replace target
+        if n_current >= universe_cap and not replace_target:
+            logger.info(
+                "[RISK] UNIVERSE_AT_CAP: n=%d cap=%d, no replace_target provided for %s",
+                n_current, universe_cap, pair,
+            )
+            return {"status": "rejected", "reason": "UNIVERSE_AT_CAP", "http_status": 422}
+
+        # Rule 3 — Alpha spread gate (strict: projected_alpha must be > min_alpha)
+        if projected_alpha <= min_alpha:
+            logger.info(
+                "[RISK] ALPHA_SPREAD_INSUFFICIENT: %s projected_alpha=%.2f%% min=%.2f%%",
+                pair, projected_alpha, min_alpha,
+            )
+            return {"status": "rejected", "reason": "ALPHA_SPREAD_INSUFFICIENT", "http_status": 422}
+
+        # Approved — write universe row and events
+        from datetime import datetime, timezone
+        import json as _json
+
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            conn = get_connection(db_path)
+
+            # Remove displaced pair if applicable
+            if replace_target:
+                conn.execute("DELETE FROM universe WHERE pair = ?", (replace_target,))
+                conn.execute(
+                    """INSERT INTO universe_events (pair, event_type, ts, processed, payload_json)
+                       VALUES (?, 'REMOVE_PAIR', ?, 0, ?)""",
+                    (replace_target, now, _json.dumps({
+                        "reason": "displaced_by",
+                        "incoming_pair": pair,
+                        "classification": replace_class,
+                    })),
+                )
+
+            # Add new pair
+            conn.execute(
+                """INSERT OR REPLACE INTO universe
+                   (pair, classification, added_at, added_by, alpha_spread_at_entry, replace_target_if_any)
+                   VALUES (?, ?, ?, 'RAA', ?, ?)""",
+                (pair, classification, now, projected_alpha, replace_target),
+            )
+            conn.execute(
+                """INSERT INTO universe_events (pair, event_type, ts, processed, payload_json)
+                   VALUES (?, 'ADD_PAIR', ?, 0, ?)""",
+                (pair, now, _json.dumps({
+                    "classification": classification,
+                    "alpha_spread": projected_alpha,
+                    "psv_vector": psv_vector,
+                    "displaced": replace_target,
+                })),
+            )
+            conn.commit()
+            conn.close()
+            logger.info(
+                "[RISK] Universe proposal APPROVED: %s (%s) alpha=%.2f%% replace=%s",
+                pair, classification, projected_alpha, replace_target,
+            )
+        except Exception as exc:
+            logger.error("[RISK] validate_universe_proposal DB write failed: %s", exc)
+            return {"status": "rejected", "reason": "DB_ERROR", "http_status": 500}
+
+        return {"status": "approved", "reason": None, "http_status": 200}
+
     def validate_buy(
         self,
         pair: str,

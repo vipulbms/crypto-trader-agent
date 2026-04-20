@@ -2,6 +2,51 @@
 
 ---
 
+## Session: 2026-04-21 (Part C) — Sprint S9/S10: RAA ResearchAnalyst + AuditAgent
+
+### Features Added
+
+| Feature | Story | Files Changed |
+|---------|-------|---------------|
+| RAA `compute_persistence_score` (RSI/MACD/OBV/volume/social) | S22.1.1 | `src/runtime/research_analyst.py` |
+| RAA universe proposal via `validate_universe_proposal` (strict alpha gate) | S22.1.2 | `src/runtime/research_analyst.py`, `src/risk/risk_manager.py` |
+| RAA guardrails — BUY cap + HITL routing | S22.2.1, S22.2.2 | `src/runtime/research_analyst.py` |
+| RAA medium persona gate (RSI/ADX blockers) | S22.3.1 | `src/runtime/research_analyst.py` |
+| RAA high persona gate (oversold+trend required, prune candidate) | S22.3.2 | `src/runtime/research_analyst.py` |
+| AuditAgent outcome tracking + HITL lock + pump detection | S23.1.1, S23.1.3 | `src/runtime/audit_agent.py` |
+| Feedback driver multipliers in signals.py | S23.2.2 | `src/analysis/signals.py` |
+| Orchestrator playbook bias from PF history | S23.2.1 | `src/agent/orchestrator.py` |
+| 8 new DB tables (trend_persistence, universe, universe_events, audit_feedback, hitl_queue, signal_accuracy, playbook_performance, risk_decision_outcomes) | S22/S23 | `src/storage/database.py` |
+
+### Bug Fixes
+
+| Bug | Root cause | Fix |
+|-----|-----------|-----|
+| `_DATA_DIR` AttributeError in 4 test files | Module exports `DATA_DIR_PATH`, not `_DATA_DIR` | Renamed in all 4 test fixtures |
+| `RiskManager has no attribute '_config'` | `__init__` did not store `self._config` | Added as first line of `__init__` |
+| `compute_persistence_score` param mismatch | Body used `coingecko_trending`; tests called `trending_pairs=` | Renamed param + body |
+| Wrong return code `RSI_OUT_OF_RANGE` / `ADX_TOO_HIGH` | Tests expected `MEDIUM_RSI_GATE` / `MEDIUM_ADX_GATE` | Updated return strings |
+| Wrong return code `RSI_BYPASS_CONDITIONS_NOT_MET` | Tests expected `HIGH_RSI_GATE` | Updated return string |
+| Prune candidate sorted by wrong field | Used `adx`; test data only has `latest_score` | Sort key updated |
+| Alpha spread `exact_min` edge case approved | Used `<` instead of `<=` | Changed to strict `<=` |
+
+### Tests
+- 73 new tests pass (S22 + S23 suites)
+- Total: 671 passing, 0 failing
+- Closes: #321, #322, #323, #324, #325, #326, #327, #328, #329, #330, #331, #332, #333
+
+---
+
+## Session: 2026-04-21 (Part B) — Sprint S11: E24 Java API
+
+### Features Added
+- TradesV2 endpoints (detail+explain), Agents, Signals, Universe, Feedback (raa+agents), HITL (proposals+approve/reject)
+- 6 new modules + DTOs; 167 Java tests pass
+- Fixes: IFeedbackService interface extraction, mock-maker-inline for record mocking, FeedbackService.java complete rewrite, @MockBean FeedbackService in AuthControllerTest
+- Closes: #334, #335, #336, #337, #338, #339, #340
+
+---
+
 ## Session: 2026-04-21 (Part A) — Sprint S6-S8 AC Gap Fixes
 
 ### Fixes / Gaps Closed

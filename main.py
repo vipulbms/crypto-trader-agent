@@ -838,6 +838,16 @@ async def run_cycle(
         _persona_vol_cfg = config.get("personas", {}).get(_active_persona, {})
         indicators["volume_bypass_enabled"] = _persona_vol_cfg.get("volume_bypass_enabled", True)
 
+        # S23.2.2 — Inject QSA signal accuracy multipliers from audit_agent feedback
+        if config.get("feedback", {}).get("enabled", False):
+            try:
+                from src.runtime.audit_agent import get_signal_accuracy
+                _driver_mults = get_signal_accuracy(_trading_db, pair)
+                if _driver_mults:
+                    indicators["driver_weight_multipliers"] = _driver_mults
+            except Exception as _dw_err:
+                logger.debug("[S23.2.2] Driver weight fetch skipped for %s: %s", pair, _dw_err)
+
         sig = generate_signal(pair, indicators, config, playbook="standard", risk_manager=risk)
         sig["indicators"] = indicators  # attach raw indicators for prompt
 
