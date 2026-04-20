@@ -110,6 +110,23 @@ CREATE INDEX IF NOT EXISTS ix_ob_pair_ts ON orderbook_snapshots(pair, ts);
 # Paper trading DB schema
 # ──────────────────────────────────────────────────────────────
 
+FULFILLMENT_AUDIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fulfillment_audit (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    fulfillment_id    TEXT NOT NULL UNIQUE,
+    pair              TEXT NOT NULL,
+    side              TEXT NOT NULL,
+    requested_at      TEXT NOT NULL,
+    filled_at         TEXT,
+    duration_ms       INTEGER NOT NULL,
+    execution_status  TEXT NOT NULL,
+    request_json      TEXT NOT NULL,
+    response_json     TEXT,
+    kraken_order_id   TEXT,
+    error_message     TEXT
+);
+"""
+
 PAPER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS paper_wallet (
     id                  INTEGER PRIMARY KEY,
@@ -375,6 +392,7 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     conn = get_connection(paper_db)
     _init_db(conn, PAPER_SCHEMA, paper_db)
     _init_db(conn, COLLECTOR_SCHEMA, paper_db)  # S21.1.1: candle_buffer + orderbook_snapshots
+    _init_db(conn, FULFILLMENT_AUDIT_SCHEMA, paper_db)  # S21.2.2: fulfillment audit trail
     # Idempotent migrations for columns/tables added after initial schema creation
     for col_ddl in [
         "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
@@ -406,6 +424,7 @@ def init_live_db(live_db: str) -> None:
     conn = get_connection(live_db)
     _init_db(conn, LIVE_SCHEMA, live_db)
     _init_db(conn, COLLECTOR_SCHEMA, live_db)  # S21.1.1: candle_buffer + orderbook_snapshots
+    _init_db(conn, FULFILLMENT_AUDIT_SCHEMA, live_db)  # S21.2.2: fulfillment audit trail
     for col_ddl in [
         "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",

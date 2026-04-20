@@ -40,6 +40,12 @@ _V2_PRODUCTION_DEFAULTS = {
     "llm_system_role": "conservative",
     "velocity_circuit_breaker_pct": 3.0,
     "velocity_halt_hours": 4,
+    # S15 keys (added Sprint S5)
+    "pf_escalation_momentum_suspend": False,
+    "early_momentum_score_reduction": 0,
+    "early_momentum_rsi_min": 50,
+    "early_momentum_rsi_max": 65,
+    "early_momentum_adx_min": 999,
 }
 
 _REQUIRED_PERSONA_KEYS = set(_V2_PRODUCTION_DEFAULTS.keys())

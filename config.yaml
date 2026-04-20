@@ -40,6 +40,13 @@ personas:
     # Velocity circuit breaker (S16) — trips when intraday P&L drops faster than threshold
     velocity_circuit_breaker_pct: 3.0   # Trip at -3% hourly velocity loss
     velocity_halt_hours: 4              # Halt new buys for 4h after velocity trip
+    # Profit Factor escalation suspension (S15.2.2) — disabled for conservative
+    pf_escalation_momentum_suspend: false
+    # Early Momentum Accumulation score reduction (S15.2.3) — disabled for conservative
+    early_momentum_score_reduction: 0   # 0 = no reduction
+    early_momentum_rsi_min: 50
+    early_momentum_rsi_max: 65
+    early_momentum_adx_min: 999         # ADX threshold disabled → never fires for conservative
 
   medium:
     buy_min_score: 6              # Slightly higher bar — more selective entries
@@ -57,6 +64,13 @@ personas:
     llm_system_role: medium       # System prompt variant
     velocity_circuit_breaker_pct: 5.0
     velocity_halt_hours: 2
+    # Profit Factor escalation suspension (S15.2.2)
+    pf_escalation_momentum_suspend: true  # Suppress PF penalty in momentum playbook
+    # Early Momentum Accumulation score reduction (S15.2.3)
+    early_momentum_score_reduction: 1   # Reduce min_score by 1 when RSI in [50,65] + ADX > 25
+    early_momentum_rsi_min: 50
+    early_momentum_rsi_max: 65
+    early_momentum_adx_min: 25
 
   high:
     buy_min_score: 5              # Aggressive — lowest entry bar
@@ -74,6 +88,13 @@ personas:
     llm_system_role: high         # Extended system prompt with breakout directives
     velocity_circuit_breaker_pct: 7.0
     velocity_halt_hours: 1
+    # Profit Factor escalation suspension (S15.2.2)
+    pf_escalation_momentum_suspend: true  # Suppress PF penalty in momentum playbook
+    # Early Momentum Accumulation score reduction (S15.2.3)
+    early_momentum_score_reduction: 1   # Reduce min_score by 1 when RSI in [50,65] + ADX > 25
+    early_momentum_rsi_min: 50
+    early_momentum_rsi_max: 65
+    early_momentum_adx_min: 25
 
 # ──────────────────────────────────────────────
 # Trading parameters

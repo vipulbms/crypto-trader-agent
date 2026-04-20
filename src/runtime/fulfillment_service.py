@@ -28,6 +28,7 @@ import logging
 import os
 import signal
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -127,14 +128,16 @@ class FulfillmentService:
         host: str = "127.0.0.1",
         port: int = 8090,
         api_key: str = "",
+        audit_logger=None,
     ) -> None:
-        self._config  = config
-        self._db_path = db_path
-        self._mode    = mode
-        self._host    = host
-        self._port    = port
-        self._api_key = api_key
-        self._running = False
+        self._config       = config
+        self._db_path      = db_path
+        self._mode         = mode
+        self._host         = host
+        self._port         = port
+        self._api_key      = api_key
+        self._audit_logger = audit_logger
+        self._running      = False
 
         # Lazy-import broker based on mode to avoid circular dependency scans
         if mode == "live":
@@ -144,7 +147,49 @@ class FulfillmentService:
             from src.exchange.paper_broker import PaperBroker
             self._broker = PaperBroker(db_path, config=config)
 
-    # ── request handlers ─────────────────────────────────────
+    # ── request handlers ────────────────────────────────────
+
+    def _write_fulfillment_audit(
+        self,
+        fulfillment_id: str,
+        pair: str,
+        side: str,
+        t0: float,
+        execution_status: str,
+        request_json: str,
+        response_json: Optional[str] = None,
+        kraken_order_id: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """Insert one row into fulfillment_audit. Non-fatal — errors are only logged."""
+        try:
+            from src.utils.tz import now_sgt_iso
+            conn = get_connection(self._db_path)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO fulfillment_audit
+                  (fulfillment_id, pair, side, requested_at, filled_at, duration_ms,
+                   execution_status, request_json, response_json, kraken_order_id, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    fulfillment_id,
+                    pair,
+                    side,
+                    now_sgt_iso(),
+                    now_sgt_iso() if execution_status in ("filled", "closed") else None,
+                    int((time.time() - t0) * 1000),
+                    execution_status,
+                    request_json,
+                    response_json,
+                    kraken_order_id,
+                    error_message,
+                ),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as exc:
+            logger.warning("[FS] fulfillment_audit write failed (non-fatal): %s", exc)
 
     async def _health_handler(self, request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", "mode": self._mode})
@@ -186,6 +231,7 @@ class FulfillmentService:
             "exit_reason":      "agent_sell" # optional; used when side=sell
           }
         """
+        t0 = time.time()
         try:
             body = await request.json()
         except Exception:
@@ -197,6 +243,7 @@ class FulfillmentService:
             raise web.HTTPBadRequest(reason="'pair' and 'side' (buy|sell) are required")
 
         fulfillment_id = str(uuid.uuid4())
+        request_json   = json.dumps(body)
 
         if side == "buy":
             usd_amount = float(body.get("usd_amount", 0))
@@ -218,6 +265,10 @@ class FulfillmentService:
 
             current_price = _get_last_price(pair, self._db_path)
             if current_price is None:
+                self._write_fulfillment_audit(
+                    fulfillment_id, pair, side, t0, "error", request_json,
+                    error_message="No price data in candle_buffer",
+                )
                 raise web.HTTPServiceUnavailable(reason=f"No price data for {pair} in candle_buffer")
 
             try:
@@ -230,53 +281,122 @@ class FulfillmentService:
                     take_profit_pct=take_profit_pct,
                 )
             except ValueError as exc:
+                self._write_fulfillment_audit(
+                    fulfillment_id, pair, side, t0, "rejected", request_json,
+                    error_message=str(exc),
+                )
                 raise web.HTTPUnprocessableEntity(reason=str(exc))
             except Exception as exc:
                 logger.error("[FS] place_order %s failed: %s", pair, exc)
+                self._write_fulfillment_audit(
+                    fulfillment_id, pair, side, t0, "error", request_json,
+                    error_message=str(exc),
+                )
                 raise web.HTTPInternalServerError(reason=str(exc))
 
-            return web.json_response(
-                {
-                    "fulfillment_id":  fulfillment_id,
-                    "status":          "filled",
-                    "pair":            result["pair"],
-                    "side":            "buy",
-                    "filled_price":    result["fill_price"],
-                    "filled_usd":      result["usd_invested"],
-                    "volume":          result["volume"],
-                    "entry_order_id":  result.get("entry_order_id", ""),
-                    "position_id":     result.get("position_id"),
-                },
-                status=201,
+            resp_payload = {
+                "fulfillment_id":  fulfillment_id,
+                "status":          "filled",
+                "pair":            result["pair"],
+                "side":            "buy",
+                "filled_price":    result["fill_price"],
+                "filled_usd":      result["usd_invested"],
+                "volume":          result["volume"],
+                "entry_order_id":  result.get("entry_order_id", ""),
+                "position_id":     result.get("position_id"),
+            }
+            self._write_fulfillment_audit(
+                fulfillment_id, pair, side, t0, "filled", request_json,
+                response_json=json.dumps(resp_payload),
+                kraken_order_id=result.get("entry_order_id"),
             )
+            return web.json_response(resp_payload, status=201)
 
         else:  # side == "sell"
             exit_reason = str(body.get("exit_reason", "agent_sell"))
             current_price = _get_last_price(pair, self._db_path)
             if current_price is None:
+                self._write_fulfillment_audit(
+                    fulfillment_id, pair, side, t0, "error", request_json,
+                    error_message="No price data in candle_buffer",
+                )
                 raise web.HTTPServiceUnavailable(reason=f"No price data for {pair} in candle_buffer")
 
             try:
                 result = self._broker.close_position(pair, current_price, exit_reason=exit_reason)
             except ValueError as exc:
+                self._write_fulfillment_audit(
+                    fulfillment_id, pair, side, t0, "rejected", request_json,
+                    error_message=str(exc),
+                )
                 raise web.HTTPUnprocessableEntity(reason=str(exc))
             except Exception as exc:
                 logger.error("[FS] close_position %s failed: %s", pair, exc)
+                self._write_fulfillment_audit(
+                    fulfillment_id, pair, side, t0, "error", request_json,
+                    error_message=str(exc),
+                )
                 raise web.HTTPInternalServerError(reason=str(exc))
 
-            return web.json_response(
-                {
-                    "fulfillment_id": fulfillment_id,
-                    "status":         "closed",
-                    "pair":           pair,
-                    "side":           "sell",
-                    "exit_reason":    exit_reason,
-                    "pnl_usd":        result.get("pnl_usd"),
-                    "pnl_pct":        result.get("pnl_pct"),
-                }
+            resp_payload = {
+                "fulfillment_id": fulfillment_id,
+                "status":         "closed",
+                "pair":           pair,
+                "side":           "sell",
+                "exit_reason":    exit_reason,
+                "pnl_usd":        result.get("pnl_usd"),
+                "pnl_pct":        result.get("pnl_pct"),
+            }
+            self._write_fulfillment_audit(
+                fulfillment_id, pair, side, t0, "closed", request_json,
+                response_json=json.dumps(resp_payload),
             )
+            return web.json_response(resp_payload)
 
-    # ── lifecycle ─────────────────────────────────────────────
+    # ── SL/TP background monitor (S21.2.3) ────────────────────────────
+
+    async def _sltp_monitor_loop(self) -> None:
+        """Background task: check SL/TP for all open positions every 60 seconds."""
+        logger.info("[FS] SL/TP monitor started")
+        while self._running:
+            await asyncio.sleep(60)
+            if not self._running:
+                break
+            try:
+                positions = self._broker.get_open_positions()
+                active = [p for p in positions if p.get("status", "open") == "open"]
+                for pos in active:
+                    pair = pos.get("pair", "")
+                    current_price = _get_last_price(pair, self._db_path)
+                    if current_price is None:
+                        continue
+                    closed_trades = self._broker.check_stops_and_tp(
+                        pair=pair,
+                        current_price=current_price,
+                        audit_logger=self._audit_logger,
+                    )
+                    for trade in (closed_trades or []):
+                        t0 = time.time()
+                        fulfillment_id = str(uuid.uuid4())
+                        exit_reason = trade.get("exit_reason", "stop_or_tp")
+                        self._write_fulfillment_audit(
+                            fulfillment_id=fulfillment_id,
+                            pair=pair,
+                            side="sell",
+                            t0=t0,
+                            execution_status="filled",
+                            request_json=json.dumps({"source": "sltp_monitor", "exit_reason": exit_reason}),
+                            response_json=json.dumps({"pnl_usd": trade.get("pnl_usd"), "pnl_pct": trade.get("pnl_pct")}),
+                        )
+                        logger.info(
+                            "[FS] SL/TP triggered: %s %s pnl=$%.2f",
+                            pair, exit_reason, trade.get("pnl_usd", 0),
+                        )
+            except Exception as exc:
+                logger.warning("[FS] _sltp_monitor_loop error (non-fatal): %s", exc)
+        logger.info("[FS] SL/TP monitor stopped")
+
+    # ── lifecycle ─────────────────────────────────────────────────
 
     async def start(self) -> None:
         self._running = True
@@ -292,6 +412,8 @@ class FulfillmentService:
         site = web.TCPSite(runner, self._host, self._port)
         await site.start()
         logger.info("[FS] FulfillmentService (%s) listening on %s:%d", self._mode, self._host, self._port)
+
+        asyncio.create_task(self._sltp_monitor_loop())
 
         while self._running:
             await asyncio.sleep(1)

@@ -56,6 +56,11 @@ def validate_config(config: dict) -> None:
         "reallocation_enabled", "reallocation_max_pct_6h",
         "llm_temperature", "llm_max_tokens",
         "llm_system_role", "velocity_circuit_breaker_pct", "velocity_halt_hours",
+        # S15.2.2 — PF escalation suspension
+        "pf_escalation_momentum_suspend",
+        # S15.2.3 — Early Momentum score reduction
+        "early_momentum_score_reduction", "early_momentum_rsi_min",
+        "early_momentum_rsi_max", "early_momentum_adx_min",
     }
     _VALID_PERSONAS = {"conservative", "medium", "high"}
     agent_cfg = config.get("agent", {})
@@ -464,7 +469,194 @@ class RiskManager:
         )
         return prune_pair
 
-    @timed("pair", "proposed_usd", "open_positions_count")
+    def get_effective_min_score(
+        self,
+        pair: str,
+        playbook: str,
+        pair_cfg: dict,
+        indicators: dict,
+        sig_cfg: dict,
+    ) -> int:
+        """
+        S15.2.2 / S15.2.3 — Compute the effective buy_min_score for a pair, incorporating:
+          1. Per-pair override from config (existing #128 behaviour).
+          2. Profit Factor escalation — suspended when playbook='momentum' AND
+             pf_escalation_momentum_suspend=true in persona config (S15.2.2).
+          3. Early Momentum score reduction — when RSI ∈ [rsi_min, rsi_max] AND
+             ADX > early_momentum_adx_min (S15.2.3).  Floor: 1.
+
+        Args:
+            pair:       pair name (e.g. 'BTC/USD')
+            playbook:   current playbook ('momentum' | 'ranging' | 'risk_off' | 'standard')
+            pair_cfg:   the per-pair config dict from trading.pairs[]
+            indicators: current indicators dict for this pair (contains profit_factor, rsi_14, adx_14)
+            sig_cfg:    signals config section (for global buy_min_score, PF thresholds)
+
+        Returns:
+            Effective buy_min_score (int ≥ 1)
+
+        Stories: S15.2.2, S15.2.3
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+
+        # Base score: per-pair override → global default
+        base_score = int(pair_cfg.get("buy_min_score", sig_cfg.get("buy_min_score", 5)))
+
+        # ── Step 1: Profit Factor escalation (S15.2.2) ──────────────────────────
+        pf_cfg = sig_cfg.get("profit_factor_escalation", {})
+        pf_escalation_enabled = bool(pf_cfg.get("enabled", False))
+        pf_suspend = bool(persona_cfg.get("pf_escalation_momentum_suspend", False))
+        pf_delta = 0
+
+        if pf_escalation_enabled and not (pf_suspend and playbook == "momentum"):
+            pf = indicators.get("profit_factor")
+            if pf is not None:
+                pf_warn   = float(pf_cfg.get("pf_warn_threshold", 1.0))
+                pf_severe = float(pf_cfg.get("pf_severe_threshold", 0.7))
+                min_trades = int(pf_cfg.get("min_trades", 10))
+                n_trades = int(indicators.get("pf_trade_count", 0))
+                if n_trades >= min_trades:
+                    if pf < pf_severe:
+                        pf_delta = 2
+                    elif pf < pf_warn:
+                        pf_delta = 1
+        elif pf_escalation_enabled and pf_suspend and playbook == "momentum":
+            pf = indicators.get("profit_factor")
+            if pf is not None and float(pf) < float(pf_cfg.get("pf_warn_threshold", 1.0)):
+                logger.info(
+                    "[ROM] PF_ESCALATION SUSPENDED — playbook=momentum; %s using persona "
+                    "default score %d (PF=%.2f)",
+                    pair, base_score, float(pf),
+                )
+
+        effective = base_score + pf_delta
+
+        # ── Step 2: Early Momentum score reduction (S15.2.3) ────────────────────
+        em_reduction = int(persona_cfg.get("early_momentum_score_reduction", 0))
+        if em_reduction > 0:
+            rsi = indicators.get("rsi_14")
+            adx = indicators.get("adx_14")
+            em_rsi_min = float(persona_cfg.get("early_momentum_rsi_min", 50))
+            em_rsi_max = float(persona_cfg.get("early_momentum_rsi_max", 65))
+            em_adx_min = float(persona_cfg.get("early_momentum_adx_min", 999))
+            if (
+                rsi is not None and adx is not None
+                and em_rsi_min <= float(rsi) <= em_rsi_max
+                and float(adx) > em_adx_min
+            ):
+                effective = max(1, effective - em_reduction)
+                logger.info(
+                    "[ROM] EARLY_MOMENTUM %s RSI=%.0f ADX=%.0f — "
+                    "min_score reduced to %d",
+                    pair, float(rsi), float(adx), effective,
+                )
+
+        # ── Step 3: Playbook score delta (S16.1.2 AC2) ──────────────────────────
+        # ranging  → +1 (filter noise in choppy markets)
+        # risk_off → +2 (block casual buys in adverse conditions)
+        # momentum → 0  (no extra bar — trend is confirmed)
+        _playbook_score_delta = {"ranging": 1, "risk_off": 2, "momentum": 0, "standard": 0}
+        effective += _playbook_score_delta.get(playbook, 0)
+        if playbook in ("ranging", "risk_off"):
+            logger.debug(
+                "[ROM] Playbook score delta applied — %s playbook=%s +%d → effective=%d",
+                pair, playbook, _playbook_score_delta[playbook], effective,
+            )
+
+        return effective
+
+    def check_velocity_circuit(
+        self,
+        portfolio_value: float,
+        db_path: str,
+    ) -> tuple:
+        """
+        S15.3.1 — Return (tripped: bool, resume_until_epoch: float).
+
+        Velocity circuit trips when the hourly loss rate exceeds the persona's
+        velocity_circuit_breaker_pct.  Halt duration = velocity_halt_hours, persisted
+        to agent_state as 'velocity_circuit_open_until'.
+
+        Args:
+            portfolio_value:  current total portfolio USD value
+            db_path:          path to the SQLite trading DB
+
+        Returns:
+            (tripped: bool, resume_until_epoch: float)
+            When tripped=True, resume_until_epoch is a Unix timestamp.
+            When tripped=False, resume_until_epoch is 0.0.
+
+        Story: S15.3.1
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+        threshold_pct = float(persona_cfg.get("velocity_circuit_breaker_pct", 3.0))
+        halt_hours    = float(persona_cfg.get("velocity_halt_hours", 4.0))
+
+        if not db_path:
+            return False, 0.0
+
+        try:
+            from src.storage.database import get_connection
+            conn = get_connection(db_path)
+
+            # Check if already tripped (persisted halt still active)
+            row = conn.execute(
+                "SELECT value FROM agent_state WHERE key='velocity_circuit_open_until'"
+            ).fetchone()
+            if row:
+                resume_until = float(row["value"])
+                if resume_until > time.time():
+                    conn.close()
+                    logger.debug(
+                        "[ROM] VELOCITY CIRCUIT still open — resumes at %s",
+                        datetime.datetime.fromtimestamp(resume_until).isoformat(),
+                    )
+                    return True, resume_until
+                # Halt expired — clear it
+                conn.execute(
+                    "DELETE FROM agent_state WHERE key='velocity_circuit_open_until'"
+                )
+                conn.commit()
+
+            # Compute losses in the last 60 minutes
+            since_iso = datetime.datetime.fromtimestamp(
+                time.time() - 3600, tz=datetime.timezone.utc
+            ).isoformat()
+            trades_table = "paper_trades" if "paper" in db_path else "live_trades"
+            rows = conn.execute(
+                f"SELECT pnl_usd FROM {trades_table} "
+                f"WHERE closed_at >= ? AND pnl_usd < 0",
+                (since_iso,),
+            ).fetchall()
+            conn.close()
+
+            losses_last_hour = sum(float(r["pnl_usd"] or 0) for r in rows)
+            if portfolio_value <= 0:
+                return False, 0.0
+
+            loss_rate_pct = abs(losses_last_hour) / portfolio_value * 100
+            if loss_rate_pct >= threshold_pct:
+                resume_until = time.time() + halt_hours * 3600
+                # Persist halt
+                conn2 = get_connection(db_path)
+                conn2.execute(
+                    "INSERT OR REPLACE INTO agent_state(key, value) VALUES(?,?)",
+                    ("velocity_circuit_open_until", str(resume_until)),
+                )
+                conn2.commit()
+                conn2.close()
+                logger.warning(
+                    "[ROM] VELOCITY CIRCUIT OPEN — loss_rate=%.2f%% >= %.2f%% threshold; "
+                    "halting buys for %.1fh",
+                    loss_rate_pct, threshold_pct, halt_hours,
+                )
+                return True, resume_until
+
+            return False, 0.0
+
+        except Exception as exc:
+            logger.warning("[ROM] velocity_circuit check failed: %s", exc)
+            return False, 0.0
     def validate_buy(
         self,
         pair: str,
@@ -508,6 +700,25 @@ class RiskManager:
                     f"RSI veto: RSI {rsi:.0f} >= {_rsi_threshold:.0f} (playbook={playbook})",
                     0.0,
                 )
+
+        # S16.1.2 AC3 — Playbook-based profit floor multiplier
+        # momentum: lower floor (×0.8) — trend already confirmed, fees easier to cover
+        # risk_off: raise floor (×1.5) — only accept high-confidence reward setups
+        # ranging / standard: unchanged (×1.0)
+        _floor_mult = {"momentum": 0.8, "risk_off": 1.5}
+        _effective_profit_floor = self._min_profit_floor_pct * _floor_mult.get(playbook, 1.0)
+        # Guard: reject if the pair's TP is below the effective floor.
+        # pair_tp_pct passed via take_profit_pct kwarg (added below in signature)
+        # We derive it here if not passed as a param
+        _pair_tp = self.get_take_profit_pct(pair)
+        if _effective_profit_floor > 0 and _pair_tp > 0 and _pair_tp < _effective_profit_floor:
+            return (
+                False,
+                f"Profit floor guard: pair TP {_pair_tp:.1f}% < effective floor "
+                f"{_effective_profit_floor:.2f}% (playbook={playbook})",
+                0.0,
+            )
+
         # 0.5. Time-of-Day Guard — explicitly block outside of allowed volume overlap
         if self._trading_hours_enabled:
             if candle_timestamp_sec > 0:

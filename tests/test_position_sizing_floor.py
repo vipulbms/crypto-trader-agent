@@ -40,6 +40,8 @@ _MINIMAL_PERSONA = {
     "volume_bypass_enabled": False, "llm_temperature": 0.1,
     "llm_max_tokens": 1024, "llm_system_role": "conservative",
     "velocity_circuit_breaker_pct": 3.0, "velocity_halt_hours": 4,
+    "pf_escalation_momentum_suspend": False, "early_momentum_score_reduction": 0,
+    "early_momentum_rsi_min": 50, "early_momentum_rsi_max": 65, "early_momentum_adx_min": 999,
 }
 _MINIMAL_PERSONAS = {
     "conservative": _MINIMAL_PERSONA,

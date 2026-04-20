@@ -184,6 +184,9 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
     _trading_db = resolve_trading_db(config, mode)   # S12.1.3: persona-aware DB naming
     risk        = RiskManager(config, db_path=_trading_db)
 
+    from src.agent.orchestrator import Orchestrator
+    orchestrator = Orchestrator(config, _trading_db, notifier)
+
     # Persona resolved once at startup (disk re-read per cycle handles runtime switches)
     _agent_cfg      = config.get("agent", {})
     _active_persona = _agent_cfg.get("persona", "conservative")
@@ -287,6 +290,10 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
         # S13.2.2 — per-pair OHLCV freeze tracking
         "freeze_cycle_count": {},   # {pair: int} consecutive FROZEN cycles
         "freeze_alert_sent":  {},   # {pair: bool} alert emitted for current episode
+        # S15.3.1 — velocity circuit
+        "velocity_circuit_open": False,
+        # S16.2.1 — consecutive agent timeout counter
+        "agent_consecutive_timeouts": 0,
     }
     try:
         while True:
@@ -359,6 +366,7 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                     loop_state=loop_state,
                     is_backtest=is_backtest,
                     trading_db_path=_trading_db,
+                    orchestrator=orchestrator,
                 )
                 loop_state["cycles_since_heartbeat"] += 1
                 if cycle_result:
@@ -452,7 +460,7 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
 async def run_cycle(
     broker, agent, ws_feed, audit, notifier, risk, config,
     pairs, mode, start_of_day_balance, loop_state=None,
-    is_backtest=False, trading_db_path=None,
+    is_backtest=False, trading_db_path=None, orchestrator=None,
 ) -> None:
     """Execute one decision cycle: collect data → build signals → run LLM → execute."""
     from src.analysis.indicators import compute_indicators
@@ -564,6 +572,28 @@ async def run_cycle(
             notifier.send_daily_loss_limit_reached(abs(daily_pnl["pnl_pct"]))
             loop_state["daily_loss_notified_date"] = today
         return {"buys": 0, "sells": len(open_pos)}
+
+    # ── S15.3.1 Velocity Circuit Breaker ──────────────────────────────────────
+    if not is_backtest:
+        _vc_tripped, _vc_resume_until = risk.check_velocity_circuit(total_usd, trading_db_path or "")
+        _vc_was_open = loop_state.get("velocity_circuit_open", False) if loop_state else False
+        if _vc_tripped:
+            if not _vc_was_open:
+                _vc_loss_rate = abs(daily_pnl["pnl_pct"])
+                _halt_hours = risk._persona_cfg.get("velocity_halt_hours", 2)
+                notifier.send_velocity_circuit_open(_vc_loss_rate, _halt_hours)
+                logger.warning(
+                    "[ROM] VELOCITY CIRCUIT OPEN until %s",
+                    datetime.fromtimestamp(_vc_resume_until, tz=timezone.utc).isoformat(),
+                )
+                if loop_state is not None:
+                    loop_state["velocity_circuit_open"] = True
+            return {"buys": 0, "sells": 0}
+        elif _vc_was_open:
+            notifier.send_velocity_circuit_cleared()
+            logger.info("[ROM] Velocity circuit cleared — trading resumed")
+            if loop_state is not None:
+                loop_state["velocity_circuit_open"] = False
 
     daily_limit_pct = risk_cfg.get("daily_loss_limit_pct", 10)
     if (daily_pnl["pnl_usd"] < 0 and start_of_day_balance > 0 and
@@ -787,7 +817,7 @@ async def run_cycle(
         _persona_vol_cfg = config.get("personas", {}).get(_active_persona, {})
         indicators["volume_bypass_enabled"] = _persona_vol_cfg.get("volume_bypass_enabled", True)
 
-        sig = generate_signal(pair, indicators, config)
+        sig = generate_signal(pair, indicators, config, playbook="standard", risk_manager=risk)
         sig["indicators"] = indicators  # attach raw indicators for prompt
 
         signals.append(sig)
@@ -884,6 +914,31 @@ async def run_cycle(
         )
         risk.apply_persona_config(ctx.persona_config)
 
+    # ── S16.1.1 + S16.1.2 — Select playbook and inject into context ──────────
+    if orchestrator is not None:
+        import statistics as _stats
+        _adx_vals = [
+            float(s["indicators"].get("adx_14") or 0)
+            for s in signals if s.get("indicators")
+        ]
+        adx_median = _stats.median(_adx_vals) if _adx_vals else 0.0
+        _kill_switch_active = daily_pnl["pnl_pct"] <= -risk_cfg.get("global_max_daily_loss_pct", 7.0)
+        playbook = orchestrator.select_playbook(
+            regime_state=regime,
+            adx_median=adx_median,
+            daily_pnl_pct=daily_pnl["pnl_pct"],
+            kill_switch=_kill_switch_active,
+        )
+        ctx.playbook = playbook
+        # Re-run generate_signal with the resolved playbook so PF escalation + score
+        # delta use the correct playbook (first pass above used 'standard' as placeholder)
+        for sig in signals:
+            _ind = sig.get("indicators", {})
+            sig.update(
+                generate_signal(sig["pair"], _ind, config, playbook=playbook, risk_manager=risk)
+            )
+            sig["indicators"] = _ind
+
     # S14.2.3 — inject unfilled correlation clusters so the LLM avoids doubling into saturated sectors
     _clusters_cfg = config.get("risk", {}).get("correlation_clusters", [])
     _max_cluster_pos = config.get("risk", {}).get("max_cluster_positions", 2)
@@ -894,13 +949,35 @@ async def run_cycle(
         if sum(1 for _p in c.get("pairs", []) if _p in _open_pairs_set) < _max_cluster_pos
     ]
 
-    results = agent.run_cycle(
-        cycle_id=cycle_id,
-        portfolio=portfolio,
-        signals=signals,
-        ai_context=ai_context,
-        cycle_context=ctx,
-    )
+    # ── S16.2.1 — Agent timeout guard ─────────────────────────────────────────
+    _agent_timeout = float(config.get("llm", {}).get("agent_timeout_secs", 120.0))
+    try:
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                agent.run_cycle,
+                cycle_id=cycle_id,
+                portfolio=portfolio,
+                signals=signals,
+                ai_context=ai_context,
+                cycle_context=ctx,
+            ),
+            timeout=_agent_timeout,
+        )
+        if loop_state is not None:
+            loop_state["agent_consecutive_timeouts"] = 0
+    except asyncio.TimeoutError:
+        _n_timeouts = (loop_state.get("agent_consecutive_timeouts", 0) + 1) if loop_state else 1
+        if loop_state is not None:
+            loop_state["agent_consecutive_timeouts"] = _n_timeouts
+        logger.warning(
+            "[ORCH] Agent timed out after %.0fs — skipping cycle (consecutive=%d)",
+            _agent_timeout, _n_timeouts,
+        )
+        if _n_timeouts >= 2 and orchestrator is not None:
+            orchestrator._persist_playbook("risk_off")
+            ctx.playbook = "risk_off"
+            notifier.send_agent_timeout_risk_off("TradingAgent")
+        return {"buys": 0, "sells": 0}
 
     buys = sells = 0
     for r in results:
