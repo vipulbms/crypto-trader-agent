@@ -253,6 +253,7 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_18d | Fix: `send_daily_summary()` never called — `_get_or_set_sod_balance()` returns `(float, bool)` tuple; `is_new_day=True` triggers `get_performance_metrics` + daily summary Telegram at midnight rollover; wins/losses split in message; closes #249 |
 | session_2026_04_18c | Fix: html.escape all dynamic fields in `notifier.py` — exception messages with `<`/`>` broke Telegram HTML parser; `import html` added; `component`, `error`, `reason` escaped; manual `&amp;` replaced; closes #247 |
 | session_2026_04_18b | Fix: missing pnl_pct in Telegram trade close message — `send_trade_executed()` now shows `(+8.12%)` alongside USD P&L; closes #248 |
+| session_2026_04_21b | Feat: Sprint S11 E24 Java API — TradesV2 (detail+explain), Agents, Signals, Universe, Feedback (raa+agents), HITL (proposals+approve/reject); 6 new modules + DTOs; 167 Java tests pass; fix: IFeedbackService interface extraction (Byte Buddy / Java 25 mockability); fix: mock-maker-inline for record mocking; fix: FeedbackService.java complete rewrite (was corrupted); fix: @MockBean FeedbackService in AuthControllerTest; closes #334 #335 #336 #337 #338 #339 #340 |
 
 ---
 
