@@ -31,12 +31,13 @@ _V2_PRODUCTION_DEFAULTS = {
     "max_position_pct": 30,
     "min_profit_floor_pct": 1.0,
     "rsi_overbought_veto": 70,
-    "momentum_bypass_rsi": 65,
-    "momentum_bypass_adx": 0,
+    "momentum_bypass_rsi": 70,
+    "momentum_bypass_adx": 999,
     "reallocation_enabled": False,
+    "reallocation_max_pct_6h": 0.0,
     "llm_temperature": 0,
     "llm_max_tokens": 1024,
-    "llm_system_role": "standard",
+    "llm_system_role": "conservative",
     "velocity_circuit_breaker_pct": 3.0,
     "velocity_halt_hours": 4,
 }
@@ -206,7 +207,8 @@ class TestPersonaProfileValues(unittest.TestCase):
         )
 
     def test_llm_system_role_valid(self):
-        valid_roles = {"standard", "aggressive"}
+        # S4 (S14.2.4): llm_system_role is a free-form string matching the persona name or a descriptor.
+        valid_roles = {"conservative", "medium", "high", "standard", "aggressive"}
         for name in _VALID_PERSONAS:
             role = self.config["personas"][name]["llm_system_role"]
             self.assertIn(role, valid_roles,

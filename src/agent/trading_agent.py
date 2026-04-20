@@ -28,7 +28,7 @@ from ..utils.llm_logger import log_llm_interaction
 import httpx
 import ollama
 
-from .prompts import SYSTEM_PROMPT, build_cycle_prompt
+from .prompts import SYSTEM_PROMPT, build_cycle_prompt, build_system_prompt
 from .tools import TradingTools
 
 logger = logging.getLogger(__name__)
@@ -63,10 +63,11 @@ class TradingAgent:
         self._max_buys    = config.get("trading", {}).get("max_buys_per_cycle", 2)
         self._min_order_usd = config.get("risk", {}).get("min_order_usd", 20.0)
         self._disable_thinking = llm_cfg.get("disable_thinking", False)
+        # S14.2.4: system prompt built per-cycle from active persona config
+        # _system_prompt is the fallback for cycles where persona_config is unavailable
         self._system_prompt = llm_cfg.get("system_prompt") or SYSTEM_PROMPT
+        self._persona_config: dict = {}  # updated each cycle via run_cycle()
         self._current_ctx = None  # set per cycle by run_cycle() (S12.1.2 AC4)
-        if not llm_cfg.get("system_prompt"):
-            logger.warning("[AGENT] llm.system_prompt not found in config — using fallback")
 
         if self._provider == "openai_compat":
             from openai import OpenAI
@@ -160,8 +161,17 @@ class TradingAgent:
         Returns list of action summaries.
         """
         self._current_ctx = cycle_context  # persona LLM params (S12.1.2 AC4)
+        # S14.2.4 — build per-cycle persona-scoped system prompt
+        if cycle_context is not None:
+            self._persona_config = getattr(cycle_context, "persona_config", {})
+        persona_system_msg = (
+            build_system_prompt(self._persona_config)
+            if self._persona_config
+            else self._system_prompt
+        )
         set_cycle_id(cycle_id)
         self._tools.set_cycle_context(cycle_id)
+        self._tools.set_signals_by_pair(signals)  # S15.1.2 — ADX for reallocation checks
         self._tools.set_dynamic_tp_values((ai_context or {}).get("dynamic_tp_values", {}))
         self._tools.set_pair_max_usd({
             sig["pair"]: sig.get("pair_max_usd")
@@ -175,6 +185,9 @@ class TradingAgent:
         })
         cycle_time = now_sgt().strftime("%Y-%m-%d %H:%M:%S")
 
+        # S14.2.3 — unfilled_clusters injected from main.py via ai_context
+        unfilled_clusters = (ai_context or {}).get("unfilled_clusters", None)
+
         cycle_prompt = build_cycle_prompt(
             cycle_time=cycle_time,
             portfolio=portfolio,
@@ -184,12 +197,14 @@ class TradingAgent:
             ai_context=ai_context,
             max_buys_per_cycle=self._max_buys,
             min_order_usd=self._min_order_usd,
+            unfilled_clusters=unfilled_clusters,
         )
 
         return self._run_cycle_decision(
             cycle_id=cycle_id,
             cycle_prompt=cycle_prompt,
             signals=signals,
+            system_msg=persona_system_msg,
         )
 
     # ──────────────────────────────────────────────
@@ -201,14 +216,18 @@ class TradingAgent:
         cycle_id: int,
         cycle_prompt: str,
         signals: list,
+        system_msg: str = None,
     ) -> list:
         """
         Make one LLM call for the entire cycle.
         The LLM returns multiple tool calls — one per pair it chooses to act on.
         All other pairs are automatically logged as HOLD.
+        system_msg (S14.2.4): persona-scoped prompt passed from run_cycle(); falls back to
+        self._system_prompt when not provided (backward-compat for direct callers).
         """
+        resolved_system_msg = system_msg if system_msg is not None else self._system_prompt
         messages = [
-            {"role": "system", "content": self._system_prompt},
+            {"role": "system", "content": resolved_system_msg},
             {"role": "user",   "content": cycle_prompt},
         ]
 
@@ -223,7 +242,7 @@ class TradingAgent:
         completion_tokens = None
 
         logger.debug("[LLM PROMPT]\n--- SYSTEM ---\n%s\n--- USER ---\n%s",
-                     self._system_prompt, cycle_prompt)
+                     resolved_system_msg, cycle_prompt)
 
         for attempt in [self._model, self._fallback]:
             try:

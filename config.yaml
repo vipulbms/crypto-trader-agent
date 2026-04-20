@@ -26,16 +26,17 @@ personas:
     min_profit_floor_pct: 1.0     # v2 default — covers round-trip fees
     # Signal vetoes
     rsi_overbought_veto: 70       # v2 default (exit_timing.rsi_exit_overbought)
-    # Momentum bypass (S13.3.1) — disabled for conservative
+    # Momentum bypass (S13.3.1) — disabled for conservative (S15.2.1 AC3)
     volume_bypass_enabled: false  # Conservative always enforces volume veto
-    momentum_bypass_rsi: 65       # Minimum RSI floor to allow volume veto bypass (effectively off)
-    momentum_bypass_adx: 0        # ADX gate for bypass — 0 = feature disabled
+    momentum_bypass_rsi: 70       # Veto fires at RSI >= 70 regardless of playbook (AC3)
+    momentum_bypass_adx: 999      # ADX gate effectively disabled for conservative
     # Reallocation (ROM — S15)
     reallocation_enabled: false   # Conservative never reallocates capital
+    reallocation_max_pct_6h: 0.0  # No reallocation
     # LLM parameters
     llm_temperature: 0            # Deterministic output for tool calling
     llm_max_tokens: 1024          # Bounded context window
-    llm_system_role: standard     # System prompt variant: standard | aggressive
+    llm_system_role: conservative # System prompt variant: conservative | medium | high
     # Velocity circuit breaker (S16) — trips when intraday P&L drops faster than threshold
     velocity_circuit_breaker_pct: 3.0   # Trip at -3% hourly velocity loss
     velocity_halt_hours: 4              # Halt new buys for 4h after velocity trip
@@ -47,12 +48,13 @@ personas:
     min_profit_floor_pct: 1.0
     rsi_overbought_veto: 72       # Slightly relaxed — stays in trending moves longer
     volume_bypass_enabled: true   # Suspend volume veto on MACD crossover + price > BB upper
-    momentum_bypass_rsi: 60       # Allow bypass when RSI supports momentum
+    momentum_bypass_rsi: 75       # Veto fires at RSI >= 75 when ADX > 25 (S15.2.1 AC4)
     momentum_bypass_adx: 25       # Require ADX > 25 for bypass eligibility
     reallocation_enabled: true    # ROM capital reallocation active
+    reallocation_max_pct_6h: 0.20 # Cap: reallocate at most 20% of portfolio per 6h window
     llm_temperature: 0.1          # Light randomness for more varied position sizing
     llm_max_tokens: 2048
-    llm_system_role: standard
+    llm_system_role: medium       # System prompt variant
     velocity_circuit_breaker_pct: 5.0
     velocity_halt_hours: 2
 
@@ -63,12 +65,13 @@ personas:
     min_profit_floor_pct: 0.5     # Reduced floor — captures smaller moves net of fees
     rsi_overbought_veto: 75       # Hold longer in strong uptrends
     volume_bypass_enabled: true   # Aggressive bypass — any confirmed momentum geometry
-    momentum_bypass_rsi: 55       # Bypass volume veto on any confirmed momentum
-    momentum_bypass_adx: 30       # Require stronger trend before bypassing volume guard
+    momentum_bypass_rsi: 80       # Veto fires at RSI >= 80 when ADX > 25 (S15.2.1 AC5)
+    momentum_bypass_adx: 25       # Require ADX > 25 for bypass eligibility
     reallocation_enabled: true
+    reallocation_max_pct_6h: 0.30 # Cap: reallocate at most 30% of portfolio per 6h window
     llm_temperature: 0.2          # More creative position sizing
     llm_max_tokens: 2048
-    llm_system_role: aggressive   # Extended system prompt with higher-risk directives
+    llm_system_role: high         # Extended system prompt with breakout directives
     velocity_circuit_breaker_pct: 7.0
     velocity_halt_hours: 1
 

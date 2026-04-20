@@ -1,7 +1,12 @@
 """
 LLM prompt templates for the trading agent.
-The system prompt is static; the cycle prompt is built dynamically
-each cycle with real market data and portfolio state.
+The system prompt is built dynamically per persona (S14.2.4);
+the cycle prompt is built dynamically each cycle with real market data and
+portfolio state.
+
+Story: S14.2.3 (unfilled cluster context), S14.2.4 (persona system role)
+Sprint: S4
+Author: Kryptos Squad
 """
 
 import logging
@@ -11,13 +16,69 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
-# System prompt — fallback only; real value sourced from config.yaml llm.system_prompt
+# S14.2.4 — Persona-scoped system prompt builder
+# (Replaces static SYSTEM_PROMPT)
 # ──────────────────────────────────────────────────────────────
 
+# Kept for backward-compat import in trading_agent.py during transition
 SYSTEM_PROMPT = (
     "You are Kryptos, a quantitative AI crypto trading agent. "
     "Do NOT propose_buy for any pair listed in CURRENT PORTFOLIO."
 )
+
+_PERSONA_ROLES = {
+    "conservative": (
+        "You are Kryptos operating in CONSERVATIVE mode — Capital Preservation Advisor.\n"
+        "Your primary mandate is to protect the portfolio against drawdown.\n"
+        "Avoid early buys. Only enter positions when confluence is unambiguous.\n"
+        "Never override the minimum profit floor. Prefer fewer, higher-conviction trades.\n"
+    ),
+    "medium": (
+        "You are Kryptos operating in MEDIUM mode — Balanced Portfolio Manager.\n"
+        "Balance momentum capture with capital protection.\n"
+        "Prioritise sector rotation — avoid doubling down on correlated pairs.\n"
+        "Enter trending moves confidently but respect the risk constraints block.\n"
+    ),
+    "high": (
+        "You are Kryptos operating in HIGH mode — Alpha-Seeking Fund Manager.\n"
+        "Capture breakouts aggressively. Reallocation of weaker positions is authorised.\n"
+        "Front-run institutional accumulation by entering early on strong ADX/MACD signals.\n"
+        "Maximise deployed capital but never exceed per-pair size caps.\n"
+    ),
+}
+
+_SHARED_RULES = (
+    "HARD RULES (non-negotiable):\n"
+    "1. Do NOT propose_buy for any pair listed in CURRENT PORTFOLIO.\n"
+    "2. Do NOT propose_buy when kill_switch=1 or circuit_open=1.\n"
+    "3. Never pass less than the min_order_usd shown in RISK CONSTRAINTS.\n"
+    "4. Call propose_sell only when P&L > +2% AND reversal is confirmed.\n"
+    "5. Reason briefly (1 sentence) before each tool call.\n"
+    "6. If cycle top warning is active, treat Tier 3/4 BUYs as blocked.\n"
+)
+
+
+def build_system_prompt(persona_config: dict) -> str:
+    """
+    Build a persona-specific LLM system prompt (S14.2.4, AC1–AC5).
+
+    Args:
+        persona_config: The dict at config["personas"][active_persona].
+
+    Returns:
+        Full system prompt string ≤ 400 tokens.
+    """
+    role_key = persona_config.get("llm_system_role", "medium")
+    # Match by key; fall back to medium if unknown variant
+    role_text = _PERSONA_ROLES.get(role_key, _PERSONA_ROLES["medium"])
+    prompt = role_text + "\n" + _SHARED_RULES
+    # Sanity-log if over 400 token estimate
+    if len(prompt) // 4 > 400:
+        logger.warning(
+            "[AIE] build_system_prompt: estimated %d tokens for role=%s (target ≤ 400)",
+            len(prompt) // 4, role_key,
+        )
+    return prompt
 
 
 # ──────────────────────────────────────────────────────────────
@@ -98,6 +159,7 @@ def build_cycle_prompt(
     max_buys_per_cycle: int = 7,
     min_order_usd: float = 20.0,
     risk_state: dict = None,
+    unfilled_clusters: list = None,
 ) -> str:
     """
     Build the per-cycle user message injected into the LLM context.
@@ -115,6 +177,7 @@ def build_cycle_prompt(
     pair_tp_config: {"BTC/USD": 8, "ETH/USD": 12, ...}
     ai_context: dict of context blocks from features.build_ai_context()
     risk_state: {kill_switch, circuit_open, playbook, persona, positions_max} (S14.2.2)
+    unfilled_clusters: list of cluster names with open slots (S14.2.3)
     """
     mode_label = "[PAPER TRADING — virtual money]" if mode == "paper" else "[LIVE TRADING — real money]"
     pair_tp = pair_tp_config or {}
@@ -199,6 +262,21 @@ def build_cycle_prompt(
                 f"|cluster|{cluster}"
             )
     lines.append("")
+
+    # ── S14.2.3 — Unfilled cluster context injection ───────────────
+    _unfilled = unfilled_clusters or []
+    if _unfilled:
+        lines += [
+            "## OPEN SECTORS ##",
+            f"open_sectors|{','.join(_unfilled)}",
+            "",
+        ]
+    else:
+        lines += [
+            "## OPEN SECTORS ##",
+            "All sector clusters at capacity — reallocation only",
+            "",
+        ]
 
     # ── AI Context blocks — actionable context only ────────────────
     # patterns / position_sizing / dynamic_tp omitted (redundant with per-pair data)

@@ -35,6 +35,7 @@ def _build(risk_state=None, n_open: int = 0):
         portfolio=_portfolio(n_open),
         signals=[],
         risk_state=risk_state,
+        unfilled_clusters=["Layer1", "DeFi"],  # prevent S14.2.3 "at capacity" branch
     )
 
 
