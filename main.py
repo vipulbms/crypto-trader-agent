@@ -884,6 +884,16 @@ async def run_cycle(
         )
         risk.apply_persona_config(ctx.persona_config)
 
+    # S14.2.3 — inject unfilled correlation clusters so the LLM avoids doubling into saturated sectors
+    _clusters_cfg = config.get("risk", {}).get("correlation_clusters", [])
+    _max_cluster_pos = config.get("risk", {}).get("max_cluster_positions", 2)
+    _open_pairs_set = {p["pair"] for p in open_positions}
+    ai_context["unfilled_clusters"] = [
+        c["name"]
+        for c in _clusters_cfg
+        if sum(1 for _p in c.get("pairs", []) if _p in _open_pairs_set) < _max_cluster_pos
+    ]
+
     results = agent.run_cycle(
         cycle_id=cycle_id,
         portfolio=portfolio,

@@ -53,7 +53,8 @@ def validate_config(config: dict) -> None:
         "buy_min_score", "max_open_positions", "max_position_pct",
         "min_profit_floor_pct", "rsi_overbought_veto",
         "momentum_bypass_rsi", "momentum_bypass_adx",
-        "reallocation_enabled", "llm_temperature", "llm_max_tokens",
+        "reallocation_enabled", "reallocation_max_pct_6h",
+        "llm_temperature", "llm_max_tokens",
         "llm_system_role", "velocity_circuit_breaker_pct", "velocity_halt_hours",
     }
     _VALID_PERSONAS = {"conservative", "medium", "high"}
@@ -176,6 +177,9 @@ class RiskManager:
         # DB path — used to query trade history for circuit breaker
         self._db_path = db_path
 
+        # S15.1.1, S15.2.1 — full persona config (set by apply_persona_config each cycle)
+        self._persona_config: dict = {}
+
         # Build per-pair TP map
         self._pair_tp: dict = {}
         for p in trading.get("pairs", []):
@@ -193,12 +197,14 @@ class RiskManager:
         Called once per cycle in main.py after CycleContext is constructed.
         Overrides the three risk fields that vary by persona so validate_buy()
         and validate_sell() operate under the correct persona thresholds.
+        Full config stored as _persona_config for S15.1.1 + S15.2.1 access.
 
         Args:
             persona_config: The dict at config["personas"][active_persona].
 
         Story: S12.1.2 — Persona runtime injection into CycleContext (AC3)
         """
+        self._persona_config: dict = dict(persona_config)  # S15.1.1, S15.2.1
         if "max_open_positions" in persona_config:
             self._max_open_positions = int(persona_config["max_open_positions"])
         if "max_position_pct" in persona_config:
@@ -407,6 +413,57 @@ class RiskManager:
         tp_pct = override_pct if override_pct is not None else self.get_take_profit_pct(pair)
         return round(entry_price * (1 + tp_pct / 100), 8)
 
+    def get_prune_candidate(
+        self,
+        open_positions: list,
+        incoming_score: int = 0,
+    ) -> Optional[str]:
+        """
+        S15.1.1 — Identify the weakest open position eligible for reallocation.
+
+        A position is eligible when ALL apply:
+          - ADX < 25 (trend has faded — momentum stalled)
+          - P&L% < _min_profit_floor_pct * 1.5 (not worth holding as-is)
+          - P&L% > -(stop_loss_pct / 2) (not a deep loss — closing would not realise a large hit)
+
+        Returns the pair name of the weakest eligible position (lowest ADX, then lowest P&L%),
+        or None when reallocation is disabled or no eligible position exists.
+
+        Args:
+            open_positions: list of dicts with keys: pair, adx, pnl_pct
+            incoming_score: buy score of the incoming signal (unused for now, reserved for AC4)
+
+        Story: S15.1.1
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+        if not persona_cfg.get("reallocation_enabled", False):
+            return None
+
+        floor_threshold = self._min_profit_floor_pct * 1.5
+        deep_loss_guard = -(self._stop_loss_pct / 2)
+
+        eligible = [
+            pos for pos in open_positions
+            if (
+                float(pos.get("adx") or 999) < 25
+                and float(pos.get("pnl_pct") or 0) < floor_threshold
+                and float(pos.get("pnl_pct") or 0) > deep_loss_guard
+            )
+        ]
+        if not eligible:
+            return None
+
+        # Weakest: lowest ADX first (most range-bound); then lowest P&L% as tiebreaker
+        eligible.sort(key=lambda p: (float(p.get("adx") or 999), float(p.get("pnl_pct") or 0)))
+        prune_pair = eligible[0].get("pair")
+        logger.info(
+            "[ROM] Prune candidate identified: %s (adx=%.1f, pnl_pct=%.2f%%)",
+            prune_pair,
+            float(eligible[0].get("adx") or 999),
+            float(eligible[0].get("pnl_pct") or 0),
+        )
+        return prune_pair
+
     @timed("pair", "proposed_usd", "open_positions_count")
     def validate_buy(
         self,
@@ -419,12 +476,38 @@ class RiskManager:
         starting_balance_usd: float,
         current_price: float = 0.0,
         baseline_price: float = 0.0,
-        candle_timestamp_sec: float = 0.0
+        candle_timestamp_sec: float = 0.0,
+        rsi: Optional[float] = None,
+        adx: Optional[float] = None,
+        playbook: str = "standard",
     ) -> tuple:
         """
         Returns (approved: bool, reason: str, capped_amount: float)
         The capped_amount is the actual amount to trade after applying the 30% cap.
+
+        S15.2.1 — Persona RSI veto with optional momentum bypass:
+          - Standard playbook: RSI >= 70 is always blocked.
+          - Momentum playbook: RSI veto threshold is raised to persona's
+            momentum_bypass_rsi (e.g. 75 for medium, 80 for high) when
+            ADX > persona's momentum_bypass_adx.
+          - Conservative persona: momentum_bypass_adx=999 → bypass never fires.
         """
+        # S15.2.1 — RSI persona veto (before all other guards)
+        if rsi is not None and rsi > 0:
+            persona_cfg = getattr(self, "_persona_config", {})
+            _rsi_hard_veto = 70.0
+            _rsi_threshold = _rsi_hard_veto
+            if playbook == "momentum" and adx is not None:
+                bypass_rsi = float(persona_cfg.get("momentum_bypass_rsi", 70))
+                bypass_adx = float(persona_cfg.get("momentum_bypass_adx", 999))
+                if adx > bypass_adx:
+                    _rsi_threshold = bypass_rsi
+            if rsi >= _rsi_threshold:
+                return (
+                    False,
+                    f"RSI veto: RSI {rsi:.0f} >= {_rsi_threshold:.0f} (playbook={playbook})",
+                    0.0,
+                )
         # 0.5. Time-of-Day Guard — explicitly block outside of allowed volume overlap
         if self._trading_hours_enabled:
             if candle_timestamp_sec > 0:
@@ -618,6 +701,64 @@ class RiskManager:
             reason = f"Approved (capped ${proposed_usd:.2f} → ${capped:.2f} by 30% rule)"
 
         return (True, reason, round(capped, 2))
+
+    def check_reallocation_cap(self, prune_usd: float, portfolio_value: float) -> bool:
+        """
+        S15.1.2 — Guard against excessive reallocation within a 6-hour window.
+
+        Returns True (BLOCKED) when the persona's 6-hour reallocation cap would be
+        breached by the proposed close/reopen.
+
+        Logic:
+          - Conservative: reallocation_max_pct_6h = 0.0 → always blocked.
+          - Medium: 20% of portfolio per 6h window.
+          - High: 30% of portfolio per 6h window.
+          - Sum of USD value of positions closed with exit_reason='reallocation' in
+            the past 6 hours + prune_usd must NOT exceed the cap.
+
+        Returns:
+            True  → reallocation is BLOCKED (cap reached or persona disallows)
+            False → reallocation is PERMITTED
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+        max_pct = float(persona_cfg.get("reallocation_max_pct_6h", 0.0))
+        if max_pct <= 0:
+            return True  # conservative persona or cap exhausted
+
+        cap_usd = portfolio_value * max_pct
+        if cap_usd <= 0:
+            return True
+
+        # Query total USD reallocated in the last 6 hours
+        reallocated_usd = 0.0
+        if self._db_path:
+            try:
+                from src.storage.database import get_connection
+                conn = get_connection(self._db_path)
+                trades_table = "paper_trades" if "paper" in self._db_path else "live_trades"
+                since_iso = datetime.datetime(
+                    *datetime.datetime.utcnow().timetuple()[:6],
+                    tzinfo=datetime.timezone.utc,
+                ) - datetime.timedelta(hours=6)
+                rows = conn.execute(
+                    f"SELECT usd_value FROM {trades_table} "
+                    f"WHERE exit_reason='reallocation' AND closed_at >= ?",
+                    (since_iso.isoformat(),),
+                ).fetchall()
+                conn.close()
+                reallocated_usd = sum(float(r["usd_value"] or 0) for r in rows)
+            except Exception as e:
+                logger.warning("[ROM] Failed to query reallocation history: %s", e)
+
+        if reallocated_usd + prune_usd > cap_usd:
+            logger.info(
+                "[ROM] Reallocation blocked — 6h cap exhausted: "
+                "already_reallocated=$%.2f + this=$%.2f > cap=$%.2f (%.0f%% of $%.2f)",
+                reallocated_usd, prune_usd, cap_usd, max_pct * 100, portfolio_value,
+            )
+            return True
+
+        return False
 
     @timed("pair", "open_positions_count")
     def validate_sell(

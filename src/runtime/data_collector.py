@@ -177,6 +177,12 @@ class DataCollector:
         self._running         = False
         self._last_write_ts: float | None = None
         self._pairs_active    = 0
+        # S21.1.2 — feed freeze tracking
+        self._feed_status_cache: dict[str, str] = {}  # pair → 'ok' | 'frozen' | 'stale'
+        _qsa_cfg = config.get("qsa", {})
+        self._freeze_variance_lookback: int = (
+            _qsa_cfg.get("feed_heartbeat", {}).get("variance_lookback", 5)
+        )
 
     # ── lifecycle ────────────────────────────────────────────
 
@@ -285,6 +291,57 @@ class DataCollector:
                 }
                 _upsert_orderbook(self._db_path, snap)
 
+    # ── Feed freeze detection (S21.1.2) ──────────────────────
+
+    def _detect_feed_status(self, pair: str) -> str:
+        """
+        Returns 'ok' | 'frozen' | 'stale'.
+
+        frozen: last N closed candles all have identical close price (zero-variance).
+        stale:  most recent candle timestamp is > 5 × candle_interval minutes old.
+        """
+        n = self._freeze_variance_lookback
+        try:
+            conn = get_connection(self._db_path)
+            rows = conn.execute(
+                """
+                SELECT close, ts FROM candle_buffer
+                WHERE pair = ? AND is_closed = 1
+                ORDER BY ts DESC LIMIT ?
+                """,
+                (pair, n),
+            ).fetchall()
+            conn.close()
+        except Exception:
+            return "ok"  # DB unavailable — assume live
+
+        if len(rows) < n:
+            return "ok"  # not enough history yet
+
+        closes = [float(r[0]) for r in rows]
+        mean = sum(closes) / len(closes)
+        variance = sum((x - mean) ** 2 for x in closes) / len(closes)
+        if variance == 0.0:
+            prev = self._feed_status_cache.get(pair, "ok")
+            if prev != "frozen":
+                logger.warning("[DC] Feed FROZEN detected: %s — last %d closes identical (%.4f)",
+                               pair, n, closes[0])
+            return "frozen"
+
+        stale_secs = self._interval * 60 * 5  # 5 missed intervals
+        latest_ts = max(int(r[1]) for r in rows)
+        if (time.time() - latest_ts) > stale_secs:
+            return "stale"
+
+        return "ok"
+
+    def _refresh_feed_statuses(self) -> dict[str, str]:
+        """Check all tracked pairs and update _feed_status_cache."""
+        for pair in self._pairs:
+            status = self._detect_feed_status(pair)
+            self._feed_status_cache[pair] = status
+        return dict(self._feed_status_cache)
+
     # ── HTTP /health endpoint ─────────────────────────────────
 
     async def _health_handler(self, request: web.Request) -> web.Response:
@@ -295,9 +352,21 @@ class DataCollector:
         }
         return web.json_response(payload)
 
+    async def _feed_status_handler(self, request: web.Request) -> web.Response:
+        """S21.1.2 — per-pair feed freeze status endpoint."""
+        statuses = self._refresh_feed_statuses()
+        payload = {
+            "feed_status": statuses,
+            "frozen_pairs": [p for p, s in statuses.items() if s == "frozen"],
+            "stale_pairs":  [p for p, s in statuses.items() if s == "stale"],
+            "ts":           time.time(),
+        }
+        return web.json_response(payload)
+
     async def _http_server(self) -> None:
         app = web.Application()
         app.router.add_get("/health", self._health_handler)
+        app.router.add_get("/feed_status", self._feed_status_handler)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, self._http_host, self._http_port)
