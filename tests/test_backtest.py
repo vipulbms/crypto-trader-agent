@@ -15,6 +15,10 @@ Usage:
     python tests/test_backtest.py --no-llm
     python tests/test_backtest.py --no-llm --start-date 2025-12-25
     python tests/test_backtest.py --no-llm --start-date 2025-12-25 --pairs BTC/USD ETH/USD
+
+    # Run with a specific persona applied (overrides config defaults)
+    python tests/test_backtest.py --no-llm --persona high
+    python tests/test_backtest.py --persona conservative --start-date 2025-12-01
 """
 
 import argparse
@@ -42,6 +46,48 @@ from src.storage.database import get_connection, get_db_path, init_paper_db, ini
 from main import run_agent
 
 
+VALID_PERSONAS = {"conservative", "medium", "high"}
+
+
+def apply_persona(config: dict, persona_name: str) -> None:
+    """Overlay persona config block onto trading/risk/signal config sections.
+
+    Mutates *config* in place.  Raises ValueError if persona is unknown.
+    """
+    personas = config.get("personas", {})
+    if persona_name not in personas:
+        raise ValueError(
+            f"Unknown persona '{persona_name}'. "
+            f"Available: {sorted(personas.keys())}"
+        )
+    p = personas[persona_name]
+    # Mark active persona so CycleContext / RiskManager see it
+    config.setdefault("agent", {})["persona"] = persona_name
+
+    # Signal gate
+    if "buy_min_score" in p:
+        config.setdefault("signals", {})["buy_min_score"] = p["buy_min_score"]
+
+    # Risk limits
+    risk = config.setdefault("risk", {})
+    if "max_open_positions" in p:
+        risk["max_open_positions"] = p["max_open_positions"]
+    if "max_position_pct" in p:
+        risk["max_position_pct"] = p["max_position_pct"]
+    if "min_profit_floor_pct" in p:
+        risk["min_profit_floor_pct"] = p["min_profit_floor_pct"]
+
+    # RSI overbought veto
+    if "rsi_overbought_veto" in p:
+        config.setdefault("exit_timing", {})["rsi_exit_overbought"] = p["rsi_overbought_veto"]
+
+    # Volume bypass (QSA)
+    if "volume_bypass_enabled" in p:
+        config.setdefault("qsa", {}).setdefault("volume_floor", {})["bypass_enabled"] = (
+            p["volume_bypass_enabled"]
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run Kryptos backtest over historical candles")
     parser.add_argument(
@@ -60,10 +106,19 @@ def main():
         "--pairs", nargs="+", default=[],
         help="(--no-llm only) Filter to specific pairs e.g. --pairs BTC/USD ETH/USD",
     )
+    parser.add_argument(
+        "--persona", type=str, default=None,
+        choices=sorted(VALID_PERSONAS),
+        help="Apply persona config overrides before running (conservative | medium | high)",
+    )
     args = parser.parse_args()
 
     with open("config.yaml") as f:
         config = yaml.safe_load(f)
+
+    if args.persona:
+        apply_persona(config, args.persona)
+        print(f"\n[PERSONA] Using persona: {args.persona.upper()}")
 
     # ── Fast path: signal-only, no LLM ────────────────────────────────────────
     if args.no_llm:
