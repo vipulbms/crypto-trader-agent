@@ -75,6 +75,30 @@ def get_connection(db_filename: str) -> sqlite3.Connection:
         raise
 
 
+def get_connection_ro(db_filename: str) -> sqlite3.Connection:
+    """Open a SQLite connection in read-only mode (S17.1.1 AC4).
+
+    Uses URI mode with ``?mode=ro`` so writes are rejected at the SQLite layer.
+    Falls back to a regular connection if the DB file does not exist yet
+    (returns empty results rather than erroring).
+    """
+    path = _get_db_path(db_filename)
+    try:
+        import urllib.parse
+        uri = "file:" + urllib.parse.quote(str(path)) + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        if "unable to open database" in str(e).lower():
+            # DB doesn't exist yet — return an in-memory stub that returns empty results
+            conn = sqlite3.connect(":memory:", check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            return conn
+        logger.error("Read-only DB connection error for %s: %s", db_filename, e)
+        raise
+
+
 # ──────────────────────────────────────────────────────────────
 # DataCollector DB schema — shared by paper and live modes (S21.1.1)
 # ──────────────────────────────────────────────────────────────

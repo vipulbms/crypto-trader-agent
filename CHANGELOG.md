@@ -2,6 +2,30 @@
 
 ---
 
+## Session: 2026-04-20 (Part A) — Sprint S6: MCP Server + Persona/Regime CLI + Java API Persona Endpoints
+
+### Bug Fixes
+- **tz_mod stubs missing `to_sgt`** (`tests/test_coinglass_v4.py`, `test_stale_macro.py`, `test_cycle_top_guard.py`, `test_btc_dominance.py`): Four stub tz modules injected module-level lacked `to_sgt`, causing `ImportError` in `display.py` when full suite ran in a test order where these files loaded first. Added `tz_mod.to_sgt = lambda dt: dt` to all four stubs.
+- **`import os` missing in `commands.py`** (`src/cli/commands.py`): `cmd_persona_set()` uses `os.path.join` but `import os` was absent. Mock patch `src.cli.commands.os` failed with `AttributeError`. Added `import os`.
+- **NL persona_set keywords** (`src/cli/nl_parser.py`): `"switch to aggressive mode high"` fell through to `view_report` because `"aggressive mode"`, `"conservative mode"`, `"medium mode"` were not in the `persona_set` keyword list. Extended the keyword list.
+
+### Features
+- **S17.1.1 — MCP HTTP server** (`src/mcp/server.py`, `src/mcp/__init__.py`): `MCPServer(config, db_path)` on `aiohttp`; `127.0.0.1:8092`; 6 read-only tools returning pipe-separated strings: `get_portfolio_state`, `get_signal_snapshot`, `get_regime_state`, `get_agent_status`, `get_universe_state`, `get_persistence_scores`. `aiohttp` guarded by `_AIOHTTP_AVAILABLE`. All DB reads via `get_connection_ro()`. Agent persists 5 `agent_state` keys per cycle: `current_regime`, `adx_median_last`, `daily_pnl_pct_last`, `btc_dom_trend_current`, `last_cycle_ts`.
+- **S17.1.1 — `get_connection_ro()`** (`src/storage/database.py`): SQLite URI mode `?mode=ro`; in-memory fallback when DB file absent.
+- **S18.1.1 — Persona CLI** (`src/cli/commands.py`, `src/cli/display.py`, `kryptos.py`): `kryptos persona` shows Rich table of all persona presets (active highlighted green). `kryptos persona set <name>` rewrites `config.yaml` via `yaml.dump`.
+- **S18.1.2 — Regime CLI** (`src/cli/commands.py`, `src/cli/display.py`, `kryptos.py`): `kryptos regime` reads `agent_state` and renders colour-coded Panel: momentum=green, ranging=yellow, risk_off=red; shows velocity circuit state + daily PnL.
+- **S18.1.3 — Java API persona endpoints** (`kryptos-api`): `GET /api/v2/persona` (active + available + config), `PUT /api/v2/persona` (writes `active_persona_override` to `agent_state`), `DELETE /api/v2/persona/override` (clears override). Invalid persona → 400. `PersonaController`, `PersonaService`, `PersonaDtos` records.
+- **AC3 — `active_persona_override` in `main.py`**: Each cycle reads `agent_state.active_persona_override`; if set to a valid persona, temporarily overrides `config["agent"]["persona"]` for that cycle only.
+
+### Tests
+- `tests/test_s17_mcp_server.py` (NEW) — 8 tests: tool functions, pipe format, unknown tool error
+- `tests/test_s18_persona_cli.py` (NEW) — 7 tests: persona/persona_set commands + NL keywords
+- `tests/test_s18_regime_cli.py` (NEW) — 7 tests: regime reads, defaults, velocity circuit, NL keywords
+- `kryptos-api/.../PersonaControllerTest.java` (NEW) — 9 tests: GET/PUT/DELETE + 400 validation
+- **Total: 574 Python + 116 Java passing** (was 553 Python + 107 Java before sprint)
+
+---
+
 ## Session: 2026-04-19 (Part E) — Sprint S3 QSA Resilience, Prompt Rewrite, AIClient, DataCollector
 
 ### Features

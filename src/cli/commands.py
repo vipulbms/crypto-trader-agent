@@ -6,6 +6,7 @@ and calls the appropriate report queries + display functions.
 """
 
 import logging
+import os
 from typing import Optional
 
 from src.cli import agent_manager as am
@@ -238,6 +239,90 @@ def cmd_help(_params: dict) -> None:
 
 
 # ──────────────────────────────────────────────────────────────
+# Persona commands (S18.1.1)
+# ──────────────────────────────────────────────────────────────
+
+def cmd_persona(params: dict, config: Optional[dict] = None) -> None:
+    """Show active persona and all persona parameter summaries."""
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    d.print_persona_summary(config)
+
+
+def cmd_persona_set(params: dict, config: Optional[dict] = None) -> None:
+    """Set the active persona in config.yaml — takes effect next cycle.
+
+    S18.1.1 AC2: writes 'agent.persona' in config.yaml
+    S18.1.1 AC3: warns that the change takes effect next cycle
+    S18.1.1 AC4: logged via CLI audit (caller writes the audit line)
+    """
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    target = params.get("persona", "").strip().lower()
+    valid = {"conservative", "medium", "high"}
+    if target not in valid:
+        d.print_error(
+            f"Invalid persona '{target}'. "
+            f"Choose from: {', '.join(sorted(valid))}"
+        )
+        return
+
+    import yaml
+    import os
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.yaml"
+    )
+    try:
+        with open(config_path) as fh:
+            raw = yaml.safe_load(fh)
+        if "agent" not in raw:
+            raw["agent"] = {}
+        raw["agent"]["persona"] = target
+        with open(config_path, "w") as fh:
+            yaml.dump(raw, fh, default_flow_style=False, allow_unicode=True)
+        config["agent"]["persona"] = target
+        d.print_ok(
+            f"Persona set to [bold]{target}[/bold]. "
+            "Takes effect on the next trading cycle."
+        )
+        d.print_warn("If the agent is running, it will pick up the new persona at cycle start.")
+    except Exception as exc:
+        d.print_error(f"Failed to update config.yaml: {exc}")
+        logger.exception("cmd_persona_set error")
+
+
+# ──────────────────────────────────────────────────────────────
+# Regime command (S18.1.2)
+# ──────────────────────────────────────────────────────────────
+
+def cmd_regime(params: dict, config: Optional[dict] = None) -> None:
+    """Show current detected regime and active playbook from agent_state.
+
+    S18.1.2 AC1: persona, playbook, regime, ADX median, BTC dominance trend,
+                 daily PnL, velocity circuit state
+    S18.1.2 AC2: data from agent_state table
+    S18.1.2 AC3: colour-coded: ranging=yellow, momentum=green, risk_off=red
+    """
+    if config is None:
+        d.print_error("No config loaded.")
+        return
+    from src.storage.database import get_connection_ro, resolve_trading_db
+    mode     = params.get("mode", "paper")
+    db_path  = resolve_trading_db(config, mode)
+    try:
+        conn  = get_connection_ro(db_path)
+        rows  = conn.execute("SELECT key, value FROM agent_state").fetchall()
+        conn.close()
+        state = {r["key"]: r["value"] for r in rows}
+    except Exception as exc:
+        d.print_error(f"Could not read agent_state: {exc}")
+        return
+    d.print_regime_state(state, config)
+
+
+# ──────────────────────────────────────────────────────────────
 # Intent dispatcher
 # ──────────────────────────────────────────────────────────────
 
@@ -269,6 +354,9 @@ def dispatch(intent_obj: dict, config: Optional[dict] = None) -> bool:
         "open_positions":  lambda: cmd_open_positions(params, config),
         "signal_drivers":  lambda: cmd_signal_drivers(params, config),
         "tail_log":        lambda: cmd_tail_log(params),
+        "persona":         lambda: cmd_persona(params, config),
+        "persona_set":     lambda: cmd_persona_set(params, config),
+        "regime":          lambda: cmd_regime(params, config),
         "help":           lambda: cmd_help(params),
     }
 

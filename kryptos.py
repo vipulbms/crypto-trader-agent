@@ -200,11 +200,27 @@ def run_single_command(text: str, config: dict, default_mode: str = "paper") -> 
 # Direct subcommand handlers (bypass NL parsing)
 # ──────────────────────────────────────────────────────────────
 
+def _handle_persona(params: dict, config: dict, extra_args: list[str]) -> None:
+    """Route 'persona' subcommand: show summary or set persona.
+
+    Usage:
+        kryptos persona              → show summary
+        kryptos persona set <name>   → set active persona
+    """
+    from src.cli import commands
+    if extra_args and extra_args[0] == "set":
+        target = extra_args[1] if len(extra_args) > 1 else ""
+        commands.cmd_persona_set({**params, "persona": target}, config)
+    else:
+        commands.cmd_persona(params, config)
+
 def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
     from src.cli import commands, display as d
 
     mode = "live" if getattr(args, "live", False) else getattr(args, "mode", "paper")
     _audit(subcommand, intent=subcommand, source="direct")
+    # Extra positional args after the subcommand (e.g. 'persona set medium')
+    subcommand_args: list[str] = getattr(args, "subcommand_args", [])
     params = {
         "mode": mode,
         "pair": getattr(args, "pair", None),
@@ -234,6 +250,8 @@ def run_direct(subcommand: str, args: argparse.Namespace, config: dict) -> None:
         "positions":   lambda p: commands.cmd_open_positions(p, config),
         "drivers":     lambda p: commands.cmd_signal_drivers(p, config),
         "log":         lambda p: commands.cmd_tail_log(p),
+        "persona":     lambda p: _handle_persona(p, config, subcommand_args),
+        "regime":      lambda p: commands.cmd_regime(p, config),
         "help":        lambda p: commands.cmd_help(p),
     }
 

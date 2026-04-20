@@ -503,6 +503,27 @@ async def run_cycle(
     )
     set_cycle_id(cycle_id)  # propagate to all @timed calls in this cycle
 
+    # AC3 (S18.1.3): Check API-set persona override from agent_state each cycle.
+    # If present, temporarily overlay config["agent"]["persona"] for this cycle only.
+    if trading_db_path:
+        try:
+            from src.storage.database import get_connection
+            _ov_conn = get_connection(trading_db_path)
+            _ov_row = _ov_conn.execute(
+                "SELECT value FROM agent_state WHERE key = 'active_persona_override'"
+            ).fetchone()
+            _ov_conn.close()
+            if _ov_row and _ov_row[0] in ("conservative", "medium", "high"):
+                _prev_persona = config.get("agent", {}).get("persona", "conservative")
+                if _prev_persona != _ov_row[0]:
+                    logger.info(
+                        "[PERSONA] API override active: %s → %s",
+                        _prev_persona, _ov_row[0]
+                    )
+                config.setdefault("agent", {})["persona"] = _ov_row[0]
+        except Exception as _ov_err:
+            logger.debug("[PERSONA] Override check failed (non-fatal): %s", _ov_err)
+
     # Build CycleContext — single source of truth for persona thresholds this cycle (S12.1.2)
     _btc_trend = ""
     ctx = CycleContext.from_config(
@@ -930,6 +951,25 @@ async def run_cycle(
             kill_switch=_kill_switch_active,
         )
         ctx.playbook = playbook
+
+        # Persist regime + cycle diagnostics to agent_state for CLI / MCP (S17/S18)
+        try:
+            _as_conn = get_connection(trading_db_path)
+            _as_conn.executemany(
+                "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+                [
+                    ("current_regime",      str(regime)),
+                    ("adx_median_last",     str(round(adx_median, 2))),
+                    ("daily_pnl_pct_last",  str(round(daily_pnl["pnl_pct"], 4))),
+                    ("btc_dom_trend_current", str(_btc_trend)),
+                    ("last_cycle_ts",       str(int(time.time()))),
+                ],
+            )
+            _as_conn.commit()
+            _as_conn.close()
+        except Exception as _as_exc:
+            logger.debug("[MAIN] Failed to persist cycle diagnostics to agent_state: %s", _as_exc)
+
         # Re-run generate_signal with the resolved playbook so PF escalation + score
         # delta use the correct playbook (first pass above used 'standard' as placeholder)
         for sig in signals:

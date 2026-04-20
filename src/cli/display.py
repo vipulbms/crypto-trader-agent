@@ -690,3 +690,116 @@ def print_profit_factor_table(pf_data: dict) -> None:
 
     console.print(table)
 
+
+
+# ──────────────────────────────────────────────────────────────
+# Persona display (S18.1.1)
+# ──────────────────────────────────────────────────────────────
+
+def print_persona_summary(config: dict) -> None:
+    """Display active persona + all persona parameter summaries (S18.1.1 AC1)."""
+    active  = config.get("agent", {}).get("persona", "conservative")
+    personas: dict = config.get("personas", {})
+
+    table = Table(
+        box=box.MARKDOWN,
+        show_header=True,
+        header_style="bold cyan",
+        title=f"Persona Summary  [dim](active: {active})[/dim]",
+    )
+    table.add_column("Parameter",          style="cyan",    width=34, no_wrap=True)
+    table.add_column("Conservative",       justify="right", width=14)
+    table.add_column("Medium",             justify="right", width=14)
+    table.add_column("High",               justify="right", width=14)
+
+    keys = [
+        "buy_min_score", "max_open_positions", "max_position_pct",
+        "min_profit_floor_pct", "rsi_overbought_veto", "momentum_bypass_rsi",
+        "momentum_bypass_adx", "reallocation_enabled", "volume_bypass_enabled",
+        "velocity_circuit_breaker_pct", "velocity_halt_hours",
+        "pf_escalation_momentum_suspend", "early_momentum_score_reduction",
+        "early_momentum_rsi_min", "early_momentum_rsi_max", "early_momentum_adx_min",
+        "llm_temperature",
+    ]
+
+    for key in keys:
+        vals = []
+        for pname in ("conservative", "medium", "high"):
+            v = personas.get(pname, {}).get(key, "—")
+            if pname == active:
+                vals.append(f"[bold green]{v}[/bold green]")
+            else:
+                vals.append(str(v))
+        table.add_row(key, *vals)
+
+    console.print(table)
+    console.print(
+        f"[dim]Active persona: [bold cyan]{active}[/bold cyan]  "
+        f"• Change with: [bold]kryptos persona set conservative|medium|high[/bold][/dim]"
+    )
+
+
+# ──────────────────────────────────────────────────────────────
+# Regime display (S18.1.2)
+# ──────────────────────────────────────────────────────────────
+
+def print_regime_state(state: dict, config: dict) -> None:
+    """Display regime/playbook state — colour-coded per S18.1.2 AC3."""
+    import time as _t
+
+    playbook    = state.get("current_playbook",      "ranging")
+    regime      = state.get("current_regime",        "unknown")
+    adx_median  = state.get("adx_median_last",       "—")
+    btc_trend   = state.get("btc_dom_trend_current", "flat")
+    daily_pnl   = state.get("daily_pnl_pct_last",    "0.0")
+    persona     = state.get("active_persona",        config.get("agent", {}).get("persona", "?"))
+    last_cycle  = state.get("last_cycle_ts",         "0")
+    vel_until   = float(state.get("velocity_circuit_open_until", "0"))
+    vel_open    = vel_until > _t.time()
+
+    # AC3 colour mapping
+    playbook_colour = {
+        "momentum": "green",
+        "ranging":  "yellow",
+        "risk_off": "red",
+    }.get(playbook, "white")
+
+    vel_str = (
+        f"[bold red]OPEN (until {_format_ts(vel_until)})[/bold red]"
+        if vel_open
+        else "[green]closed[/green]"
+    )
+    last_str = _format_ts(float(last_cycle)) if last_cycle != "0" else "[dim]not yet run[/dim]"
+
+    lines = [
+        f"[bold cyan]Persona       :[/bold cyan] [bold]{persona}[/bold]",
+        f"[bold cyan]Playbook      :[/bold cyan] [{playbook_colour}][bold]{playbook.upper()}[/bold][/{playbook_colour}]",
+        f"[bold cyan]Regime        :[/bold cyan] {regime}",
+        f"[bold cyan]ADX median    :[/bold cyan] {adx_median}",
+        f"[bold cyan]BTC Dom trend :[/bold cyan] {btc_trend}",
+        f"[bold cyan]Daily PnL     :[/bold cyan] {daily_pnl}%",
+        f"[bold cyan]Velocity ckt  :[/bold cyan] {vel_str}",
+        f"[bold cyan]Last cycle    :[/bold cyan] {last_str}",
+    ]
+
+    border = playbook_colour
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title=f"[bold {playbook_colour}]Regime & Playbook State[/bold {playbook_colour}]",
+            border_style=border,
+        )
+    )
+
+
+def _format_ts(ts: float) -> str:
+    """Format a UNIX timestamp (SGT) for display."""
+    try:
+        from src.utils.tz import to_sgt as _tz
+        import datetime
+        dt = _tz(datetime.datetime.utcfromtimestamp(ts).replace(
+            tzinfo=datetime.timezone.utc
+        ))
+        return dt.strftime("%Y-%m-%d %H:%M SGT")
+    except Exception:
+        return str(ts)
