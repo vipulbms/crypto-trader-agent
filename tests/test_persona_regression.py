@@ -239,5 +239,87 @@ class TestPersonaRegressionIntegration(unittest.TestCase):
         self.assertGreaterEqual(result["final_balance"], 0.0)
 
 
+# ── S19.1.2 AC1/AC2 — v2 baseline comparison ─────────────────────────────────
+
+def _run_mini_backtest_no_persona(max_steps: int = 50) -> dict:
+    """Run a fast backtest without applying any persona (v2 baseline). Returns result dict."""
+    from tests.backtest.loader import load_all_pairs
+    from tests.test_backtest_fast import run_backtest
+
+    config = _load_full_config()
+    # Deliberately do NOT call apply_persona() — this is the v2 baseline path
+
+    pair_candles = load_all_pairs(["BTC/USD", "ETH/USD"], history_dir="history")
+    return run_backtest(
+        config=config,
+        pair_candles=pair_candles,
+        start_date="",
+        max_steps=max_steps,
+        pairs_filter=["BTC/USD", "ETH/USD"],
+    )
+
+
+@unittest.skipUnless(_HAVE_DATA, "history/ candle files not present — skipping integration tests")
+class TestConservativeVsV2Baseline(unittest.TestCase):
+    """S19.1.2 AC1/AC2 — Verify conservative persona against the no-persona (v2) baseline.
+
+    The two runs use the same candle slice and market data.  Applying the
+    conservative persona must produce a valid, comparable result — not a crash,
+    not a wildly divergent balance caused by a config override bug.
+
+    Tolerance is set at 0.1% of the starting balance (not of the P&L, which
+    may be zero) so the assertion is meaningful even when neither run has any
+    closed trades.
+    """
+
+    _MAX_STEPS = 50
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r_baseline     = _run_mini_backtest_no_persona(max_steps=cls._MAX_STEPS)
+        cls.r_conservative = _run_mini_backtest("conservative", max_steps=cls._MAX_STEPS)
+
+    def test_both_runs_complete(self):
+        """Both baseline and conservative runs must complete and return valid structure."""
+        self.assertIn("final_balance", self.r_baseline)
+        self.assertIn("final_balance", self.r_conservative)
+        self.assertGreaterEqual(self.r_baseline["cycles"], 1)
+        self.assertGreaterEqual(self.r_conservative["cycles"], 1)
+
+    def test_conservative_final_balance_within_tolerance(self):
+        """Conservative final balance must be within 0.1% of starting balance of the baseline.
+
+        A larger gap would indicate a persona config bug (e.g. wrong position sizing
+        multiplier) rather than normal signal-gate variation.
+        """
+        start = self.r_baseline["starting_balance"]
+        tolerance = start * 0.001  # 0.1% of starting balance
+        diff = abs(self.r_conservative["final_balance"] - self.r_baseline["final_balance"])
+        self.assertLessEqual(
+            diff, tolerance,
+            msg=(
+                f"Conservative final balance ${self.r_conservative['final_balance']:.4f} "
+                f"differs from baseline ${self.r_baseline['final_balance']:.4f} "
+                f"by ${diff:.4f} (tolerance ${tolerance:.4f})"
+            ),
+        )
+
+    def test_cycle_counts_match(self):
+        """Both runs must iterate over the same number of candle cycles."""
+        self.assertEqual(
+            self.r_baseline["cycles"],
+            self.r_conservative["cycles"],
+            msg="Cycle counts differ — persona may be altering the feed or loop logic",
+        )
+
+    def test_starting_balance_unchanged(self):
+        """Both runs must start from the same balance (no persona startup side-effect)."""
+        self.assertAlmostEqual(
+            self.r_baseline["starting_balance"],
+            self.r_conservative["starting_balance"],
+            places=2,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

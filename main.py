@@ -954,6 +954,13 @@ async def run_cycle(
 
         # Persist regime + cycle diagnostics to agent_state for CLI / MCP (S17/S18)
         try:
+            # S18.1.4 AC4 — derive currently-frozen pairs for UI display
+            _frozen_pairs = (
+                ",".join(
+                    p for p, cnt in loop_state["freeze_cycle_count"].items() if cnt > 0
+                )
+                if loop_state is not None else ""
+            )
             _as_conn = get_connection(trading_db_path)
             _as_conn.executemany(
                 "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
@@ -963,6 +970,7 @@ async def run_cycle(
                     ("daily_pnl_pct_last",  str(round(daily_pnl["pnl_pct"], 4))),
                     ("btc_dom_trend_current", str(_btc_trend)),
                     ("last_cycle_ts",       str(int(time.time()))),
+                    ("feed_frozen_pairs",   _frozen_pairs),
                 ],
             )
             _as_conn.commit()
