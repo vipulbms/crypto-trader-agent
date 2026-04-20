@@ -280,6 +280,40 @@ class Notifier:
         )
         self._send(msg)
 
+    def send_playbook_changed(self, old_playbook: str, new_playbook: str) -> None:
+        """Alert when the orchestrator switches the active playbook (S16.1.1)."""
+        icons = {"risk_off": "🔴", "ranging": "🟡", "momentum": "🟢", "standard": "⚪"}
+        old_icon = icons.get(old_playbook, "⚪")
+        new_icon = icons.get(new_playbook, "⚪")
+        msg = (
+            f"{self._prefix}🎯 <b>Playbook Changed</b>\n"
+            f"{old_icon} {html.escape(old_playbook)} → {new_icon} {html.escape(new_playbook)}"
+        )
+        self._send(msg)
+
+    def send_velocity_circuit_open(self, loss_rate_pct: float, halt_hours: float) -> None:
+        """Alert when the velocity circuit breaker trips (S15.3.1)."""
+        msg = (
+            f"{self._prefix}⚡ <b>Velocity Circuit Open</b>\n"
+            f"Hourly loss rate: {loss_rate_pct:.2f}%\n"
+            f"Trading halted for {halt_hours:.1f} hours."
+        )
+        self._send(msg)
+
+    def send_velocity_circuit_cleared(self) -> None:
+        """Alert when the velocity circuit breaker clears (S15.3.1)."""
+        msg = f"{self._prefix}✅ <b>Velocity Circuit Cleared</b>\nTrading may resume normally."
+        self._send(msg)
+
+    def send_agent_timeout_risk_off(self, agent_name: str) -> None:
+        """Alert when consecutive agent timeouts force a risk-off playbook (S16.2.1)."""
+        msg = (
+            f"{self._prefix}⚠️ <b>Agent Timeout — Risk-Off Activated</b>\n"
+            f"Agent <b>{html.escape(agent_name)}</b> timed out on 2+ consecutive cycles.\n"
+            f"Playbook forced to <b>risk_off</b> until agent recovers."
+        )
+        self._send(msg)
+
     def ping_healthcheck(self) -> None:
         """Pings an external webhook (e.g. healthchecks.io) to signal the bot is alive."""
         if not self._healthcheck_url:
