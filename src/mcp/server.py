@@ -267,3 +267,88 @@ class MCPServer:
         site = web.TCPSite(runner, _BIND_HOST, self._port)
         await site.start()
         logger.info("[MCP] Server listening on %s:%d", _BIND_HOST, self._port)
+
+
+# ── CLI entry point ───────────────────────────────────────────────────────────
+
+def _main() -> None:
+    """
+    AC5: Start the MCP server from the command line.
+
+    Usage:
+        python src/mcp/server.py --mode paper
+        python src/mcp/server.py --mode live
+        python src/mcp/server.py --mode paper --port 8092
+    """
+    import argparse
+    import asyncio
+    import signal
+
+    import yaml
+
+    parser = argparse.ArgumentParser(
+        description="Kryptos MCP HTTP server — read-only state query interface"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["paper", "live"],
+        required=True,
+        help="Trading mode: 'paper' → paper_trading.db, 'live' → live_trading.db",
+    )
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to config.yaml (default: config.yaml)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=f"Override port (default: config mcp.port or {_DEFAULT_PORT})",
+    )
+    args = parser.parse_args()
+
+    with open(args.config) as fh:
+        config = yaml.safe_load(fh)
+
+    # Resolve DB path based on mode
+    storage = config.get("storage", {})
+    if args.mode == "live":
+        db_file = storage.get("live_db", "live_trading.db")
+    else:
+        db_file = storage.get("paper_db", "paper_trading.db")
+
+    from src.storage.database import get_db_path
+    db_path = get_db_path(db_file)
+
+    if args.port is not None:
+        config.setdefault("mcp", {})["port"] = args.port
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    if not _AIOHTTP_AVAILABLE:
+        logger.error("aiohttp is required: pip install aiohttp")
+        raise SystemExit(1)
+
+    server = MCPServer(config, db_path)
+
+    async def _serve() -> None:
+        await server.start()
+        logger.info("[MCP] Mode=%s  DB=%s", args.mode, db_path)
+        stop_event = asyncio.Event()
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop_event.set)
+
+        await stop_event.wait()
+        logger.info("[MCP] Shutting down.")
+
+    asyncio.run(_serve())
+
+
+if __name__ == "__main__":
+    _main()

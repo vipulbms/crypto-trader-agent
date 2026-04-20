@@ -19,10 +19,19 @@ Usage:
     # Run with a specific persona applied (overrides config defaults)
     python tests/test_backtest.py --no-llm --persona high
     python tests/test_backtest.py --persona conservative --start-date 2025-12-01
+
+    # Run all three personas sequentially and compare
+    python tests/test_backtest.py --no-llm --all-personas
+
+    # Write closed trade CSV (persona column included)
+    python tests/test_backtest.py --no-llm --persona medium --csv
+    python tests/test_backtest.py --no-llm --all-personas --csv --output results.csv
 """
 
 import argparse
 import asyncio
+import csv
+import copy
 import logging
 import os
 import sys
@@ -47,6 +56,15 @@ from main import run_agent
 
 
 VALID_PERSONAS = {"conservative", "medium", "high"}
+ALL_PERSONAS_ORDER = ["conservative", "medium", "high"]
+
+# Columns written to the CSV (persona column is appended)
+_TRADE_COLUMNS = [
+    "id", "opened_at", "closed_at", "pair", "side",
+    "entry_price", "exit_price", "volume", "usd_invested",
+    "pnl_usd", "pnl_pct", "exit_reason", "hold_duration_secs",
+    "fee_usd", "stop_loss_pct", "take_profit_pct", "persona",
+]
 
 
 def apply_persona(config: dict, persona_name: str) -> None:
@@ -88,6 +106,56 @@ def apply_persona(config: dict, persona_name: str) -> None:
         )
 
 
+def _read_trades_from_fast_db(persona_label: str) -> list[dict]:
+    """Read closed trades from the fast-backtest paper DB and tag with persona_label."""
+    db_path = get_db_path("backtest_fast_paper.db")
+    if not os.path.exists(db_path):
+        return []
+    conn = get_connection("backtest_fast_paper.db")
+    try:
+        rows = conn.execute(
+            "SELECT " + ", ".join(c for c in _TRADE_COLUMNS if c != "persona")
+            + " FROM paper_trades ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    cols = [c for c in _TRADE_COLUMNS if c != "persona"]
+    result = []
+    for row in rows:
+        d = dict(zip(cols, row))
+        d["persona"] = persona_label
+        result.append(d)
+    return result
+
+
+def _write_csv(trades: list[dict], output_path: str) -> None:
+    """Write trade rows to CSV at output_path."""
+    with open(output_path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_TRADE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(trades)
+    print(f"\n[CSV] {len(trades)} trades written to {output_path}")
+
+
+def _print_persona_comparison(results: list[tuple[str, dict]]) -> None:
+    """Print a side-by-side comparison table for multiple persona runs."""
+    print("\n" + "═" * 90)
+    print("  PERSONA COMPARISON")
+    print("═" * 90)
+    header = f"  {'Persona':<14} {'Start $':>9} {'End $':>9} {'Net P&L':>10} {'Net%':>8} {'Cycles':>8} {'Buys':>6}"
+    print(header)
+    print("  " + "-" * 84)
+    for persona, res in results:
+        start = res["starting_balance"]
+        end   = res["final_balance"]
+        net   = end - start
+        pct   = net / start * 100 if start else 0.0
+        cycles = res["cycles"]
+        buys  = sum(s.get("buys", 0) for s in res["stats"].values())
+        print(f"  {persona.upper():<14} {start:>9,.2f} {end:>9,.2f} {net:>+10,.2f} {pct:>+7.2f}% {cycles:>8} {buys:>6}")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run Kryptos backtest over historical candles")
     parser.add_argument(
@@ -110,6 +178,18 @@ def main():
         "--persona", type=str, default=None,
         choices=sorted(VALID_PERSONAS),
         help="Apply persona config overrides before running (conservative | medium | high)",
+    )
+    parser.add_argument(
+        "--all-personas", action="store_true",
+        help="(--no-llm only) Run backtest for all three personas sequentially and compare",
+    )
+    parser.add_argument(
+        "--csv", action="store_true",
+        help="Write closed trade records to a CSV file after the run",
+    )
+    parser.add_argument(
+        "--output", type=str, default="backtest_results.csv",
+        help="CSV output file path (default: backtest_results.csv)",
     )
     args = parser.parse_args()
 
@@ -134,6 +214,38 @@ def main():
         print(f"Loaded: {len(loaded)} pairs  |  Skipped (no data): {len(skipped)}")
         if skipped:
             print(f"  Skipped: {', '.join(skipped)}")
+
+        # ── All-personas comparison mode ──────────────────────────────────────
+        if args.all_personas:
+            with open("config.yaml") as _f:
+                base_config = yaml.safe_load(_f)
+            all_results: list[tuple[str, dict]] = []
+            all_trades:  list[dict] = []
+
+            for persona in ALL_PERSONAS_ORDER:
+                cfg = copy.deepcopy(base_config)
+                apply_persona(cfg, persona)
+                print(f"\n{'─'*60}")
+                print(f"  Running persona: {persona.upper()}")
+                print(f"{'─'*60}")
+                res = run_backtest(
+                    config=cfg,
+                    pair_candles=pair_candles,
+                    start_date=args.start_date,
+                    max_steps=args.candles,
+                    pairs_filter=args.pairs,
+                )
+                print_summary(res)
+                all_results.append((persona, res))
+                if args.csv:
+                    all_trades.extend(_read_trades_from_fast_db(persona))
+
+            _print_persona_comparison(all_results)
+            if args.csv:
+                _write_csv(all_trades, args.output)
+            return
+
+        # ── Single-persona (or no-persona) fast path ──────────────────────────
         result = run_backtest(
             config=config,
             pair_candles=pair_candles,
@@ -142,6 +254,10 @@ def main():
             pairs_filter=args.pairs,
         )
         print_summary(result)
+        if args.csv:
+            persona_label = args.persona or ""
+            trades = _read_trades_from_fast_db(persona_label)
+            _write_csv(trades, args.output)
         return
 
     # ── Full path: LLM pipeline ────────────────────────────────────────────────

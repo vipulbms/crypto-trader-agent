@@ -2,6 +2,26 @@
 
 ---
 
+## Session: 2026-04-21 (Part A) — Sprint S6-S8 AC Gap Fixes
+
+### Fixes / Gaps Closed
+
+| Gap | Story | Files Changed |
+|-----|-------|---------------|
+| MCP server `--mode paper\|live` CLI entrypoint | S17.1.1 AC5 | `src/mcp/server.py` |
+| MCP server documentation in README | S17.1.1 AC7 | `README.md` |
+| Swagger/OpenAPI on PersonaController + springdoc dep | S18.1.3 AC6 | `kryptos-api/pom.xml`, `PersonaController.java` |
+| Feed-frozen pairs surfaced end-to-end in UI | S18.1.4 AC4 | `main.py`, `AgentStatusDto.java`, `AgentService.java`, `types.ts`, `AgentStatusPanel.tsx` |
+| `--all-personas` + `--csv` + `--output` in test_backtest | S19.1.1 AC2+AC4 | `tests/test_backtest.py` |
+| `TestConservativeVsV2Baseline` regression test (4 tests) | S19.1.2 AC1+AC2 | `tests/test_persona_regression.py` |
+
+### Tests
+- 39 tests pass: `test_persona_regression` (24), `test_s17_mcp_server` (8), `test_s18_persona_cli` (7)
+- Java: `mvn compile` clean
+- Closes: #303, #306, #307, #308, #309
+
+---
+
 ## Session: 2026-04-20 (Part A) — Sprint S6: MCP Server + Persona/Regime CLI + Java API Persona Endpoints
 
 ### Bug Fixes
