@@ -144,3 +144,55 @@ class Orchestrator:
             conn.close()
         except Exception as exc:
             logger.warning("[ORCH] Failed to persist playbook to agent_state: %s", exc)
+
+    # ── S23.2.1 Playbook feedback bias ───────────────────────────────────────
+
+    def get_playbook_bias(self, regime: str) -> dict:
+        """
+        S23.2.1 AC4 — Return priority multipliers per playbook for ``regime`` based on
+        historical performance stored in ``playbook_performance``.
+
+        Returns a dict ``{playbook_name: multiplier}`` where:
+          - multiplier=2 when sample_count >= 10 AND profit_factor > 1.2 (strong evidence)
+          - multiplier=1 when sample_count >= 10 but profit_factor <= 1.2
+          - Playbooks with sample_count < 10 are excluded (insufficient data)
+          - Returns ``{}`` when no qualifying rows exist for this regime.
+
+        Callers use the multiplier as a priority hint inside ``select_playbook()``.
+        This is read-only — does NOT persist ``current_playbook``.
+
+        Args:
+            regime: current regime string (e.g. 'trending_up', 'ranging')
+
+        Returns:
+            Dict of {playbook: multiplier} for all qualifying playbooks.
+        """
+        if not self._db_path:
+            return {}
+        try:
+            from src.storage.database import get_connection
+            conn = get_connection(self._db_path)
+            rows = conn.execute(
+                """SELECT playbook, profit_factor, sample_count
+                   FROM playbook_performance
+                   WHERE regime=? AND sample_count >= 10
+                   ORDER BY profit_factor DESC""",
+                (regime,),
+            ).fetchall()
+            conn.close()
+            if not rows:
+                return {}
+            result = {}
+            for row in rows:
+                pf = float(row["profit_factor"])
+                multiplier = 2 if pf > 1.2 else 1
+                result[row["playbook"]] = multiplier
+                logger.debug(
+                    "[ORCH] Playbook bias regime=%s playbook=%s PF=%.2f n=%d → mult=%d",
+                    regime, row["playbook"], pf, row["sample_count"], multiplier,
+                )
+            return result
+        except Exception as exc:
+            logger.debug("[ORCH] get_playbook_bias failed: %s", exc)
+        return {}
+

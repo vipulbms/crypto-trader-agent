@@ -9,11 +9,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Module-level data directory path — tests may monkeypatch this to a tmp_path.
+DATA_DIR_PATH: str = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data",
+)
+
 
 def _get_db_path(db_filename: str) -> str:
-    """Return absolute path to a DB file in the project root data/ directory."""
-    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    data_dir = os.path.join(base, "data")
+    """Return absolute path to a DB file in DATA_DIR_PATH (overrideable by tests)."""
+    import src.storage.database as _self
+    data_dir = _self.DATA_DIR_PATH
     os.makedirs(data_dir, exist_ok=True)
     return os.path.join(data_dir, db_filename)
 
@@ -400,6 +406,135 @@ CREATE TABLE IF NOT EXISTS audit_errors (
 """
 
 
+# ──────────────────────────────────────────────────────────────
+# RAA schema — Research Analyst Agent universe tables (S22.1.1)
+# ──────────────────────────────────────────────────────────────
+
+RAA_SCHEMA = """
+CREATE TABLE IF NOT EXISTS trend_persistence (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair                TEXT NOT NULL UNIQUE,
+    classification      TEXT NOT NULL,
+    persistence_score   REAL NOT NULL DEFAULT 0.0,
+    cycles_sustained    INTEGER NOT NULL DEFAULT 0,
+    first_seen_at       TEXT NOT NULL,
+    last_updated_at     TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'CANDIDATE'
+);
+
+CREATE TABLE IF NOT EXISTS universe (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair                    TEXT NOT NULL UNIQUE,
+    classification          TEXT NOT NULL,
+    added_at                TEXT NOT NULL,
+    added_by                TEXT NOT NULL DEFAULT 'RAA',
+    alpha_spread_at_entry   REAL,
+    replace_target_if_any   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS universe_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair            TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    ts              TEXT NOT NULL,
+    processed       INTEGER NOT NULL DEFAULT 0,
+    payload_json    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_universe_events_pair ON universe_events(pair, ts);
+"""
+
+# ──────────────────────────────────────────────────────────────
+# Feedback schema — Audit Agent closed-loop tables (S23.1.1)
+# ──────────────────────────────────────────────────────────────
+
+FEEDBACK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS audit_feedback (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent           TEXT NOT NULL,
+    pair            TEXT,
+    event_type      TEXT NOT NULL,
+    ts              TEXT NOT NULL,
+    psv_vector      TEXT NOT NULL DEFAULT '',
+    expected_alpha  REAL,
+    actual_alpha    REAL,
+    outcome         TEXT,
+    penalty_weight  REAL NOT NULL DEFAULT 0.0
+);
+CREATE INDEX IF NOT EXISTS ix_audit_feedback_agent_ts ON audit_feedback(agent, ts);
+
+CREATE TABLE IF NOT EXISTS playbook_performance (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    regime          TEXT NOT NULL,
+    playbook        TEXT NOT NULL,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    win_rate        REAL,
+    profit_factor   REAL,
+    max_drawdown    REAL,
+    last_updated_at TEXT NOT NULL,
+    UNIQUE(regime, playbook)
+);
+
+CREATE TABLE IF NOT EXISTS signal_accuracy (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair              TEXT NOT NULL,
+    driver            TEXT NOT NULL,
+    accuracy_pct      REAL NOT NULL DEFAULT 0.0,
+    weight_multiplier REAL NOT NULL DEFAULT 1.0,
+    sample_count      INTEGER NOT NULL DEFAULT 0,
+    last_updated_at   TEXT NOT NULL,
+    UNIQUE(pair, driver)
+);
+
+CREATE TABLE IF NOT EXISTS llm_reflection_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent       TEXT NOT NULL,
+    pair        TEXT,
+    lesson_text TEXT NOT NULL,
+    ts          TEXT NOT NULL,
+    injected    INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS ix_llm_reflection_agent ON llm_reflection_log(agent, ts);
+
+CREATE TABLE IF NOT EXISTS confidence_state (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent                    TEXT NOT NULL UNIQUE,
+    ps_threshold_override    REAL,
+    sector_multiplier_json   TEXT,
+    driver_multiplier_json   TEXT,
+    confidence_reset_count   INTEGER NOT NULL DEFAULT 0,
+    substitution_tool_locked INTEGER NOT NULL DEFAULT 0,
+    locked_until_ts          TEXT,
+    last_updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS risk_decision_outcomes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair            TEXT NOT NULL UNIQUE,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    sl_hit_rate     REAL NOT NULL DEFAULT 0.0,
+    tp_hit_rate     REAL NOT NULL DEFAULT 0.0,
+    avg_hold_secs   REAL,
+    last_updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hitl_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              TEXT NOT NULL,
+    agent           TEXT NOT NULL,
+    proposal_type   TEXT NOT NULL,
+    pair            TEXT NOT NULL,
+    replace_target  TEXT,
+    classification  TEXT,
+    psv_vector      TEXT,
+    rationale       TEXT,
+    status          TEXT NOT NULL DEFAULT 'PENDING',
+    resolved_at     TEXT,
+    resolved_by     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_hitl_queue_status ON hitl_queue(status, ts);
+"""
+
+
 def _init_db(conn: sqlite3.Connection, schema: str, db_name: str) -> None:
     """Execute a multi-statement schema string on the given connection."""
     try:
@@ -417,6 +552,8 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     _init_db(conn, PAPER_SCHEMA, paper_db)
     _init_db(conn, COLLECTOR_SCHEMA, paper_db)  # S21.1.1: candle_buffer + orderbook_snapshots
     _init_db(conn, FULFILLMENT_AUDIT_SCHEMA, paper_db)  # S21.2.2: fulfillment audit trail
+    _init_db(conn, RAA_SCHEMA, paper_db)      # S22.1.1: trend_persistence, universe, universe_events
+    _init_db(conn, FEEDBACK_SCHEMA, paper_db) # S23.1.1: audit_feedback, hitl_queue, etc.
     # Idempotent migrations for columns/tables added after initial schema creation
     for col_ddl in [
         "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
@@ -449,6 +586,8 @@ def init_live_db(live_db: str) -> None:
     _init_db(conn, LIVE_SCHEMA, live_db)
     _init_db(conn, COLLECTOR_SCHEMA, live_db)  # S21.1.1: candle_buffer + orderbook_snapshots
     _init_db(conn, FULFILLMENT_AUDIT_SCHEMA, live_db)  # S21.2.2: fulfillment audit trail
+    _init_db(conn, RAA_SCHEMA, live_db)      # S22.1.1: trend_persistence, universe, universe_events
+    _init_db(conn, FEEDBACK_SCHEMA, live_db) # S23.1.1: audit_feedback, hitl_queue, etc.
     for col_ddl in [
         "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",

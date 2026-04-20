@@ -92,6 +92,28 @@ def generate_signal(pair: str, indicators: dict, config: dict, playbook: str = "
     w_engulfing           = sig_cfg.get("engulfing_weight", 2)              # Bullish engulfing (#184)
     w_doji_support        = sig_cfg.get("doji_support_weight", 1)           # Doji at support (#184)
 
+    # S23.2.2 — Apply signal accuracy driver multipliers from Audit Agent feedback.
+    # Multipliers are injected by main.py per pair from signal_accuracy table.
+    # Values are pre-clamped to [0.5, 1.5] before injection.
+    _dwm = indicators.get("driver_weight_multipliers", {})
+    if _dwm:
+        def _m(key: str, base: float) -> float:
+            return base * _dwm.get(key, 1.0)
+        w_rsi_oversold       = _m("rsi_oversold",            w_rsi_oversold)
+        w_macd_turn_positive = _m("macd_histogram_turn",     w_macd_turn_positive)
+        w_macd_hist_pos      = _m("macd_histogram_positive", w_macd_hist_pos)
+        w_bb_lower           = _m("bb_lower_bounce",         w_bb_lower)
+        w_fear_greed_fear    = _m("fear_greed_fear",         w_fear_greed_fear)
+        w_fear_greed_extreme = _m("fear_greed_extreme_fear", w_fear_greed_extreme)
+        w_adx_strong         = _m("adx_strong",              w_adx_strong)
+        w_div_bull_regular   = _m("rsi_divergence_bullish",  w_div_bull_regular)
+        w_div_bull_hidden    = _m("rsi_divergence_hidden",   w_div_bull_hidden)
+        w_obv_accumulation   = _m("obv_trend_up",            w_obv_accumulation)
+        w_bb_squeeze_release = _m("bb_squeeze_release",      w_bb_squeeze_release)
+        w_hammer             = _m("hammer",                  w_hammer)
+        w_engulfing          = _m("bullish_engulfing",       w_engulfing)
+        w_doji_support       = _m("doji_at_support",         w_doji_support)
+
     # SELL score weights
     w_rsi_overbought  = sig_cfg.get("rsi_overbought_score", 3)
     w_macd_hist_neg   = sig_cfg.get("macd_hist_negative_score", 2)
