@@ -32,10 +32,13 @@ import argparse
 import asyncio
 import json
 import logging
+import logging.handlers
 import math
+import os
 import signal
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -57,8 +60,14 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.storage.database import get_connection, RAA_SCHEMA, FEEDBACK_SCHEMA
+from src.utils.llm_logger import init_llm_logger, log_llm_interaction
+from src.utils.cycle_logger import init_cycle_logger, write_raa_cycle_report
 
 logger = logging.getLogger("research_analyst")
+
+# Module-level identifiers — stable for the lifetime of this process
+_RAA_SESSION_ID: str = uuid.uuid4().hex[:8]
+_raa_cycle_counter: int = 0
 
 # ─────────────────────────────────────────────────────────────
 # Constants
@@ -920,7 +929,7 @@ def _is_substitution_locked(db_path: str) -> bool:
 def _build_raa_system_prompt(config: dict, persona: str, universe: list[dict]) -> str:
     """
     Build the RAA system prompt containing all universe management rules.
-    The LLM uses the registered tools to fetch live data, then calls universe_decision.
+    The LLM evaluates ALL candidates in one call and calls universe_decision once per candidate.
     Token budget: keep under 1 500 tokens so the full call stays within 6 000.
     """
     raa_cfg = config.get("raa", {})
@@ -951,29 +960,33 @@ def _build_raa_system_prompt(config: dict, persona: str, universe: list[dict]) -
 
     return f"""You are the Research Analyst Agent (RAA) for a crypto trading system.
 
-Your job: evaluate candidate pairs and decide whether to ADD, REMOVE, or HOLD the universe.
+Your job: evaluate ALL candidate pairs listed in this cycle and decide ADD, REMOVE, or HOLD for each.
 
-## Tools available
-- kraken_ticker(pairs): fetch live price, volume, OHLCV variance for a list of pairs.
-- get_universe(): return current tradeable universe (pair, classification, alpha_spread_at_entry).
-- get_trend_persistence(pair): return persistence_score, cycles_sustained, status for a pair.
-- get_confidence_state(): return ps_threshold_override and self-reflection state.
+## Tool available
+- universe_decision: record your ADD/REMOVE/HOLD verdict for a candidate pair.
 
-## Decision rules (apply in order)
-1. STALE_FEED: if kraken_ticker shows OHLCV variance == 0 for candidate → HOLD (skip).
-2. PERSISTENCE GATE: persistence_score >= {min_ps} AND cycles_sustained >= {min_cycles} required to propose ADD.
-3. MEME_BLOCK (hard — cannot override): MEME-classified pair cannot displace a FOUNDATIONAL pair.
-4. ALPHA SPREAD: projected 24h alpha of candidate vs replace_target >= {min_alpha}%. If below → HOLD.
-5. UNIVERSE CAP: max {universe_cap} pairs. If at cap, must provide replace_target.
+## All data you need is already in the user message — no data fetching required.
+
+## Decision rules (apply in order, for each candidate)
+1. STALE_FEED: variance=FROZEN → HOLD.
+2. PERSISTENCE GATE: persistence_score >= {min_ps} AND cycles_sustained >= {min_cycles} required to ADD.
+3. MEME_BLOCK (hard — cannot override): MEME cannot displace a FOUNDATIONAL pair.
+4. ALPHA SPREAD: projected 24h alpha vs replace_target >= {min_alpha}%. If below → HOLD.
+5. UNIVERSE CAP: max {universe_cap} pairs. At cap you must provide replace_target.
 6. {persona_rules or "CONSERVATIVE PERSONA: require all gates to pass; no bypasses."}
+
+## Ranking guidance
+Consider all candidates together. Prefer higher persistence_score and positive alpha over the current universe. A pair that qualifies for ADD but has weaker metrics than another ADD candidate should still receive universe_decision(action=ADD) — the cap and replacement logic handles capacity.
 
 ## Current universe ({len(universe)} pairs)
 {current_pairs}
 
 ## Output
-Call universe_decision exactly once per candidate. Fields: action (ADD|REMOVE|HOLD),
-pair, replace_target (or null), classification (FOUNDATIONAL|MEME),
-rationale (1–2 sentences), psv_vector (pipe-separated: pair|price|ps|alpha|classification|action).
+Call universe_decision ONCE per candidate (multiple calls allowed in one session).
+You MUST call universe_decision for every candidate listed in the user message — no candidate may be silently skipped.
+Fields: action (ADD|REMOVE|HOLD), pair, replace_target (null if not needed),
+classification (FOUNDATIONAL|MEME), rationale (1–2 sentences),
+psv_vector (pipe-separated: pair|price|ps|alpha|classification|action).
 Be concise — total response must stay within 6000 tokens."""
 
 
@@ -1061,6 +1074,10 @@ _RAA_MCP_TOOLS = [
     },
 ]
 
+# Batch call uses only the decision tool — all data is pre-injected into the prompt.
+# Removing data tools eliminates unnecessary tool-call round-trips that trigger rate limits.
+_RAA_BATCH_TOOLS = [t for t in _RAA_MCP_TOOLS if t["function"]["name"] == "universe_decision"]
+
 
 def _dispatch_raa_tool(tool_name: str, tool_args: dict, db_path: str) -> str:
     """
@@ -1085,109 +1102,18 @@ def _dispatch_raa_tool(tool_name: str, tool_args: dict, db_path: str) -> str:
     return json.dumps({"error": f"unknown tool: {tool_name}"})
 
 
-def _run_llm_universe_decision(
-    pair: str,
+def _apply_llm_decision(
+    decision_args: dict,
     universe: list[dict],
     db_path: str,
-    config: dict,
-    ai_client: Any,
+    ticker_data: dict,
 ) -> dict:
     """
-    Delegate the universe add/remove decision to the LLM (#354).
-
-    The LLM receives MCP-registered tools (kraken_ticker, get_universe,
-    get_trend_persistence, get_confidence_state) plus universe_decision as the
-    output tool. It may call the data tools freely, then must call universe_decision
-    exactly once.
-
-    Two hard Python guards applied AFTER the LLM decision:
-      - Meme-block (S22.2.1): MEME cannot displace FOUNDATIONAL.
-      - HITL lock (S23.1.3): substitution routed to hitl_queue when lock active.
-
-    Returns dict with keys: status, action, reason, universe_event_written.
+    Apply a single universe_decision tool call from the LLM.
+    Enforces hard guards (HITL lock, meme-block) and commits the result to DB.
+    Returns dict with keys: pair, status, action, reason, universe_event_written.
     """
-    if not _AI_AVAILABLE or ai_client is None:
-        logger.warning("[RAA] AIClient not available — skipping LLM decision for %s", pair)
-        return {"status": "skipped", "action": "HOLD", "reason": "NO_AI_CLIENT",
-                "universe_event_written": False}
-
-    persona = config.get("agent", {}).get("persona", "conservative")
-    system_prompt = _build_raa_system_prompt(config, persona, universe)
-
-    messages = [
-        {
-            "role": "user",
-            "content": (
-                f"Evaluate candidate pair: {pair}\n"
-                f"Use your tools to fetch the latest ticker, trend persistence, "
-                f"and universe state. Then call universe_decision with your verdict."
-            ),
-        }
-    ]
-
-    decision_args: Optional[dict] = None
-    max_tool_rounds = 6  # prevent runaway loops
-
-    for round_num in range(max_tool_rounds):
-        try:
-            logger.info("[RAA] LLM call|universe_decision|pair=%s|round=%d|messages=%d",
-                        pair, round_num + 1, len(messages))
-            result = ai_client.chat_with_tools(
-                messages=messages,
-                tools=_RAA_MCP_TOOLS,
-                system=system_prompt,
-            )
-            logger.info("[RAA] LLM response|universe_decision|pair=%s|round=%d|tool_calls=%s",
-                        pair, round_num + 1,
-                        "|".join(c.get("name", "?") for c in result.get("tool_calls", [])) or "none")
-        except Exception as e:
-            logger.error("[RAA] LLM call failed for %s: %s", pair, e)
-            _write_audit_feedback(db_path, "RAA", pair, "LLM_CALL_FAILED",
-                                  psv_vector=f"{pair}|error={e}", penalty_weight=-0.5)
-            return {"status": "error", "action": "HOLD", "reason": "LLM_CALL_FAILED",
-                    "universe_event_written": False}
-
-        tool_calls = result.get("tool_calls", [])
-        if not tool_calls:
-            # LLM returned text only — no decision made
-            break
-
-        assistant_tool_calls = []
-        tool_results = []
-        found_decision = False
-
-        for call in tool_calls:
-            name = call.get("name", "")
-            args = call.get("args", {})
-            call_id = call.get("id", name)
-
-            if name == "universe_decision":
-                decision_args = args
-                found_decision = True
-                break  # decision reached — stop tool loop
-
-            # Data tool — dispatch and collect result
-            tool_result = _dispatch_raa_tool(name, args, db_path)
-            assistant_tool_calls.append({"id": call_id, "name": name, "args": args})
-            tool_results.append({"tool_call_id": call_id, "content": tool_result})
-
-        if found_decision:
-            break
-
-        if not tool_results:
-            break
-
-        # Append assistant tool call turn + tool results for next round
-        messages.append({"role": "assistant", "tool_calls": assistant_tool_calls})
-        messages.append({"role": "tool", "content": json.dumps(tool_results)})
-
-    if not decision_args:
-        logger.warning("[RAA] LLM did not call universe_decision for %s — defaulting HOLD", pair)
-        _write_audit_feedback(db_path, "RAA", pair, "LLM_NO_DECISION",
-                              psv_vector=f"{pair}|no_decision", penalty_weight=-0.5)
-        return {"status": "no_decision", "action": "HOLD", "reason": "LLM_NO_DECISION",
-                "universe_event_written": False}
-
+    pair = decision_args.get("pair", "")
     action = decision_args.get("action", "HOLD")
     classification = decision_args.get("classification", "FOUNDATIONAL")
     replace_target = decision_args.get("replace_target") or None
@@ -1198,7 +1124,7 @@ def _run_llm_universe_decision(
 
     if action != "ADD":
         _write_universe_event(db_path, pair, f"LLM_{action}", {"rationale": rationale})
-        return {"status": "ok", "action": action, "reason": action,
+        return {"pair": pair, "status": "ok", "action": action, "reason": action,
                 "universe_event_written": True}
 
     # ── Hard guard 1: HITL lock (S23.1.3) ──────────────────────────────────
@@ -1210,8 +1136,8 @@ def _run_llm_universe_decision(
         _write_universe_event(db_path, pair, "PROPOSE_REJECTED",
                               {"reason": "HITL_LOCKED", "hitl_queue_id": hitl_id})
         logger.info("[RAA] HITL_LOCK active — %s routed to hitl_queue (id=%d)", pair, hitl_id)
-        return {"status": "hitl_queued", "action": "HOLD", "reason": "HITL_LOCKED",
-                "universe_event_written": True}
+        return {"pair": pair, "status": "hitl_queued", "action": "HOLD",
+                "reason": "HITL_LOCKED", "universe_event_written": True}
 
     # ── Hard guard 2: Meme-block (S22.2.1) ─────────────────────────────────
     replace_class: Optional[str] = None
@@ -1225,14 +1151,12 @@ def _run_llm_universe_decision(
         db_path, _FOUNDATIONAL_ANCHORS,
     )
     if meme_block_reason:
-        return {"status": "rejected", "action": "HOLD", "reason": meme_block_reason,
-                "universe_event_written": True}
+        return {"pair": pair, "status": "rejected", "action": "HOLD",
+                "reason": meme_block_reason, "universe_event_written": True}
 
     # ── Commit ADD to universe ──────────────────────────────────────────────
     alpha_spread = 0.0
     try:
-        # Recompute alpha from live ticker for the DB record
-        ticker_data = _fetch_kraken_ticker([pair] + ([replace_target] if replace_target else []))
         alpha_spread = compute_alpha_spread(pair, replace_target, universe, ticker_data)
     except Exception:
         pass
@@ -1250,8 +1174,185 @@ def _run_llm_universe_decision(
 
     logger.info("[RAA] ADD committed: %s (replace=%s alpha=%.2f%%)",
                 pair, replace_target, alpha_spread)
-    return {"status": "approved", "action": "ADD", "reason": None,
+    return {"pair": pair, "status": "approved", "action": "ADD", "reason": None,
             "universe_event_written": True}
+
+
+def _run_llm_batch_universe_decision(
+    candidates: list[str],
+    universe: list[dict],
+    db_path: str,
+    config: dict,
+    ai_client: Any,
+    ticker_data: dict,
+    persistence_data: dict[str, dict],
+) -> list[dict]:
+    """
+    Evaluate ALL candidate pairs in a single LLM conversation (#357).
+
+    Pre-fetched ticker and persistence data are injected into the user message so
+    the LLM can make relative comparisons across all candidates without extra tool calls.
+    The LLM calls universe_decision once per candidate (multiple calls in one session).
+    The tool loop continues until all candidates have decisions or max_rounds is reached.
+
+    Two hard Python guards applied per-decision after collecting LLM output:
+      - Meme-block (S22.2.1): MEME cannot displace FOUNDATIONAL.
+      - HITL lock (S23.1.3): substitution routed to hitl_queue when lock active.
+
+    Returns list of result dicts (one per candidate, ordered by decision arrival).
+    Any candidate the LLM skips gets a synthetic HOLD + LLM_NO_DECISION audit row.
+    """
+    if not _AI_AVAILABLE or ai_client is None:
+        logger.warning("[RAA] AIClient not available — skipping batch LLM decision")
+        return [{"pair": p, "status": "skipped", "action": "HOLD",
+                 "reason": "NO_AI_CLIENT", "universe_event_written": False}
+                for p in candidates]
+
+    persona = config.get("agent", {}).get("persona", "conservative")
+    system_prompt = _build_raa_system_prompt(config, persona, universe)
+
+    # Build per-candidate context block so LLM can compare them without extra tool calls
+    candidate_lines = []
+    for pair in candidates:
+        t = ticker_data.get(pair, {})
+        p_data = persistence_data.get(pair, {})
+        candidate_lines.append(
+            f"- {pair}: last={t.get('last', 'n/a')} vol24h={t.get('volume_24h', 'n/a')} "
+            f"variance={'ok' if t.get('has_variance', True) else 'FROZEN'} "
+            f"ps={p_data.get('persistence_score', 0):.2f} "
+            f"cycles={p_data.get('cycles_sustained', 0)} "
+            f"class={p_data.get('classification', 'FOUNDATIONAL')}"
+        )
+    candidates_block = "\n".join(candidate_lines)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"Evaluate ALL {len(candidates)} candidate pairs listed below. "
+                f"Call universe_decision once for EACH pair — no pair may be skipped.\n\n"
+                f"## Candidates ({len(candidates)})\n{candidates_block}\n\n"
+                f"Compare them against each other and the current universe. "
+                f"You may call data tools for additional context if needed, "
+                f"then call universe_decision for every candidate."
+            ),
+        }
+    ]
+
+    # Track which candidates have received decisions
+    pending = set(candidates)
+    decisions: dict[str, dict] = {}  # pair → decision_args
+    max_tool_rounds = 10  # higher than single-pair to accommodate N decisions + data calls
+
+    for round_num in range(max_tool_rounds):
+        if not pending:
+            break
+        if round_num > 0:
+            time.sleep(2)  # avoid Groq RPM rate limit between tool rounds
+        try:
+            logger.info(
+                "[RAA] LLM batch call|round=%d|messages=%d|pending=%d",
+                round_num + 1, len(messages), len(pending),
+            )
+            _call_start = datetime.now(timezone.utc)
+            _call_t0 = time.time()
+            result = ai_client.chat_with_tools(
+                messages=messages,
+                tools=_RAA_BATCH_TOOLS,
+            )
+            _call_latency_ms = int((time.time() - _call_t0) * 1000)
+
+            tool_call_names = "|".join(
+                c.get("name", "?") for c in result.get("tool_calls", [])
+            ) or "none"
+            logger.info("[RAA] LLM batch response|round=%d|tool_calls=%s",
+                        round_num + 1, tool_call_names)
+
+            # Write to agent-llm-prompts.log
+            _sys_msg = next((m["content"] for m in messages if m.get("role") == "system"), "")
+            _usr_msg = next((m["content"] for m in messages if m.get("role") == "user"), "")
+            try:
+                _persona = config.get("agent", {}).get("persona", "conservative")
+                log_llm_interaction(
+                    request_id=uuid.uuid4().hex,
+                    session_id=_RAA_SESSION_ID,
+                    cycle_id=_raa_cycle_counter,
+                    model_id=config.get("llm", {}).get("model", "unknown"),
+                    system_prompt=_sys_msg,
+                    user_message=_usr_msg,
+                    raw_output=result.get("raw_output", ""),
+                    tool_calls=result.get("tool_calls", []),
+                    prompt_tokens=result.get("prompt_tokens"),
+                    completion_tokens=result.get("completion_tokens"),
+                    latency_ms=_call_latency_ms,
+                    call_start_utc=_call_start.isoformat(),
+                    prompt_template="raa_batch_universe_decision",
+                    user_id=f"kryptos|persona={_persona}",
+                )
+            except Exception as _log_err:
+                logger.debug("[RAA] llm_logger write failed: %s", _log_err)
+        except Exception as e:
+            logger.error("[RAA] LLM batch call failed (round %d): %s", round_num + 1, e)
+            for pair in pending:
+                _write_audit_feedback(db_path, "RAA", pair, "LLM_CALL_FAILED",
+                                      psv_vector=f"{pair}|error={e}", penalty_weight=-0.5)
+            # Return what we have so far + errors for remaining
+            results = [_apply_llm_decision(d, universe, db_path, ticker_data)
+                       for d in decisions.values()]
+            results += [{"pair": p, "status": "error", "action": "HOLD",
+                         "reason": "LLM_CALL_FAILED", "universe_event_written": False}
+                        for p in pending]
+            return results
+
+        tool_calls = result.get("tool_calls", [])
+        if not tool_calls:
+            break  # LLM returned text only — no more decisions
+
+        for call in tool_calls:
+            name = call.get("name", "")
+            args = call.get("args", {})
+            if name == "universe_decision":
+                decided_pair = args.get("pair", "")
+                if decided_pair in pending:
+                    decisions[decided_pair] = args
+                    pending.discard(decided_pair)
+                else:
+                    logger.warning(
+                        "[RAA] universe_decision for unknown/duplicate pair: %s", decided_pair
+                    )
+            else:
+                logger.warning("[RAA] LLM called unexpected tool '%s' in batch mode — ignored", name)
+
+        # Prompt LLM to continue when there are still undecided candidates
+        if pending and decisions:
+            remaining = ", ".join(sorted(pending))
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"You still need to call universe_decision for: {remaining}. "
+                    f"Please evaluate these remaining candidates now."
+                ),
+            })
+
+    # Any candidate the LLM skipped → HOLD + audit row
+    for pair in pending:
+        logger.warning("[RAA] LLM did not decide for %s — defaulting HOLD", pair)
+        _write_audit_feedback(db_path, "RAA", pair, "LLM_NO_DECISION",
+                              psv_vector=f"{pair}|no_decision", penalty_weight=-0.5)
+
+    # Apply all collected decisions (hard guards run inside _apply_llm_decision)
+    results = [_apply_llm_decision(d, universe, db_path, ticker_data)
+               for d in decisions.values()]
+    results += [{"pair": p, "status": "no_decision", "action": "HOLD",
+                 "reason": "LLM_NO_DECISION", "universe_event_written": True}
+                for p in pending]
+
+    logger.info(
+        "[RAA] Batch complete — %d decided, %d skipped",
+        len(decisions), len(pending),
+    )
+    return results
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1279,19 +1380,30 @@ class ResearchAnalystAgent:
         if _AI_AVAILABLE:
             llm_cfg = config.get("llm", {})
             try:
+                api_key_env = llm_cfg.get("api_key_env", "")
+                api_key = os.environ.get(api_key_env, "") if api_key_env else llm_cfg.get("api_key", "")
                 model_cfg = ModelConfig(
                     base_url=llm_cfg.get("base_url", "https://api.groq.com/openai/v1"),
-                    model=llm_cfg.get("model", "llama-3.3-70b-versatile"),
-                    fallback_model=llm_cfg.get("fallback_model"),
-                    api_key=llm_cfg.get("api_key", ""),
-                    temperature=0,
-                    max_tokens=512,
+                    primary_model=llm_cfg.get("model", "llama-3.3-70b-versatile"),
+                    fallback_model=llm_cfg.get("fallback_model", ""),
+                    api_key=api_key,
                 )
                 self._ai_client = AIClient(model_cfg)
+                logger.info("[RAA] AIClient initialised (model=%s, key_env=%s, key_set=%s)",
+                            model_cfg.primary_model, api_key_env, bool(api_key))
             except Exception as e:
                 logger.warning("[RAA] AIClient init failed: %s", e)
 
     def _get_active_persona(self) -> str:
+        # In concurrent mode the persona is encoded in the DB filename
+        # (e.g. paper_trading_medium.db) — use that as the authoritative source
+        # so the running instance is never affected by a stale agent.persona in config.
+        if self._config.get("agent", {}).get("concurrent_mode", False):
+            stem = Path(self._db_path).stem  # e.g. "paper_trading_medium"
+            for known in ("conservative", "medium", "high"):
+                if stem.endswith(f"_{known}"):
+                    return known
+            return "conservative"  # fallback if DB name has no persona suffix
         return self._config.get("agent", {}).get("persona", "conservative")
 
     def _get_effective_ps_threshold(self) -> float:
@@ -1302,87 +1414,152 @@ class ResearchAnalystAgent:
             return float(override)
         return float(self._raa_cfg.get("persistence_gate", {}).get("min_ps", 1.5))
 
-    def run_cycle(self) -> None:
-        """Execute one 30-minute RAA poll cycle."""
-        logger.info("[RAA] Poll cycle starting")
+    def _run_persona_cycle(
+        self,
+        persona: str,
+        db_path: str,
+        ticker_data: dict,
+        trending_pairs: list[str],
+        cycle_id: int,
+    ) -> int:
+        """
+        Run one RAA evaluation cycle for a single persona against its DB.
+        Returns the number of proposals submitted.
+        Called by run_cycle() — once in single-persona mode, three times in concurrent mode.
+        """
+        logger.info("[RAA] Persona cycle starting — persona=%s db=%s", persona, db_path)
 
-        # Step 1: Self-reflection loop (S23.1.2) — read feedback before any classification
-        run_self_reflection_loop(self._ai_client, self._db_path, self._config)
+        # Patch config so _build_raa_system_prompt picks up the right persona rules
+        config_for_persona = {**self._config, "agent": {**self._config.get("agent", {}), "persona": persona}}
 
-        # Step 2: Fetch market data
-        active_pairs = [p["pair"] for p in self._config.get("trading", {}).get("pairs", [])]
-        all_pairs = active_pairs[:20]  # limit to 20 for ticker call
+        run_self_reflection_loop(self._ai_client, db_path, config_for_persona)
 
-        ticker_data = _fetch_kraken_ticker(all_pairs)
-        trending_pairs = _fetch_coingecko_trending()
-
-        # Step 3: Fetch current universe
-        universe = _get_universe(self._db_path)
+        universe = _get_universe(db_path)
         universe_pairs_set = {u["pair"] for u in universe}
-        persona = self._get_active_persona()
         min_ps = self._get_effective_ps_threshold()
-        min_cycles = int(
-            self._raa_cfg.get("persistence_gate", {}).get("min_cycles", 4)
-        )
-        universe_cap = int(self._raa_cfg.get("universe_cap", 35))
-        min_alpha = float(
-            self._raa_cfg.get("alpha_spread_gate", {}).get("min_alpha_pct", 2.0)
-        )
+        min_cycles = int(self._raa_cfg.get("persistence_gate", {}).get("min_cycles", 4))
 
-        # Step 4: Identify candidate pairs (not already in universe)
-        # In production, RAA would scan Kraken AssetPairs for new liquid pairs.
-        # Here we scan the configured pairs + trending for candidates not in universe.
+        active_pairs = [p["pair"] for p in self._config.get("trading", {}).get("pairs", [])]
+        all_pairs = active_pairs[:20]
+
         candidate_pairs = [p for p in all_pairs if p not in universe_pairs_set]
         candidate_pairs += [p for p in trending_pairs if p not in universe_pairs_set
                             and p not in candidate_pairs]
 
-        proposals_submitted = 0
+        viable_candidates: list[str] = []
+        persistence_data: dict[str, dict] = {}
 
-        for pair in candidate_pairs[:10]:  # Process up to 10 candidates per cycle
+        for pair in candidate_pairs[:10]:
             if pair not in ticker_data:
                 continue
-
             ticker = ticker_data[pair]
-
-            # Step 4a: Stale feed check — hard halt before LLM call (S22.2.2 AC3)
             if not ticker.get("has_variance", True):
-                logger.warning("[RAA] STALE_FEED_HALT: %s — OHLCV variance == 0, skipping", pair)
-                _write_audit_feedback(
-                    self._db_path, "RAA", pair, "STALE_FEED_HALT", psv_vector=f"{pair}|frozen"
-                )
+                logger.warning("[RAA][%s] STALE_FEED_HALT: %s", persona, pair)
+                _write_audit_feedback(db_path, "RAA", pair, "STALE_FEED_HALT",
+                                      psv_vector=f"{pair}|frozen")
                 continue
-
-            # Step 4b: Update trend_persistence so the LLM tool can read it
             prev = self._prev_ticker.get(pair)
             ps = compute_persistence_score(ticker, prev, trending_pairs, pair)
-            existing = _get_trend_persistence(self._db_path, pair)
+            existing = _get_trend_persistence(db_path, pair)
             if existing:
                 cycles_sustained = (existing.get("cycles_sustained", 0) + 1) if ps >= min_ps else 0
                 classification = existing.get("classification", "FOUNDATIONAL")
             else:
                 classification = classify_pair_heuristic(pair, self._foundational_set)
                 cycles_sustained = 1 if ps >= min_ps else 0
-            _upsert_trend_persistence(
-                self._db_path, pair, classification, ps, cycles_sustained, "CANDIDATE"
-            )
+            _upsert_trend_persistence(db_path, pair, classification, ps, cycles_sustained, "CANDIDATE")
+            persistence_data[pair] = {
+                "persistence_score": ps,
+                "cycles_sustained": cycles_sustained,
+                "classification": classification,
+            }
+            viable_candidates.append(pair)
 
-            # Step 4c: Delegate add/remove decision to LLM (#354)
-            result = _run_llm_universe_decision(
-                pair=pair,
+        batch_results: list[dict] = []
+        if viable_candidates:
+            batch_results = _run_llm_batch_universe_decision(
+                candidates=viable_candidates,
                 universe=universe,
-                db_path=self._db_path,
-                config=self._config,
+                db_path=db_path,
+                config=config_for_persona,
                 ai_client=self._ai_client,
+                ticker_data=ticker_data,
+                persistence_data=persistence_data,
             )
-            proposals_submitted += 1
-            if result.get("action") == "ADD":
-                # Refresh universe for next candidate in this cycle
-                universe = _get_universe(self._db_path)
-                universe_pairs_set = {u["pair"] for u in universe}
+            if any(r.get("action") == "ADD" for r in batch_results):
+                universe = _get_universe(db_path)
 
-        # Store ticker for next cycle's volume acceleration comparison
-        self._prev_ticker = ticker_data
-        logger.info("[RAA] Poll cycle complete — %d proposals submitted", proposals_submitted)
+        write_raa_cycle_report(
+            cycle_id=cycle_id,
+            duration_ms=0,  # duration is tracked at the outer run_cycle level
+            candidates=viable_candidates,
+            decisions=batch_results,
+            persistence_data=persistence_data,
+            persona=persona,
+        )
+        logger.info("[RAA] Persona cycle complete — persona=%s proposals=%d",
+                    persona, len(batch_results))
+        return len(batch_results)
+
+    def run_cycle(self) -> None:
+        """
+        Execute one RAA poll cycle.
+
+        concurrent_mode=false: evaluate candidates for the single active persona.
+        concurrent_mode=true:  evaluate candidates for all three personas, each
+                               against its own persona-suffixed DB.
+        """
+        global _raa_cycle_counter
+        _raa_cycle_counter += 1
+        _cycle_start = time.time()
+        concurrent = self._config.get("agent", {}).get("concurrent_mode", False)
+        logger.info("[RAA] Poll cycle starting (cycle=%d session=%s concurrent=%s)",
+                    _raa_cycle_counter, _RAA_SESSION_ID, concurrent)
+
+        # Market data fetched once — shared across all persona sub-cycles
+        active_pairs = [p["pair"] for p in self._config.get("trading", {}).get("pairs", [])]
+        ticker_data = _fetch_kraken_ticker(active_pairs[:20])
+        trending_pairs = _fetch_coingecko_trending()
+        self._prev_ticker = ticker_data  # store for next cycle's volume acceleration
+
+        total_proposals = 0
+
+        if concurrent:
+            # Run one LLM batch per persona, each writing to its own DB.
+            # 60-second gap between personas to avoid Groq RPM rate limits.
+            from src.storage.database import resolve_trading_db
+            personas = ("conservative", "medium", "high")
+            persona_interval_secs = int(
+                self._raa_cfg.get("concurrent_persona_interval_secs", 60)
+            )
+            for idx, persona in enumerate(personas):
+                persona_config = {**self._config,
+                                  "agent": {**self._config.get("agent", {}), "persona": persona}}
+                db_path = resolve_trading_db(persona_config, "paper")
+                _ensure_schema(db_path)
+                total_proposals += self._run_persona_cycle(
+                    persona=persona,
+                    db_path=db_path,
+                    ticker_data=ticker_data,
+                    trending_pairs=trending_pairs,
+                    cycle_id=_raa_cycle_counter,
+                )
+                if idx < len(personas) - 1:
+                    logger.info("[RAA] Waiting %ds before next persona...", persona_interval_secs)
+                    time.sleep(persona_interval_secs)
+        else:
+            persona = self._get_active_persona()
+            total_proposals = self._run_persona_cycle(
+                persona=persona,
+                db_path=self._db_path,
+                ticker_data=ticker_data,
+                trending_pairs=trending_pairs,
+                cycle_id=_raa_cycle_counter,
+            )
+
+        _duration_ms = int((time.time() - _cycle_start) * 1000)
+        logger.info("[RAA] Poll cycle complete — %d total proposals (%dms)",
+                    total_proposals, _duration_ms)
 
     async def run_loop(self) -> None:
         """Async main loop — runs run_cycle() every poll_interval_minutes."""
@@ -1444,16 +1621,17 @@ async def _main(config: dict, db_path: str, port: int) -> None:
 
 
 def main() -> None:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass  # dotenv optional — env vars may be set externally
+
     parser = argparse.ArgumentParser(description="Kryptos Research Analyst Agent")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--db", default="paper_trading.db", help="Trading DB filename")
     parser.add_argument("--port", type=int, default=None, help="Health endpoint port")
     args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-    )
 
     config_path = Path(args.config)
     if not config_path.exists():
@@ -1461,8 +1639,50 @@ def main() -> None:
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
+    # ── Logging setup (mirrors main.py pattern) ──────────────────────────────
+    storage_cfg  = config.get("storage", {})
+    log_dir      = storage_cfg.get("log_dir", "/logs")
+    max_bytes    = storage_cfg.get("log_max_bytes", 100 * 1024 * 1024)
+    backup_count = storage_cfg.get("log_backup_count", 4)
+    os.makedirs(log_dir, exist_ok=True)
+
+    fmt = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
+    file_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, "agent.log"),
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(fmt))
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+        h.close()
+    root.addHandler(file_handler)
+    if sys.stdout.isatty():
+        console = logging.StreamHandler(sys.stdout)
+        console.setLevel(logging.INFO)
+        console.setFormatter(logging.Formatter(fmt))
+        root.addHandler(console)
+
+    init_llm_logger(log_dir=log_dir, config=config)
+    init_cycle_logger(log_dir=log_dir, config=config)
+    # ─────────────────────────────────────────────────────────────────────────
+
     port = args.port or config.get("services", {}).get("research_analyst", {}).get("port", 8093)
-    asyncio.run(_main(config, args.db, port))
+
+    # Honour concurrent_mode — resolve persona-suffixed DB name just like main.py
+    from src.storage.database import resolve_trading_db
+    resolved_db = resolve_trading_db(config, "paper") if not args.db or args.db == "paper_trading.db" else args.db
+    persona = config.get("agent", {}).get("persona", "conservative")
+    logger.info("[RAA] Starting — persona=%s db=%s concurrent_mode=%s",
+                persona, resolved_db,
+                config.get("agent", {}).get("concurrent_mode", False))
+
+    asyncio.run(_main(config, resolved_db, port))
 
 
 if __name__ == "__main__":
