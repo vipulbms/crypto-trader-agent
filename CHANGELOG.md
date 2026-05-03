@@ -1507,3 +1507,18 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 
 ### Fix (follow-up)
 - `.claude/skills/trading-rules/SKILL.md`: pair list updated 15→24 active pairs; RAILS/USD marked disabled; `Per-pair Max Buy Size`, `Per-pair Signal Threshold`, and `DECISION STYLE` bearish regime rule updated to reflect new caution tiers and buy_min_score thresholds for 10 new pairs.
+
+## Session: 2026-05-03 (Part B) — RAA batch LLM evaluation (#357)
+
+### Features Added
+- **RAA batch universe evaluation**: All candidate pairs evaluated in a single LLM call instead of one call per pair. Pre-injected ticker + persistence data eliminates data-fetch tool round-trips that triggered Groq rate limits.
+- **`_run_llm_batch_universe_decision()`**: Replaces `_run_llm_universe_decision()`. Single conversation, LLM calls `universe_decision` once per candidate. Skipped candidates get synthetic `HOLD + LLM_NO_DECISION`.
+- **`_apply_llm_decision()`**: Applies a single `universe_decision` tool call; enforces HITL lock + meme-block hard guards; commits to DB. Now returns `pair` key in result dict.
+- **`_RAA_BATCH_TOOLS`**: Decision-only tool list (no kraken_ticker / get_universe / etc.) — removes rate-limit triggers.
+- **`write_raa_cycle_report()`** in `src/utils/cycle_logger.py`: Appends RAA cycle JSON record (`source=RAA`) to `cycle_decisions.log` with per-candidate decision rows and n_add/n_hold/n_remove/n_no_decision summary.
+- **RAA logging infrastructure**: `init_llm_logger` + `log_llm_interaction` wired at startup; `init_cycle_logger` + `write_raa_cycle_report` called after each cycle; `RotatingFileHandler` on `agent.log` (TTY-aware `StreamHandler`); module-level `_RAA_SESSION_ID` + `_raa_cycle_counter`.
+
+### Files Changed
+- `src/runtime/research_analyst.py`
+- `src/utils/cycle_logger.py`
+- `config.yaml` — persona: high, concurrent_mode: true
