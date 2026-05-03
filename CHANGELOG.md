@@ -2,6 +2,28 @@
 
 ---
 
+## Session: 2026-05-03 (Part A) — RAA LLM-delegated universe decisions + HTTP/LLM logging
+
+### Features Added
+
+| Feature | Issue | Files Changed |
+|---------|-------|---------------|
+| RAA universe add/remove delegated to LLM via MCP tools | #354 | `src/runtime/research_analyst.py` |
+| Full HTTP + LLM call logging on every outbound request | #354 | `src/runtime/research_analyst.py` |
+
+### Details
+
+- `propose_universe_addition()` replaced by `_run_llm_universe_decision()` — multi-turn tool loop (max 6 rounds, 6k token budget)
+- `_RAA_MCP_TOOLS` defines 5 tools: `kraken_ticker`, `get_universe`, `get_trend_persistence`, `get_confidence_state`, `universe_decision`
+- `_dispatch_raa_tool()` executes data tool calls and returns JSON to the LLM
+- `_build_raa_system_prompt()` encodes all rules (persistence gate, alpha spread, persona gates, universe cap) as LLM instructions
+- Meme-block (S22.2.1) and HITL lock (S23.1.3) remain as hard Python guards applied after LLM decision
+- `RiskManager.py` untouched
+- HTTP logging: `[RAA] HTTP GET <url>` before + `[RAA] HTTP <status> <url> (<ms>ms)` after every `requests.get`
+- LLM logging: `[RAA] LLM call|<tool>|prompt_chars=N` before + `[RAA] LLM response|tool_calls=...` after every `chat_with_tools`
+
+---
+
 ## Session: 2026-04-21 (Part C) — Sprint S9/S10: RAA ResearchAnalyst + AuditAgent
 
 ### Features Added
