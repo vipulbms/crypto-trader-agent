@@ -5,19 +5,22 @@ Continuously evaluates the broader crypto universe to identify emerging pairs
 with persistent relative strength and manages the tradeable pair list dynamically.
 
 Story: S22.1.1, S22.1.2, S22.2.1, S22.2.2, S22.3.1, S22.3.2 (Sprint S9 — E22)
+Closes #354 — LLM-delegated universe decisions via MCP tools
 Run as: python -m src.runtime.research_analyst [--config config.yaml] [--db paper_trading.db]
 
 Responsibilities:
   1. Poll Kraken Ticker REST + CoinGecko Trending/Social every 30 minutes.
-  2. Compute Persistence Score (Ps) per candidate pair; reset on Ps < min_ps.
-  3. Apply meme-block guardrail before any proposal (S22.2.1 — hard-coded, no override).
-  4. Submit PROPOSE(pair, replace_target?) to Risk Manager validate_universe_proposal() when
-     all gates pass (Ps, alpha spread, universe cap).
-  5. Self-correct on 422 rejections, up to max_retries per proposal per cycle (SHIELDA S22.2.2).
-  6. Stale-feed halt when Kraken Ticker OHLCV variance == 0 for a candidate.
-  7. Read last 50 audit_feedback rows at cycle start for self-reflection (S23.1.2).
-  8. Apply persona-specific guardrails (Medium RSI/ADX gates, High RSI bypass — S22.3.1/3.2).
-  9. Expose /health HTTP endpoint on configurable port.
+  2. Expose Kraken Ticker, universe state, trend_persistence, and confidence_state as
+     MCP-style tools callable by the LLM within a single chat_with_tools() call.
+  3. LLM decides ADD/REMOVE/HOLD for each candidate using universe_decision tool.
+     Rules (persistence gate, alpha spread, persona gates) are in the system prompt.
+  4. Two hard Python guards that cannot be overridden by the LLM:
+       a. Meme-block (S22.2.1) — MEME cannot displace FOUNDATIONAL.
+       b. HITL lock (S23.1.3) — substitutions routed to hitl_queue when lock active.
+  5. Stale-feed halt when Kraken Ticker OHLCV variance == 0 for a candidate.
+  6. Read last 50 audit_feedback rows at cycle start for self-reflection (S23.1.2).
+  7. Expose /health HTTP endpoint on configurable port.
+  Max 6 000 tokens per LLM call (enforced via system prompt token budget).
 
 No dependencies on src/agent/ or src/exchange/websocket_feed.
 Uses: src/storage/database, mocha_python_ai.AIClient, mocha_python_logging.
@@ -262,11 +265,15 @@ def _fetch_kraken_ticker(pairs: list[str], timeout: int = 10) -> dict[str, dict]
     results: dict[str, dict] = {}
     kraken_pairs = ",".join(p.replace("/", "") for p in pairs[:20])  # max 20 per call
     try:
+        url = f"{KRAKEN_TICKER_URL}?pair={kraken_pairs}"
+        logger.info("[RAA] HTTP GET %s", url)
         resp = requests.get(
             KRAKEN_TICKER_URL,
             params={"pair": kraken_pairs},
             timeout=timeout,
         )
+        logger.info("[RAA] HTTP %d %s (%.0fms)", resp.status_code, url,
+                    resp.elapsed.total_seconds() * 1000)
         resp.raise_for_status()
         data = resp.json().get("result", {})
         for pair in pairs:
@@ -291,7 +298,6 @@ def _fetch_kraken_ticker(pairs: list[str], timeout: int = 10) -> dict[str, dict]
                 high_p = float(ticker.get("h", [0, 0])[1] or 0)
                 low_p = float(ticker.get("l", [0, 0])[1] or 0)
                 # OHLCV variance check — if open==high==low==last, feed is frozen
-                prices = [last_price, vol_24h, open_p, high_p, low_p]
                 has_variance = len(set(str(round(x, 6)) for x in [open_p, high_p, low_p, last_price])) > 1
                 results[pair] = {
                     "last": last_price,
@@ -301,24 +307,35 @@ def _fetch_kraken_ticker(pairs: list[str], timeout: int = 10) -> dict[str, dict]
                     "low": low_p,
                     "has_variance": has_variance,
                 }
+                logger.info(
+                    "[RAA] ticker|%s|last=%.6f|open=%.6f|high=%.6f|low=%.6f|vol24h=%.2f|variance=%s",
+                    pair, last_price, open_p, high_p, low_p, vol_24h,
+                    "ok" if has_variance else "FROZEN",
+                )
     except Exception as e:
-        logger.warning("[RAA] Kraken Ticker fetch failed: %s", e)
+        logger.error("[RAA] Kraken Ticker fetch failed: %s", e)
+    logger.info("[RAA] Kraken Ticker: %d/%d pairs returned data", len(results), len(pairs))
     return results
 
 
 def _fetch_coingecko_trending(timeout: int = 10) -> list[str]:
     """Return list of trending coin slugs from CoinGecko."""
     try:
+        logger.info("[RAA] HTTP GET %s", COINGECKO_TRENDING_URL)
         resp = requests.get(COINGECKO_TRENDING_URL, timeout=timeout)
+        logger.info("[RAA] HTTP %d %s (%.0fms)", resp.status_code, COINGECKO_TRENDING_URL,
+                    resp.elapsed.total_seconds() * 1000)
         resp.raise_for_status()
         items = resp.json().get("coins", [])
-        return [
+        pairs = [
             item["item"].get("symbol", "").upper() + "/USD"
             for item in items
             if item.get("item", {}).get("symbol")
         ]
+        logger.info("[RAA] CoinGecko trending (%d): %s", len(pairs), "|".join(pairs))
+        return pairs
     except Exception as e:
-        logger.warning("[RAA] CoinGecko Trending fetch failed: %s", e)
+        logger.error("[RAA] CoinGecko Trending fetch failed: %s", e)
         return []
 
 
@@ -641,11 +658,14 @@ def _classify_pair_via_llm(
     )
 
     try:
+        logger.info("[RAA] LLM call|classify_pair|pair=%s|prompt_chars=%d", pair, len(prompt))
         result = ai_client.chat_with_tools(
             messages=[{"role": "user", "content": prompt}],
             tools=tools,
             tool_choice={"type": "function", "function": {"name": "classify_pair"}},
         )
+        logger.info("[RAA] LLM response|classify_pair|pair=%s|tool_calls=%s",
+                    pair, "|".join(c.get("name", "?") for c in result.get("tool_calls", [])))
         for call in result.get("tool_calls", []):
             if call.get("name") == "classify_pair":
                 args = call.get("args", {})
@@ -698,11 +718,14 @@ def _generate_rationale_via_llm(
     )
 
     try:
+        logger.info("[RAA] LLM call|generate_rationale|pair=%s|prompt_chars=%d", pair, len(prompt))
         result = ai_client.chat_with_tools(
             messages=[{"role": "user", "content": prompt}],
             tools=tools,
             tool_choice={"type": "function", "function": {"name": "generate_rationale"}},
         )
+        logger.info("[RAA] LLM response|generate_rationale|pair=%s|tool_calls=%s",
+                    pair, "|".join(c.get("name", "?") for c in result.get("tool_calls", [])))
         for call in result.get("tool_calls", []):
             if call.get("name") == "generate_rationale":
                 return call.get("args", {}).get("rationale", "")
@@ -793,11 +816,15 @@ def _run_llm_self_critique(ai_client: Any, db_path: str, feedback_rows: list[dic
     )
 
     try:
+        logger.info("[RAA] LLM call|record_lesson|vectors=%d|prompt_chars=%d",
+                    len(feedback_rows), len(prompt))
         result = ai_client.chat_with_tools(
             messages=[{"role": "user", "content": prompt}],
             tools=tools,
             tool_choice={"type": "function", "function": {"name": "record_lesson"}},
         )
+        logger.info("[RAA] LLM response|record_lesson|tool_calls=%s",
+                    "|".join(c.get("name", "?") for c in result.get("tool_calls", [])))
         for call in result.get("tool_calls", []):
             if call.get("name") == "record_lesson":
                 args = call.get("args", {})
@@ -871,7 +898,7 @@ def compute_alpha_spread(
 
 
 # ─────────────────────────────────────────────────────────────
-# Universe proposal logic
+# Universe proposal logic — LLM-delegated (#354)
 # ─────────────────────────────────────────────────────────────
 
 def _is_substitution_locked(db_path: str) -> bool:
@@ -890,111 +917,341 @@ def _is_substitution_locked(db_path: str) -> bool:
     return False
 
 
-def propose_universe_addition(
-    pair: str,
-    classification: str,
-    replace_target: Optional[str],
-    replace_class: Optional[str],
-    alpha_spread: float,
-    ps: float,
-    psv_vector: str,
-    rationale: str,
-    universe: list[dict],
-    db_path: str,
-    config: dict,
-    ai_client: Any = None,
-    retry_count: int = 0,
-) -> dict:
+def _build_raa_system_prompt(config: dict, persona: str, universe: list[dict]) -> str:
     """
-    Submit a universe addition proposal through the Risk Manager validation gate.
-
-    This method never writes to `universe` or `universe_events` directly — all writes
-    go through validate_universe_proposal() (S22.1.2 AC5).
-
-    Returns dict with keys: status, reason, universe_event_written.
+    Build the RAA system prompt containing all universe management rules.
+    The LLM uses the registered tools to fetch live data, then calls universe_decision.
+    Token budget: keep under 1 500 tokens so the full call stays within 6 000.
     """
-    from src.risk.risk_manager import RiskManager
-
     raa_cfg = config.get("raa", {})
-    max_retries = int(raa_cfg.get("self_correction", {}).get("max_retries", 3))
+    min_ps = float(raa_cfg.get("persistence_gate", {}).get("min_ps", 1.5))
+    min_cycles = int(raa_cfg.get("persistence_gate", {}).get("min_cycles", 4))
     universe_cap = int(raa_cfg.get("universe_cap", 35))
     min_alpha = float(raa_cfg.get("alpha_spread_gate", {}).get("min_alpha_pct", 2.0))
 
-    # HITL lock check — route to hitl_queue if locked (S23.1.3 AC4)
+    persona_rules = ""
+    if persona == "medium":
+        gates = raa_cfg.get("persona_gates", {}).get("medium", {})
+        persona_rules = (
+            f"MEDIUM PERSONA GATES: RSI must be {gates.get('rsi_min', 35)}–{gates.get('rsi_max', 65)}. "
+            f"ADX must be < {gates.get('adx_max', 25)}. "
+            f"Prune pairs where ADX < {gates.get('prune_adx_threshold', 15)} for > "
+            f"{gates.get('prune_consecutive_cycles', 12)} consecutive cycles."
+        )
+    elif persona == "high":
+        gates = raa_cfg.get("persona_gates", {}).get("high", {})
+        persona_rules = (
+            f"HIGH PERSONA GATES: RSI up to {gates.get('rsi_max', 85)} allowed IF ADX > "
+            f"{gates.get('rsi_bypass_adx_min', 35)} AND VWMA_Slope > 0. "
+            f"Aggressive pruning: replace lowest-score held pair when incoming score > "
+            f"{gates.get('aggressive_prune_score_threshold', 8)}/28."
+        )
+
+    current_pairs = "|".join(u.get("pair", "") for u in universe) or "empty"
+
+    return f"""You are the Research Analyst Agent (RAA) for a crypto trading system.
+
+Your job: evaluate candidate pairs and decide whether to ADD, REMOVE, or HOLD the universe.
+
+## Tools available
+- kraken_ticker(pairs): fetch live price, volume, OHLCV variance for a list of pairs.
+- get_universe(): return current tradeable universe (pair, classification, alpha_spread_at_entry).
+- get_trend_persistence(pair): return persistence_score, cycles_sustained, status for a pair.
+- get_confidence_state(): return ps_threshold_override and self-reflection state.
+
+## Decision rules (apply in order)
+1. STALE_FEED: if kraken_ticker shows OHLCV variance == 0 for candidate → HOLD (skip).
+2. PERSISTENCE GATE: persistence_score >= {min_ps} AND cycles_sustained >= {min_cycles} required to propose ADD.
+3. MEME_BLOCK (hard — cannot override): MEME-classified pair cannot displace a FOUNDATIONAL pair.
+4. ALPHA SPREAD: projected 24h alpha of candidate vs replace_target >= {min_alpha}%. If below → HOLD.
+5. UNIVERSE CAP: max {universe_cap} pairs. If at cap, must provide replace_target.
+6. {persona_rules or "CONSERVATIVE PERSONA: require all gates to pass; no bypasses."}
+
+## Current universe ({len(universe)} pairs)
+{current_pairs}
+
+## Output
+Call universe_decision exactly once per candidate. Fields: action (ADD|REMOVE|HOLD),
+pair, replace_target (or null), classification (FOUNDATIONAL|MEME),
+rationale (1–2 sentences), psv_vector (pipe-separated: pair|price|ps|alpha|classification|action).
+Be concise — total response must stay within 6000 tokens."""
+
+
+_RAA_MCP_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "kraken_ticker",
+            "description": "Fetch live Kraken ticker data (price, volume, OHLCV variance) for up to 20 pairs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pairs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of pairs e.g. ['BTC/USD', 'ETH/USD']",
+                    }
+                },
+                "required": ["pairs"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_universe",
+            "description": "Return the current tradeable universe rows.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_trend_persistence",
+            "description": "Return trend_persistence record for a single pair.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pair": {"type": "string", "description": "Pair symbol e.g. 'SOL/USD'"}
+                },
+                "required": ["pair"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_confidence_state",
+            "description": "Return RAA confidence_state (ps_threshold_override, locked state).",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "universe_decision",
+            "description": "Record the RAA decision for a candidate pair.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["ADD", "REMOVE", "HOLD"],
+                        "description": "Universe action to take.",
+                    },
+                    "pair": {"type": "string", "description": "Candidate pair."},
+                    "replace_target": {
+                        "type": "string",
+                        "description": "Pair to remove when universe is at cap (null if not needed).",
+                    },
+                    "classification": {
+                        "type": "string",
+                        "enum": ["FOUNDATIONAL", "MEME"],
+                        "description": "Asset classification.",
+                    },
+                    "rationale": {"type": "string", "description": "1–2 sentence reasoning."},
+                    "psv_vector": {
+                        "type": "string",
+                        "description": "Pipe-separated telemetry: pair|price|ps|alpha|classification|action.",
+                    },
+                },
+                "required": ["action", "pair", "classification", "rationale", "psv_vector"],
+            },
+        },
+    },
+]
+
+
+def _dispatch_raa_tool(tool_name: str, tool_args: dict, db_path: str) -> str:
+    """
+    Execute an MCP tool call from the LLM and return a JSON string result.
+    These are the read-only data tools — universe_decision is handled separately.
+    """
+    if tool_name == "kraken_ticker":
+        pairs = tool_args.get("pairs", [])
+        data = _fetch_kraken_ticker(pairs)
+        return json.dumps(data)
+
+    if tool_name == "get_universe":
+        return json.dumps(_get_universe(db_path))
+
+    if tool_name == "get_trend_persistence":
+        pair = tool_args.get("pair", "")
+        return json.dumps(_get_trend_persistence(db_path, pair) or {})
+
+    if tool_name == "get_confidence_state":
+        return json.dumps(_get_confidence_state(db_path, "RAA"))
+
+    return json.dumps({"error": f"unknown tool: {tool_name}"})
+
+
+def _run_llm_universe_decision(
+    pair: str,
+    universe: list[dict],
+    db_path: str,
+    config: dict,
+    ai_client: Any,
+) -> dict:
+    """
+    Delegate the universe add/remove decision to the LLM (#354).
+
+    The LLM receives MCP-registered tools (kraken_ticker, get_universe,
+    get_trend_persistence, get_confidence_state) plus universe_decision as the
+    output tool. It may call the data tools freely, then must call universe_decision
+    exactly once.
+
+    Two hard Python guards applied AFTER the LLM decision:
+      - Meme-block (S22.2.1): MEME cannot displace FOUNDATIONAL.
+      - HITL lock (S23.1.3): substitution routed to hitl_queue when lock active.
+
+    Returns dict with keys: status, action, reason, universe_event_written.
+    """
+    if not _AI_AVAILABLE or ai_client is None:
+        logger.warning("[RAA] AIClient not available — skipping LLM decision for %s", pair)
+        return {"status": "skipped", "action": "HOLD", "reason": "NO_AI_CLIENT",
+                "universe_event_written": False}
+
+    persona = config.get("agent", {}).get("persona", "conservative")
+    system_prompt = _build_raa_system_prompt(config, persona, universe)
+
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                f"Evaluate candidate pair: {pair}\n"
+                f"Use your tools to fetch the latest ticker, trend persistence, "
+                f"and universe state. Then call universe_decision with your verdict."
+            ),
+        }
+    ]
+
+    decision_args: Optional[dict] = None
+    max_tool_rounds = 6  # prevent runaway loops
+
+    for round_num in range(max_tool_rounds):
+        try:
+            logger.info("[RAA] LLM call|universe_decision|pair=%s|round=%d|messages=%d",
+                        pair, round_num + 1, len(messages))
+            result = ai_client.chat_with_tools(
+                messages=messages,
+                tools=_RAA_MCP_TOOLS,
+                system=system_prompt,
+            )
+            logger.info("[RAA] LLM response|universe_decision|pair=%s|round=%d|tool_calls=%s",
+                        pair, round_num + 1,
+                        "|".join(c.get("name", "?") for c in result.get("tool_calls", [])) or "none")
+        except Exception as e:
+            logger.error("[RAA] LLM call failed for %s: %s", pair, e)
+            _write_audit_feedback(db_path, "RAA", pair, "LLM_CALL_FAILED",
+                                  psv_vector=f"{pair}|error={e}", penalty_weight=-0.5)
+            return {"status": "error", "action": "HOLD", "reason": "LLM_CALL_FAILED",
+                    "universe_event_written": False}
+
+        tool_calls = result.get("tool_calls", [])
+        if not tool_calls:
+            # LLM returned text only — no decision made
+            break
+
+        assistant_tool_calls = []
+        tool_results = []
+        found_decision = False
+
+        for call in tool_calls:
+            name = call.get("name", "")
+            args = call.get("args", {})
+            call_id = call.get("id", name)
+
+            if name == "universe_decision":
+                decision_args = args
+                found_decision = True
+                break  # decision reached — stop tool loop
+
+            # Data tool — dispatch and collect result
+            tool_result = _dispatch_raa_tool(name, args, db_path)
+            assistant_tool_calls.append({"id": call_id, "name": name, "args": args})
+            tool_results.append({"tool_call_id": call_id, "content": tool_result})
+
+        if found_decision:
+            break
+
+        if not tool_results:
+            break
+
+        # Append assistant tool call turn + tool results for next round
+        messages.append({"role": "assistant", "tool_calls": assistant_tool_calls})
+        messages.append({"role": "tool", "content": json.dumps(tool_results)})
+
+    if not decision_args:
+        logger.warning("[RAA] LLM did not call universe_decision for %s — defaulting HOLD", pair)
+        _write_audit_feedback(db_path, "RAA", pair, "LLM_NO_DECISION",
+                              psv_vector=f"{pair}|no_decision", penalty_weight=-0.5)
+        return {"status": "no_decision", "action": "HOLD", "reason": "LLM_NO_DECISION",
+                "universe_event_written": False}
+
+    action = decision_args.get("action", "HOLD")
+    classification = decision_args.get("classification", "FOUNDATIONAL")
+    replace_target = decision_args.get("replace_target") or None
+    rationale = decision_args.get("rationale", "")
+    psv_vector = decision_args.get("psv_vector", f"{pair}|{action}")
+
+    logger.info("[RAA] LLM decision: %s → %s (replace=%s)", pair, action, replace_target)
+
+    if action != "ADD":
+        _write_universe_event(db_path, pair, f"LLM_{action}", {"rationale": rationale})
+        return {"status": "ok", "action": action, "reason": action,
+                "universe_event_written": True}
+
+    # ── Hard guard 1: HITL lock (S23.1.3) ──────────────────────────────────
     if replace_target and _is_substitution_locked(db_path):
         hitl_id = _write_hitl_queue(
             db_path, "RAA", "PROPOSE_REPLACE", pair, replace_target,
             classification, psv_vector, rationale,
         )
-        _write_universe_event(db_path, pair, "PROPOSE_REJECTED", {
-            "reason": "HITL_LOCKED",
-            "hitl_queue_id": hitl_id,
-        })
-        logger.info("[RAA] HITL_LOCK active — proposal for %s routed to hitl_queue (id=%d)",
-                    pair, hitl_id)
-        return {"status": "hitl_queued", "reason": "HITL_LOCKED", "universe_event_written": True}
+        _write_universe_event(db_path, pair, "PROPOSE_REJECTED",
+                              {"reason": "HITL_LOCKED", "hitl_queue_id": hitl_id})
+        logger.info("[RAA] HITL_LOCK active — %s routed to hitl_queue (id=%d)", pair, hitl_id)
+        return {"status": "hitl_queued", "action": "HOLD", "reason": "HITL_LOCKED",
+                "universe_event_written": True}
 
-    rm = RiskManager(config, db_path)
-    n_current = len(universe)
-
-    result = rm.validate_universe_proposal(
-        pair=pair,
-        classification=classification,
-        replace_target=replace_target,
-        replace_class=replace_class,
-        n_current=n_current,
-        projected_alpha=alpha_spread,
-        persona_config=config.get("personas", {}).get(
-            config.get("agent", {}).get("persona", "conservative"), {}
-        ),
-        psv_vector=psv_vector,
-        db_path=db_path,
+    # ── Hard guard 2: Meme-block (S22.2.1) ─────────────────────────────────
+    replace_class: Optional[str] = None
+    if replace_target:
+        replace_class = next(
+            (u.get("classification") for u in universe if u.get("pair") == replace_target),
+            "FOUNDATIONAL",
+        )
+    meme_block_reason = check_meme_block(
+        pair, classification, replace_target, replace_class,
+        db_path, _FOUNDATIONAL_ANCHORS,
     )
+    if meme_block_reason:
+        return {"status": "rejected", "action": "HOLD", "reason": meme_block_reason,
+                "universe_event_written": True}
 
-    if result.get("status") == "approved":
-        # Committed by validate_universe_proposal
-        logger.info("[RAA] Proposal APPROVED: %s (replace=%s alpha=%.2f%%)",
-                    pair, replace_target, alpha_spread)
-        return {"status": "approved", "reason": None, "universe_event_written": True}
+    # ── Commit ADD to universe ──────────────────────────────────────────────
+    alpha_spread = 0.0
+    try:
+        # Recompute alpha from live ticker for the DB record
+        ticker_data = _fetch_kraken_ticker([pair] + ([replace_target] if replace_target else []))
+        alpha_spread = compute_alpha_spread(pair, replace_target, universe, ticker_data)
+    except Exception:
+        pass
 
-    reason = result.get("reason", "REJECTED")
+    _add_to_universe(db_path, pair, classification, alpha_spread, replace_target)
+    if replace_target:
+        _remove_from_universe(db_path, replace_target)
+        _write_universe_event(db_path, replace_target, "REMOVE_PAIR",
+                              {"reason": "displaced_by_raa", "incoming": pair})
+    _write_universe_event(db_path, pair, "ADD_PAIR",
+                          {"classification": classification, "alpha_spread": alpha_spread,
+                           "rationale": rationale, "psv_vector": psv_vector})
+    _write_audit_feedback(db_path, "RAA", pair, "LLM_ADD_APPROVED",
+                          psv_vector=psv_vector, penalty_weight=0.0)
 
-    # Self-correction on malformed data (S22.2.2 AC1/AC2)
-    if result.get("http_status") == 422 and retry_count < max_retries:
-        logger.info(
-            "[RAA] 422 received for %s — self-correction attempt %d/%d",
-            pair, retry_count + 1, max_retries,
-        )
-        # Rebuild PSV vector with reformatted data (pass corrected vector on retry)
-        corrected_psv = psv_vector.replace("null", "0.0")
-        return propose_universe_addition(
-            pair=pair,
-            classification=classification,
-            replace_target=replace_target,
-            replace_class=replace_class,
-            alpha_spread=alpha_spread,
-            ps=ps,
-            psv_vector=corrected_psv,
-            rationale=rationale,
-            universe=universe,
-            db_path=db_path,
-            config=config,
-            ai_client=ai_client,
-            retry_count=retry_count + 1,
-        )
-
-    if result.get("http_status") == 422 and retry_count >= max_retries:
-        logger.error("[RAA] SELF_CORRECT_FAILED: %s — %d consecutive 422 rejections", pair, max_retries)
-        _write_audit_feedback(
-            db_path, "RAA", pair, "SELF_CORRECT_FAILED",
-            psv_vector=psv_vector, penalty_weight=-1.0,
-        )
-        _write_universe_event(db_path, pair, "PROPOSE_REJECTED", {"reason": "SELF_CORRECT_FAILED"})
-        return {"status": "rejected", "reason": "SELF_CORRECT_FAILED", "universe_event_written": True}
-
-    logger.info("[RAA] Proposal REJECTED: %s reason=%s", pair, reason)
-    _write_universe_event(db_path, pair, "PROPOSE_REJECTED", {"reason": reason})
-    return {"status": "rejected", "reason": reason, "universe_event_written": True}
+    logger.info("[RAA] ADD committed: %s (replace=%s alpha=%.2f%%)",
+                pair, replace_target, alpha_spread)
+    return {"status": "approved", "action": "ADD", "reason": None,
+            "universe_event_written": True}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1087,7 +1344,7 @@ class ResearchAnalystAgent:
 
             ticker = ticker_data[pair]
 
-            # Step 4a: Stale feed check (S22.2.2 AC3)
+            # Step 4a: Stale feed check — hard halt before LLM call (S22.2.2 AC3)
             if not ticker.get("has_variance", True):
                 logger.warning("[RAA] STALE_FEED_HALT: %s — OHLCV variance == 0, skipping", pair)
                 _write_audit_feedback(
@@ -1095,137 +1352,30 @@ class ResearchAnalystAgent:
                 )
                 continue
 
-            # Step 4b: Compute Persistence Score
+            # Step 4b: Update trend_persistence so the LLM tool can read it
             prev = self._prev_ticker.get(pair)
             ps = compute_persistence_score(ticker, prev, trending_pairs, pair)
-
-            # Step 4c: Update trend_persistence DB
             existing = _get_trend_persistence(self._db_path, pair)
             if existing:
-                if ps >= min_ps:
-                    cycles_sustained = existing.get("cycles_sustained", 0) + 1
-                    classification = existing.get("classification", "FOUNDATIONAL")
-                else:
-                    cycles_sustained = 0  # AC5 — reset on Ps drop
-                    classification = existing.get("classification", "FOUNDATIONAL")
+                cycles_sustained = (existing.get("cycles_sustained", 0) + 1) if ps >= min_ps else 0
+                classification = existing.get("classification", "FOUNDATIONAL")
             else:
-                classification = _classify_pair_via_llm(
-                    self._ai_client, pair, {"sector": "crypto"}
-                )
+                classification = classify_pair_heuristic(pair, self._foundational_set)
                 cycles_sustained = 1 if ps >= min_ps else 0
-
             _upsert_trend_persistence(
                 self._db_path, pair, classification, ps, cycles_sustained, "CANDIDATE"
             )
 
-            # Step 4d: Persistence gate check
-            if ps < min_ps or cycles_sustained < min_cycles:
-                continue
-
-            # Step 4e: Classify pair (LLM or heuristic)
-            target_class = _classify_pair_via_llm(
-                self._ai_client, pair, {"sector": "crypto"}
-            )
-
-            # Step 4f: Determine replace_target
-            n_current = len(universe)
-            replace_target: Optional[str] = None
-            replace_class: Optional[str] = None
-
-            if n_current >= universe_cap:
-                # Must provide replace_target — find a prune candidate
-                if persona == "high":
-                    replace_target = get_high_persona_prune_candidate(
-                        universe, cycles_sustained, self._raa_cfg
-                    )
-                if replace_target is None:
-                    # Find worst-performing universe pair for displacement
-                    worst_alpha = None
-                    for upair in universe:
-                        t = ticker_data.get(upair.get("pair", ""), {})
-                        o = float(t.get("open", 0) or 0)
-                        l = float(t.get("last", 0) or 0)
-                        pct = ((l - o) / o * 100) if o > 0 else 0.0
-                        if worst_alpha is None or pct < worst_alpha[1]:
-                            worst_alpha = (upair.get("pair"), pct, upair.get("classification"))
-                    if worst_alpha:
-                        replace_target = worst_alpha[0]
-                        replace_class = worst_alpha[2]
-
-            if replace_target:
-                replace_class = replace_class or next(
-                    (u.get("classification") for u in universe if u.get("pair") == replace_target),
-                    "FOUNDATIONAL",
-                )
-
-            # Step 4g: Meme-block guardrail check (S22.2.1 — evaluated BEFORE Risk Manager)
-            meme_block_reason = check_meme_block(
-                pair, target_class, replace_target, replace_class,
-                self._db_path, self._foundational_set
-            )
-            if meme_block_reason:
-                continue
-
-            # Step 4h: Persona-specific gate checks
-            rsi = None  # In production: fetch from indicators
-            adx = None
-            vwma_slope = None
-            ibs = None
-
-            if persona == "medium":
-                gate_reason = apply_medium_persona_gate(pair, rsi, adx, self._raa_cfg)
-                if gate_reason:
-                    _write_audit_feedback(
-                        self._db_path, "RAA", pair, f"PERSONA_GATE_REJECT_{gate_reason}",
-                        psv_vector=f"{pair}|{rsi}|{adx}|{gate_reason}"
-                    )
-                    continue
-            elif persona == "high":
-                gate_reason = apply_high_persona_gate(pair, rsi, adx, vwma_slope, self._raa_cfg)
-                if gate_reason:
-                    _write_audit_feedback(
-                        self._db_path, "RAA", pair, f"PERSONA_GATE_REJECT_{gate_reason}",
-                        psv_vector=f"{pair}|{rsi}|{adx}|{vwma_slope}|{gate_reason}"
-                    )
-                    continue
-
-            # Step 4i: Alpha spread gate
-            alpha_spread = compute_alpha_spread(
-                pair, replace_target, universe, ticker_data
-            )
-            if alpha_spread < min_alpha:
-                logger.info("[RAA] Alpha spread gate REJECT: %s alpha=%.2f%% (min %.2f%%)",
-                            pair, alpha_spread, min_alpha)
-                continue
-
-            # Step 4j: Build PSV vector + rationale
-            price = float(ticker.get("last", 0))
-            psv_vector = build_psv_vector(
-                pair, price, rsi, adx, ibs, vwma_slope,
-                "crypto", "CANDIDATE", persona
-            )
-            rationale = _generate_rationale_via_llm(
-                self._ai_client, pair, ps, alpha_spread, ticker, target_class
-            )
-
-            # Step 4k: Submit proposal via Risk Manager
-            result = propose_universe_addition(
+            # Step 4c: Delegate add/remove decision to LLM (#354)
+            result = _run_llm_universe_decision(
                 pair=pair,
-                classification=target_class,
-                replace_target=replace_target,
-                replace_class=replace_class,
-                alpha_spread=alpha_spread,
-                ps=ps,
-                psv_vector=psv_vector,
-                rationale=rationale,
                 universe=universe,
                 db_path=self._db_path,
                 config=self._config,
                 ai_client=self._ai_client,
-                retry_count=0,
             )
             proposals_submitted += 1
-            if result.get("status") == "approved":
+            if result.get("action") == "ADD":
                 # Refresh universe for next candidate in this cycle
                 universe = _get_universe(self._db_path)
                 universe_pairs_set = {u["pair"] for u in universe}
