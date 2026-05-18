@@ -461,7 +461,7 @@ async def run_cycle(
     broker, agent, ws_feed, audit, notifier, risk, config,
     pairs, mode, start_of_day_balance, loop_state=None,
     is_backtest=False, trading_db_path=None, orchestrator=None,
-) -> None:
+) -> dict:
     """Execute one decision cycle: collect data → build signals → run LLM → execute."""
     from src.analysis.indicators import compute_indicators
     from src.analysis.signals import generate_signal
@@ -626,7 +626,7 @@ async def run_cycle(
                 abs(daily_pnl["pnl_usd"]) / start_of_day_balance * 100
             )
             loop_state["daily_loss_notified_date"] = today
-        return
+        return {"buys": 0, "sells": 0}
 
     # Drawdown recovery mode state tracking (#182)
     recovery_cfg = risk_cfg.get("drawdown_recovery", {})
@@ -855,7 +855,7 @@ async def run_cycle(
 
     if not signals:
         logger.warning("No signals computed this cycle")
-        return
+        return {"buys": 0, "sells": 0}
 
     # Build AI context (regime, sentiment, patterns, exit timing, sizing, dynamic TP)
     from src.analysis.features import build_ai_context, compute_pair_regime_caps, apply_cycle_top_guard
