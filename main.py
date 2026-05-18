@@ -253,6 +253,7 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
         mode=mode,
         audit_logger=audit,
         session_id=session_id,
+        notifier=notifier,
     )
 
     notifier.send_agent_started(start_of_day_bal, pairs, mode)
@@ -403,16 +404,55 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                             "sl_dist_pct": _sl_dist,
                             "tp_dist_pct": _tp_dist,
                         })
+                # Calculate heartbeat metrics
+                from src.reports.trade_report import get_trade_summary
+                trade_summary = get_trade_summary(_trading_db)
+
+                # Win rate (all trades)
+                total_trades = trade_summary.get("total_closed_trades", 0)
+                wins = sum(1 for t in trade_summary.get("trades", []) if t.get("pnl_usd", 0) > 0)
+                win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+                # Daily stats
+                today = now_sgt().date()
+                trades_today = sum(1 for t in trade_summary.get("trades", [])
+                                 if t.get("closed_at") and str(t.get("closed_at")).split("T")[0] == str(today))
+                wins_today = sum(1 for t in trade_summary.get("trades", [])
+                                if t.get("closed_at") and str(t.get("closed_at")).split("T")[0] == str(today) and t.get("pnl_usd", 0) > 0)
+                daily_win_rate = (wins_today / trades_today * 100) if trades_today > 0 else 0
+
+                # Portfolio status
+                total_deployed = sum(p["usd_value"] for p in open_active)
+                cash_pct = (bal["cash_usd"] / bal["total_usd"] * 100) if bal["total_usd"] > 0 else 0
+                deployed_pct = (total_deployed / bal["total_usd"] * 100) if bal["total_usd"] > 0 else 0
+
+                # Position summary
+                position_pnls = [p.get("pnl_pct", 0) for p in positions_detail]
+                avg_pnl = sum(position_pnls) / len(position_pnls) if position_pnls else 0
+                best_pnl = max(position_pnls) if position_pnls else 0
+                worst_pnl = min(position_pnls) if position_pnls else 0
+
                 notifier.send_heartbeat({
                     "balance_usd":          bal["total_usd"],
                     "hourly_pnl_usd":       round(hourly_pnl_usd, 2),
                     "hourly_pnl_pct":       round(hourly_pnl_pct, 2),
                     "cycles_completed":     loop_state["cycles_since_heartbeat"],
-                    "open_positions":       len(open_active),
-                    "buys_last_hour":       loop_state["buys_since_heartbeat"],
-                    "sells_last_hour":      loop_state["sells_since_heartbeat"],
                     "circuit_breaker_active": cb_active,
                     "positions_detail":     positions_detail,
+                    # Win rate
+                    "win_rate_pct":         round(win_rate, 1),
+                    "total_trades":         total_trades,
+                    "wins":                 wins,
+                    # Daily stats
+                    "trades_today":         trades_today,
+                    "daily_win_rate_pct":   round(daily_win_rate, 1),
+                    # Portfolio status
+                    "cash_pct":             round(cash_pct, 1),
+                    "deployed_pct":         round(deployed_pct, 1),
+                    # Position summary
+                    "avg_position_pnl_pct":    round(avg_pnl, 1),
+                    "best_position_pnl_pct":   round(best_pnl, 1),
+                    "worst_position_pnl_pct":  round(worst_pnl, 1),
                 })
                 loop_state["last_heartbeat_time"]    = time.time()
                 loop_state["cycles_since_heartbeat"] = 0

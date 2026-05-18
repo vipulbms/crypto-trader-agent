@@ -234,20 +234,39 @@ class Notifier:
         self._send(msg)
 
     def send_heartbeat(self, summary: dict) -> None:
-        """Hourly 'still alive' message with last-hour activity summary."""
+        """Hourly 'still alive' message with activity summary: win rate, daily stats, portfolio status, position summary, cycle details."""
         balance    = summary.get("balance_usd", 0)
         pnl_usd    = summary.get("hourly_pnl_usd", 0)
         pnl_pct    = summary.get("hourly_pnl_pct", 0)
         cycles     = summary.get("cycles_completed", 0)
-        open_pos   = summary.get("open_positions", 0)
-        buys       = summary.get("buys_last_hour", 0)
-        sells      = summary.get("sells_last_hour", 0)
         circuit    = summary.get("circuit_breaker_active", False)
         cb_note    = " | ⚡ Circuit breaker ACTIVE" if circuit else ""
+
+        # Win rate
+        win_rate   = summary.get("win_rate_pct", 0)
+        total_trades = summary.get("total_trades", 0)
+        wins       = summary.get("wins", 0)
+
+        # Daily stats
+        trades_today = summary.get("trades_today", 0)
+        daily_win_rate = summary.get("daily_win_rate_pct", 0)
+
+        # Portfolio status
+        cash_pct   = summary.get("cash_pct", 0)
+        deployed_pct = summary.get("deployed_pct", 0)
+
+        # Position summary
+        avg_pnl    = summary.get("avg_position_pnl_pct", 0)
+        best_pnl   = summary.get("best_position_pnl_pct", 0)
+        worst_pnl  = summary.get("worst_position_pnl_pct", 0)
+
         lines = [
             f"{self._prefix}💓 <b>Heartbeat</b>{cb_note}",
             f"Balance: ${balance:.2f} ({pnl_usd:+.2f} / {pnl_pct:+.2f}% last hour)",
-            f"Cycles: {cycles} | Open: {open_pos} | Buys: {buys} | Sells: {sells}",
+            f"Win Rate: {wins}/{total_trades} ({win_rate:.0f}%) | Daily: {trades_today} trades ({daily_win_rate:.0f}%)",
+            f"Portfolio: Cash {cash_pct:.0f}% | Deployed {deployed_pct:.0f}%",
+            f"Positions: Avg {avg_pnl:+.1f}% | Best {best_pnl:+.1f}% | Worst {worst_pnl:+.1f}%",
+            f"Cycles: {cycles}",
         ]
         positions_detail = summary.get("positions_detail", [])
         if positions_detail:

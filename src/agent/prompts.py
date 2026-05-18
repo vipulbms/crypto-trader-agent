@@ -49,12 +49,17 @@ _PERSONA_ROLES = {
 
 _SHARED_RULES = (
     "HARD RULES (non-negotiable):\n"
-    "1. Do NOT propose_buy for any pair listed in CURRENT PORTFOLIO.\n"
-    "2. Do NOT propose_buy when kill_switch=1 or circuit_open=1.\n"
-    "3. Never pass less than the min_order_usd shown in RISK CONSTRAINTS.\n"
-    "4. Call propose_sell only when P&L > +2% AND reversal is confirmed.\n"
-    "5. Reason briefly (1 sentence) before each tool call.\n"
-    "6. If cycle top warning is active, treat Tier 3/4 BUYs as blocked.\n"
+    "1. Do NOT propose_buy when kill_switch=1 or circuit_open=1.\n"
+    "2. Never pass less than the min_order_usd shown in RISK CONSTRAINTS.\n"
+    "3. Call propose_sell only when P&L > +2% AND reversal is confirmed.\n"
+    "4. Reason briefly (1 sentence) before each tool call.\n"
+    "5. If cycle top warning is active, treat Tier 3/4 BUYs as blocked.\n"
+    "\n"
+    "POSITION ACCUMULATION LOGIC (proposal_buy intent parameter):\n"
+    "• If pair is in CURRENT PORTFOLIO with P&L > +5% AND tp_dist_pct > 30%: use intent='accumulate' to scale in.\n"
+    "• If pair is in CURRENT PORTFOLIO with P&L < 0% OR tp_dist_pct < 15%: SKIP proposal_buy (wait for exit).\n"
+    "• If pair NOT in CURRENT PORTFOLIO: use intent='new_entry' (normal buy).\n"
+    "• Never accumulate if position size > 60% of max per-pair size shown in CURRENT PORTFOLIO.\n"
 )
 
 
@@ -195,25 +200,34 @@ def build_cycle_prompt(
         "",
     ]
 
-    # ── S14.2.2 — Risk constraints block ──────────────────────────
+    # ── S14.2.2 — Risk constraints block (persona-driven) ──────────────────────────
     positions_open = portfolio.get("open_positions_count", 0)
     positions_max  = rs.get("positions_max", 10)
     kill_switch    = 1 if rs.get("kill_switch") else 0
     circuit_open   = 1 if rs.get("circuit_open") else 0
     playbook       = rs.get("playbook", "standard")
     persona        = rs.get("persona", "medium")
+    persona_config = rs.get("persona_config", {})
     cash_usd       = portfolio.get("available_cash_usd", 0)
 
+    # Persona-driven constraints
+    max_pos_pct    = persona_config.get("max_position_pct", 30)
+    min_profit_floor = persona_config.get("min_profit_floor_pct", 1.0)
+    buy_min_score  = persona_config.get("buy_min_score", 5)
+
     lines += [
-        "## RISK CONSTRAINTS ##",
+        "## RISK CONSTRAINTS (Persona-Driven) ##",
         (
-            f"cash_usd|{cash_usd:.2f}"
+            f"persona|{persona}"
+            f"|cash_usd|{cash_usd:.2f}"
             f"|positions_open|{positions_open}"
             f"|positions_max|{positions_max}"
+            f"|max_per_trade_pct|{max_pos_pct}%"
+            f"|min_profit_floor|{min_profit_floor:.1f}%"
+            f"|buy_min_score|{buy_min_score}"
             f"|kill_switch|{kill_switch}"
             f"|circuit_open|{circuit_open}"
             f"|playbook|{playbook}"
-            f"|persona|{persona}"
         ),
         "",
     ]
@@ -251,6 +265,12 @@ def build_cycle_prompt(
                 pnl_usd = None
             adx_val  = pos.get("adx", None)
             cluster  = pos.get("cluster", "N/A")
+
+            # Accumulation eligibility check
+            accum_eligible = "yes" if (pnl_pct and pnl_pct > 5.0 and tp_dist > 30) else "no"
+            max_pair_size = portfolio.get("max_per_trade", 0)
+            pos_size_pct = (usd_val / max_pair_size * 100) if max_pair_size and usd_val else 0
+
             lines.append(
                 f"pos|{pos.get('pair','?')}"
                 f"|entry|{entry:.4f}"
@@ -258,6 +278,8 @@ def build_cycle_prompt(
                 f"|pnl_usd|{'N/A' if pnl_usd is None else f'{pnl_usd:.2f}'}"
                 f"|tp_dist_pct|{tp_dist:.1f}"
                 f"|sl_dist_pct|{sl_dist:.1f}"
+                f"|pos_size_pct|{pos_size_pct:.0f}"
+                f"|accum_eligible|{accum_eligible}"
                 f"|adx|{'N/A' if adx_val is None else f'{adx_val:.0f}'}"
                 f"|cluster|{cluster}"
             )

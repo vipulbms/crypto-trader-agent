@@ -789,6 +789,7 @@ class RiskManager:
         rsi: Optional[float] = None,
         adx: Optional[float] = None,
         playbook: str = "standard",
+        intent: str = "new_entry",
     ) -> tuple:
         """
         Returns (approved: bool, reason: str, capped_amount: float)
@@ -855,14 +856,14 @@ class RiskManager:
                     0.0,
                 )
 
-        # -1. Duplicate position guard — one open position per pair at a time (#230)
-        open_pairs = self._get_open_pairs()
-        if pair in open_pairs:
-            return (
-                False,
-                f"Position already open for {pair}",
-                0.0,
-            )
+        # -1. Duplicate position guard — disabled to allow scaling in on existing positions
+        # open_pairs = self._get_open_pairs()
+        # if pair in open_pairs:
+        #     return (
+        #         False,
+        #         f"Position already open for {pair}",
+        #         0.0,
+        #     )
 
         # 0. Circuit breaker — pause all buys after consecutive stop-losses
         tripped, resume_in = self.is_circuit_open()

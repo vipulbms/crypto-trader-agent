@@ -82,7 +82,7 @@ class TradingTools:
     # ──────────────────────────────────────────────
 
     @timed("pair", "usd_amount")
-    def propose_buy(self, pair: str, usd_amount: float) -> str:
+    def propose_buy(self, pair: str, usd_amount: float, intent: str = "new_entry") -> str:
         """
         Propose buying a crypto pair with a given USD amount.
         The risk manager may cap the amount or reject the trade.
@@ -91,11 +91,12 @@ class TradingTools:
         Args:
             pair: Trading pair e.g. 'BTC/USD', 'ETH/USD', 'BNB/USD', 'SOL/USD', 'XRP/USD', 'TRX/USD', 'DOGE/USD', 'ADA/USD', 'LTC/USD', 'RAILS/USD', 'AVAX/USD', 'SUI/USD', 'HYPE/USD', 'UNI/USD', 'INJ/USD', 'WIF/USD', 'TON/USD', 'OP/USD', 'ARB/USD', 'JUP/USD', 'PEPE/USD', 'TIA/USD', 'RENDER/USD', 'FET/USD', 'STX/USD', 'PENDLE/USD', 'ONDO/USD', 'BONK/USD', 'MOVR/USD'
             usd_amount: Amount in USD to invest (will be capped at 30% of portfolio)
+            intent: 'new_entry' (open new position) or 'accumulate' (scale into existing position)
 
         Returns:
             String describing the outcome.
         """
-        logger.info("[TOOL] propose_buy(%s, $%.2f)", pair, usd_amount)
+        logger.info("[TOOL] propose_buy(%s, $%.2f, intent=%s)", pair, usd_amount, intent)
 
         pair_cap = self._pair_max_usd.get(pair)
         if pair_cap is not None and usd_amount > pair_cap:
@@ -138,6 +139,7 @@ class TradingTools:
             rsi=float((self._signals_by_pair.get(pair, {}).get("indicators") or {}).get("rsi_14") or 0) or None,
             adx=float((self._signals_by_pair.get(pair, {}).get("indicators") or {}).get("adx_14") or 0) or None,
             playbook=self._playbook,
+            intent=intent,
         )
 
         # Audit risk check
@@ -202,6 +204,7 @@ class TradingTools:
                                 current_price=current_price,
                                 baseline_price=ema_200,
                                 candle_timestamp_sec=current_time,
+                                intent=intent,
                             )
                             if not approved:
                                 logger.info("[ROM] Retry after reallocation still rejected: %s", reason)
