@@ -11,24 +11,26 @@
 1. [Features](#features)
 2. [Quick Start — Paper Trading](#quick-start--paper-trading)
 3. [Telegram Setup](#telegram-setup)
-4. [How the Decision Cycle Works](#how-the-decision-cycle-works)
-5. [Technical Indicators](#technical-indicators)
-6. [BUY Signal — Complete Reference](#buy-signal--complete-reference)
-7. [SELL Signal — Complete Reference](#sell-signal--complete-reference)
-8. [HOLD Logic](#hold-logic)
-9. [Sequence Diagrams](#sequence-diagrams)
-10. [Defence Mechanisms](#defence-mechanisms)
-11. [Market Sentiment in Practice](#market-sentiment-in-practice)
-12. [Trading Pairs — Full Reference](#trading-pairs--full-reference)
-13. [Kryptos CLI](#kryptos-cli)
-14. [Database Storage](#database-storage)
-15. [Risk Rules](#risk-rules)
-16. [Paper vs Live Mode](#paper-vs-live-mode)
-17. [Backtesting & Live Readiness](#backtesting--live-readiness)
-18. [File Structure](#file-structure)
-19. [Configuration (`config.yaml`)](#configuration-configyaml)
-20. [Documentation Index](#documentation-index)
-21. [Known Behaviours](#known-behaviours)
+4. [Agent Architecture](#agent-architecture)
+5. [How the Decision Cycle Works](#how-the-decision-cycle-works)
+6. [Technical Indicators](#technical-indicators)
+7. [BUY Signal — Complete Reference](#buy-signal--complete-reference)
+8. [SELL Signal — Complete Reference](#sell-signal--complete-reference)
+9. [HOLD Logic](#hold-logic)
+10. [Sequence Diagrams](#sequence-diagrams)
+11. [Defence Mechanisms](#defence-mechanisms)
+12. [Market Sentiment in Practice](#market-sentiment-in-practice)
+13. [Trading Pairs — Full Reference](#trading-pairs--full-reference)
+14. [Kryptos CLI](#kryptos-cli)
+15. [MCP Server — Read-Only State Query Interface](#mcp-server--read-only-state-query-interface)
+16. [Database Storage](#database-storage)
+17. [Risk Rules](#risk-rules)
+18. [Paper vs Live Mode](#paper-vs-live-mode)
+19. [Backtesting & Live Readiness](#backtesting--live-readiness)
+20. [File Structure](#file-structure)
+21. [Configuration (`config.yaml`)](#configuration-configyaml)
+22. [Documentation Index](#documentation-index)
+23. [Known Behaviours](#known-behaviours)
 
 ---
 
@@ -172,24 +174,352 @@ Every 15 minutes, the agent runs a complete decision cycle. Here is every step i
 
 ```mermaid
 flowchart TD
-    WS[Kraken WebSocket\nCandle Buffer + OBI] --> IND[compute_indicators\nRSI · MACD · BB · EMA · ATR · ADX · OBV · Patterns]
-    MACRO[Macro Injections\nFear&Greed · BTC Dom · MVRV/NUPL · Adaptive ATR] --> IND
-    IND --> SIG[generate_signal\n28-pt confluence score per pair]
-    SIG --> VETO{Hard Veto?}
-    VETO -- Yes → HOLD --> LOG[Audit Log]
-    VETO -- No → PROMPT[build_cycle_prompt\nBUY+SELL pairs only]
-    PROMPT --> LLM[LLM\nGroq / Gemini / Ollama]
-    LLM --> TOOL{Tool Call}
-    TOOL -- propose_buy --> VB[validate_buy\n12 gates]
-    TOOL -- propose_sell --> VS[validate_sell\n3 gates]
-    TOOL -- hold --> LOG
-    VB -- Approved --> BROKER[PaperBroker / KrakenClient\nSlippage + Fee + SQLite]
-    VS -- Approved --> BROKER
-    VB -- Rejected --> LLM
-    VS -- Rejected --> LLM
-    BROKER --> AUDIT[AuditLogger\naudit.db · agent-llm-prompts.log]
-    AUDIT --> TG[Telegram Notification]
+    subgraph Runtime Agents
+        RAA[ResearchAnalystAgent\nsrc/runtime/research_analyst.py]
+        AA[AuditAgent\nsrc/runtime/audit_agent.py]
+        FS[FulfillmentService\nsrc/runtime/fulfillment_service.py]
+        DC[DataCollector\nsrc/runtime/data_collector.py]
+    end
+
+    subgraph Decision Core
+        ORCH[Orchestrator\nsrc/agent/orchestrator.py]
+        TA[TradingAgent\nsrc/agent/trading_agent.py]
+        RM[RiskManager\nsrc/risk/risk_manager.py]
+    end
+
+    subgraph Data Layer
+        DB[(SQLite DBs\npaper_trading · audit · live)]
+        WS[Kraken WebSocket\nCandle Buffer + OBI]
+        MCP[MCP Server\nsrc/mcp/server.py]
+    end
+
+    RAA -- universe proposals --> DB
+    AA -- outcome validation --> DB
+    AA -- HITL lock --> RAA
+    DC -- candle_buffer --> DB
+    WS --> DC
+
+    DB --> ORCH
+    ORCH -- playbook --> TA
+    DB --> TA
+    TA -- propose_buy/sell --> RM
+    RM -- approved --> FS
+    FS -- place_order/close --> DB
+    FS -- SL/TP monitor --> DB
+
+    DB --> MCP
+    MCP -- read-only query --> DB
 ```
+
+---
+
+## Agent Architecture
+
+Kryptos is a multi-agent system. Six independent runtime processes co-exist around a shared SQLite database. Each agent has a single responsibility; none can override another's decisions without going through the shared DB and hard Python guards.
+
+### Agent Inventory
+
+| Agent | File | Trigger | Role |
+|---|---|---|---|
+| **TradingAgent** | `src/agent/trading_agent.py` | Every cycle (every 30 min) | Single LLM call per cycle; evaluates all BUY/SELL candidates and calls `propose_buy` / `propose_sell` / `hold` tools |
+| **Orchestrator** | `src/agent/orchestrator.py` | Every cycle, before LLM call | Classifies current market regime into a playbook (`momentum` / `ranging` / `risk_off`); result is injected into `CycleContext` for TradingAgent |
+| **ResearchAnalystAgent (RAA)** | `src/runtime/research_analyst.py` | Background loop (`poll_interval_minutes`) | Evaluates the crypto universe for pair additions/removals; runs a single batch LLM call to assess all candidates at once |
+| **AuditAgent** | `src/runtime/audit_agent.py` | Background loop (every 6h / 24h rollup) | Validates RAA proposals against actual trade outcomes; enforces HITL lock after repeated failures; computes playbook performance and signal accuracy |
+| **FulfillmentService** | `src/runtime/fulfillment_service.py` | HTTP server on `127.0.0.1:8090` | REST wrapper around the broker (paper or live); accepts `POST /fill`, monitors SL/TP every 60 s; the only process that writes to broker tables |
+| **DataCollector** | `src/runtime/data_collector.py` | Standalone asyncio process | Subscribes to Kraken WS v2 OHLC + order book; populates `candle_buffer` and `orderbook_snapshots`; REST backfills on startup |
+| **MCP Server** | `src/mcp/server.py` | HTTP server on `127.0.0.1:8092` | Read-only query interface; six tools expose portfolio, signals, regime, universe, and persistence state; used by dashboards and the RAA itself |
+
+---
+
+### Agent Communication Map
+
+```
+main.py
+  │
+  ├─ run_cycle()
+  │     │
+  │     ├─ [1] check_stops_and_tp()          ← PaperBroker / KrakenClient (SL/TP hits)
+  │     │
+  │     ├─ [2] compute_indicators()           ← WebSocket candle buffer
+  │     │       + macro injections            ← CoinGecko / CoinGlass / alternative.me
+  │     │
+  │     ├─ [3] generate_signal()              ← signals.py (28-pt scorer)
+  │     │
+  │     ├─ [4] Orchestrator.select_playbook() ← regime_state + DB agent_state
+  │     │       → writes playbook to DB
+  │     │
+  │     ├─ [5] CycleContext.from_config()     ← active persona + playbook + open positions
+  │     │
+  │     ├─ [6] build_cycle_prompt()           ← BUY+SELL pairs + risk_state + portfolio block
+  │     │
+  │     └─ [7] TradingAgent.run_cycle()
+  │             │
+  │             ├─ LLM call (single, all pairs)
+  │             │
+  │             ├─ propose_buy()  → RiskManager.validate_buy() → broker.place_order()
+  │             ├─ propose_sell() → RiskManager.validate_sell() → broker.close_position()
+  │             └─ hold()         → audit log only
+
+ResearchAnalystAgent  (independent process, runs every N minutes)
+  │
+  ├─ fetch_candidates()           ← Kraken Ticker + CoinGecko Trending APIs
+  ├─ compute_persistence_score()  ← liquidity + momentum + volume + social [0.0–2.5]
+  ├─ _run_llm_batch_universe_decision()
+  │       └─ single LLM call with pre-injected ticker/persistence data
+  │              → LLM calls universe_decision tool per candidate
+  ├─ _apply_llm_decision()        ← enforces meme-block + HITL lock (hard Python guards)
+  └─ writes to universe / trend_persistence / universe_events / hitl_queue tables
+
+AuditAgent  (independent process, 6h + 24h rollups)
+  │
+  ├─ run_24h_validation_window()  ← reads universe_events + paper_trades
+  ├─ evaluate_proposal_outcome()  → PASS / FAIL_PUMP_DETECTION / FLAT
+  ├─ enforce_hitl_lock()          → locks RAA substitution tool after ≥3 FOUNDATIONAL_REPLACEMENT_BLOCK
+  ├─ check_confidence_reset()     → rolling std-dev > 3σ triggers confidence_reset_count
+  ├─ run_24h_rollup()             → writes playbook_performance + risk_decision_outcomes
+  └─ run_6h_rollup()              → writes signal_accuracy per (pair, driver)
+
+FulfillmentService  (HTTP on 127.0.0.1:8090)
+  │
+  ├─ POST /fill                   ← order placement (buy or close)
+  ├─ GET  /positions              ← open positions snapshot
+  ├─ GET  /balance                ← cash + portfolio total
+  └─ _sltp_monitor_loop()         ← runs every 60 s; calls broker.check_stops_and_tp()
+
+DataCollector  (standalone asyncio process)
+  │
+  ├─ Kraken WS v2 ohlc + book    → candle_buffer table (UNIQUE on pair+ts)
+  ├─ REST backfill on startup     → INSERT OR IGNORE (preserves newer WS rows)
+  └─ /health endpoint             ← liveness probe on port 9100
+
+MCP Server  (HTTP on 127.0.0.1:8092, read-only)
+  ├─ get_portfolio_state          ← paper_balance + paper_positions
+  ├─ get_signal_snapshot          ← agent_state JSON
+  ├─ get_regime_state             ← playbook + regime + ADX + BTC dominance
+  ├─ get_agent_status             ← persona + uptime + cycle count
+  ├─ get_universe_state           ← active pairs with tier + daily win rate
+  └─ get_persistence_scores       ← per-pair 14-day win rate proxy
+```
+
+---
+
+### Decision Delegation
+
+The key principle: **the LLM proposes; Python decides; the DB records.**
+
+| Decision | Owner | Delegated To | Hard Python Guard? |
+|---|---|---|---|
+| Which pairs to evaluate (universe) | RAA (LLM batch call) | `_apply_llm_decision()` | Yes — meme-block, HITL lock |
+| Whether a RAA proposal succeeded | AuditAgent | `evaluate_proposal_outcome()` | Yes — confidence reset, HITL lock enforcement |
+| Which playbook to run this cycle | Orchestrator | `select_playbook()` — deterministic rules | No LLM; pure regime math |
+| Which persona governs this cycle | `CycleContext.from_config()` | Reads `config.yaml` + `agent_state.active_persona_override` | Yes — ConfigError on invalid |
+| BUY/SELL/HOLD per pair | TradingAgent (LLM) | `propose_buy()` / `propose_sell()` tools | Yes — `validate_buy()` 12 gates, `validate_sell()` 3 gates |
+| Order placement and SL/TP | FulfillmentService / PaperBroker | `place_order()` / `close_position()` | Yes — overdraw guard, slippage, fee |
+| Automatic SL/TP/trailing exits | `check_stops_and_tp()` | Runs BEFORE LLM each cycle | Yes — LLM is bypassed entirely |
+| Signal scoring (0–28 pts) | `generate_signal()` | Deterministic Python + config weights | Yes — hard vetoes override any score |
+
+---
+
+### Data Flow: A Full Cycle
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  INPUTS (fetched at cycle start, injected before scoring)       │
+│                                                                  │
+│  Kraken WS       → candle_buffer (300 candles × 28 pairs)       │
+│  alternative.me  → fear_greed_index (cached 1h)                 │
+│  CoinGecko       → btc_dominance_pct (cached 24h)               │
+│  CoinGlass       → mvrv_z_score, nupl (cached 24h)              │
+│  DB agent_state  → active_persona_override, playbook            │
+│  DB paper_trades → profit_factor per pair (last 30d)            │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  SIGNAL PIPELINE  (src/analysis/)                               │
+│                                                                  │
+│  compute_indicators() → RSI, MACD, BB, EMA, ATR, ADX, OBV,     │
+│                         patterns, feed_status, winsorized_vol    │
+│                                                                  │
+│  generate_signal()    → confluence score 0–28                   │
+│                         hard vetoes → HOLD (never sent to LLM)  │
+│                         BUY/SELL if score ≥ buy/sell_min_score  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │  BUY + SELL pairs only
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  ORCHESTRATOR  (src/agent/orchestrator.py)                      │
+│                                                                  │
+│  regime_state + ADX median + daily_pnl_pct + kill_switch        │
+│  → playbook: "momentum" | "ranging" | "risk_off"                │
+│  → written to DB agent_state                                    │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  CYCLE CONTEXT  (src/core/cycle_context.py)                     │
+│                                                                  │
+│  CycleContext.from_config()                                     │
+│  → persona: conservative | medium | high                        │
+│  → persona_config: buy_min_score, max_position_pct, etc.        │
+│  → playbook (from Orchestrator)                                 │
+│  → open_positions snapshot                                      │
+│  → btc_dominance_trend                                          │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  TRADING AGENT  (src/agent/trading_agent.py)                    │
+│                                                                  │
+│  build_cycle_prompt() → pipe-format signal blocks, portfolio,   │
+│                         risk constraints, macro overlays         │
+│  Single LLM call → tool calls: propose_buy / propose_sell / hold│
+│                                                                  │
+│  propose_buy()  → RiskManager.validate_buy()  (12 gates)        │
+│                   → broker.place_order() if approved            │
+│  propose_sell() → RiskManager.validate_sell() (3 gates)         │
+│                   → broker.close_position() if approved         │
+│  hold()         → audit log only                                │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  OUTPUTS                                                         │
+│                                                                  │
+│  audit.db            ← every cycle, signal, LLM decision, fill  │
+│  paper_trading.db    ← positions, trades, balance, agent_state  │
+│  agent-llm-prompts.log ← full JSON LLM record per cycle         │
+│  Telegram            ← trade fills, errors, heartbeat, alerts   │
+└─────────────────────────────────────────────────────────────────┘
+
+                    ↑ written concurrently ↑
+
+┌─────────────────────────────────────────────────────────────────┐
+│  BACKGROUND AGENTS  (independent processes)                     │
+│                                                                  │
+│  ResearchAnalystAgent → universe proposals → DB                 │
+│  AuditAgent           → outcome validation → DB                 │
+│  FulfillmentService   → HTTP order API + SL/TP monitor          │
+│  DataCollector        → Kraken WS → candle_buffer               │
+│  MCP Server           → read-only HTTP query interface          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### ResearchAnalystAgent — Universe Management
+
+**File:** `src/runtime/research_analyst.py`  
+**Purpose:** Continuously evaluates the broader crypto universe to propose pair additions and removals. The main trading loop only trades pairs in the active universe; RAA is the gatekeeper.
+
+**Cycle steps:**
+1. Fetch candidate pairs from Kraken Ticker + CoinGecko Trending
+2. `compute_persistence_score()` — composites liquidity, momentum, volume, and social signals into a `[0.0–2.5]` score
+3. Pre-inject ticker data and persistence scores into a single LLM user message
+4. `_run_llm_batch_universe_decision()` — one LLM conversation, all candidates; LLM calls `universe_decision` tool once per candidate
+5. `_apply_llm_decision()` — applies hard guards before committing:
+   - **Meme-block:** MEME-tier pairs cannot displace FOUNDATIONAL pairs
+   - **HITL lock:** if AuditAgent has locked the substitution tool, `universe_decision` calls are rejected
+6. Any candidate the LLM skips gets a synthetic `HOLD + LLM_NO_DECISION` audit row
+
+**Persona gates** (applied before the LLM call):
+- `conservative` persona: no speculative alt additions; forced HOLD on all Tier 3/4 candidates
+- `medium` persona: ADX ≥ 20 + RSI not overbought required
+- `high` persona: only social/volume floor enforced
+
+**Self-reflection loop** (`run_self_reflection_loop()`): reads last 50 `audit_feedback` rows; LLM identifies failure patterns; updates `ps_threshold_override` to tighten or loosen acceptance criteria dynamically.
+
+---
+
+### AuditAgent — Outcome Validation
+
+**File:** `src/runtime/audit_agent.py`  
+**Purpose:** Validates RAA proposals post-hoc. Tracks playbook performance and signal accuracy. Acts as the disciplinary layer — it can lock RAA out of making substitution decisions.
+
+**Key operations:**
+
+| Operation | Frequency | What it does |
+|---|---|---|
+| `run_24h_validation_window()` | Every cycle | Checks universe ADD_PAIR events against actual 24h trade outcomes |
+| `evaluate_proposal_outcome()` | Per event | PASS / FAIL_PUMP_DETECTION / FLAT based on alpha vs. baseline |
+| `check_confidence_reset()` | Every cycle | Rolling 5-outcome std-dev > 3σ → `confidence_reset_count += 1` |
+| `enforce_hitl_lock()` | Every cycle | ≥ 3 FOUNDATIONAL_REPLACEMENT_BLOCK violations in 24h → lock RAA substitution tool |
+| `run_24h_rollup()` | Daily | Writes `playbook_performance` + `risk_decision_outcomes` from last 30d trades |
+| `run_6h_rollup()` | Every 6h | Writes `signal_accuracy` per (pair, signal driver) from 30d win rate |
+| `write_rejection_reprimand()` | On 422/MEME_BLOCK | Writes penalty row to `audit_feedback` so RAA self-reflection loop sees it |
+
+**HITL lock state machine:**
+```
+RAA makes ≥ 3 FOUNDATIONAL_REPLACEMENT_BLOCK proposals in 24h
+    → AuditAgent sets confidence_state.hitl_locked = True
+    → RAA._apply_llm_decision() rejects all universe_decision calls with 423
+    → 24h later: AuditAgent clears lock, resets violation count
+    → Telegram alert sent on lock and unlock
+```
+
+---
+
+### Orchestrator — Playbook Selection
+
+**File:** `src/agent/orchestrator.py`  
+**Purpose:** Maps the current market regime to a trading playbook. The playbook is injected into `CycleContext` and influences TradingAgent's LLM prompt and persona-gated size caps.
+
+**Decision rules (evaluated in order):**
+
+```python
+if kill_switch or daily_pnl_pct <= -3.0:
+    playbook = "risk_off"
+elif adx_median >= 25 and regime == "trending_up":
+    playbook = "momentum"
+else:
+    playbook = "ranging"
+```
+
+**Playbook effects on the system:**
+
+| Playbook | LLM prompt hint | Position sizing | Affected agents |
+|---|---|---|---|
+| `momentum` | "Follow strong trends, buy breakouts" | Full configured size | TradingAgent, FulfillmentService |
+| `ranging` | "Trade mean-reversion, respect BB levels" | Normal | TradingAgent |
+| `risk_off` | "Capital preservation only; hold existing" | Recovery mode (10% cap, BTC/ETH/BNB only) | TradingAgent, RiskManager |
+
+**Playbook bias from AuditAgent** (`get_playbook_bias()`): reads `playbook_performance` table; if a playbook has PF > 1.2, its `max_buys_per_cycle` multiplier is doubled for this cycle. This creates a closed feedback loop: AuditAgent's outcome data feeds back into Orchestrator's aggressiveness.
+
+---
+
+### FulfillmentService — Order Execution
+
+**File:** `src/runtime/fulfillment_service.py`  
+**Purpose:** HTTP service that wraps the broker. Decouples order placement from the decision cycle — any process (TradingAgent, a human dashboard, the Java API) can POST an order without importing the broker directly.
+
+**Security model:**
+- Binds to `127.0.0.1` only — all remote IPs return 403
+- Bearer token required on all mutating endpoints (`FULFILLMENT_API_KEY` env var or config)
+- All requests logged to `fulfillment_audit` table
+
+**SL/TP monitor:** `_sltp_monitor_loop()` runs in the background every 60 seconds independently of the main cycle. This means SL/TP can fire between 30-minute trading cycles if price ticks through a level while FulfillmentService is running.
+
+---
+
+### TradingAgent — LLM Decision Maker
+
+**File:** `src/agent/trading_agent.py`  
+**Purpose:** The only component that calls the LLM. One call per cycle covers all actionable pairs. The LLM receives a fully structured prompt and responds with tool calls only — no free-text decisions are accepted.
+
+**Tool schema available to the LLM:**
+
+| Tool | Parameters | Effect |
+|---|---|---|
+| `propose_buy(pair, usd_amount)` | pair: str, usd_amount: float | Triggers `validate_buy()` → `place_order()` if approved |
+| `propose_sell(pair, reason)` | pair: str, reason: str | Triggers `validate_sell()` → `close_position()` if approved |
+| `hold(pair)` | pair: str | Logs decision; no broker action |
+
+**What the LLM sees per actionable pair (pipe format):**
+```
+pair|SOL/USD|score|11/28|direction|BUY|rsi|27|adx|34|macd_hist|0.0042|bb_pos|0.03|regime|trending_up|price|142.50|tp_pct|16|sl_pct|5|max_buy_usd|180
+```
+
+**Fallback model:** if the primary model (`qwen/qwen3-32b`) times out or returns a tool-call error, the agent retries once with `llama-3.3-70b-versatile`. The fallback is logged and audited.
 
 ---
 
@@ -1486,15 +1816,51 @@ crypto-trader-agent/
 │   ├── test_risk_manager.py         Risk manager unit tests
 │   └── trades_to_candle_converter.py  Convert Kraken trade CSVs to OHLCV candle JSON
 └── src/
-    ├── agent/                        LLM prompts, tool definitions, TradingAgent
-    ├── analysis/                     Indicators (ta library) + signal scorer + features
-    ├── cli/                          NLParser · commands · display · agent_manager
-    ├── exchange/                     WebSocket feed · KrakenClient · PaperBroker
-    ├── notifications/                Telegram notifier + healthcheck webhook
-    ├── reports/                      trade_report.py — P&L and trade history queries
-    ├── risk/                         RiskManager — deterministic Python rules
-    ├── storage/                      SQLite schema + append-only audit logger
-    └── utils/                        tz.py (SGT timezone) · timing.py (@timed decorator)
+    ├── agent/
+    │   ├── trading_agent.py          TradingAgent — single LLM call per cycle, tool dispatch
+    │   ├── orchestrator.py           Orchestrator — regime → playbook classifier
+    │   ├── prompts.py                SYSTEM_PROMPT + build_cycle_prompt() (pipe-format signal blocks)
+    │   └── tools.py                  propose_buy / propose_sell / hold tool implementations
+    ├── analysis/
+    │   ├── indicators.py             RSI, MACD, BB, EMA, ATR, ADX, OBV, divergence, patterns
+    │   ├── signals.py                28-pt confluence scorer; hard vetoes; HOLD/BUY/SELL assignment
+    │   └── features.py               Regime detection, dynamic TP, exit timing, caution factor
+    ├── cli/
+    │   ├── commands.py               CLI command handlers (report, balance, positions, persona, etc.)
+    │   ├── display.py                Rich terminal output
+    │   ├── nl_parser.py              Natural-language input → structured intent
+    │   └── agent_manager.py          Start/stop main.py subprocess from CLI
+    ├── core/
+    │   └── cycle_context.py          CycleContext dataclass — single data contract per cycle
+    ├── exchange/
+    │   ├── websocket_feed.py         Kraken WS v2 candle buffer + OBI ticker
+    │   ├── paper_broker.py           PaperBroker — virtual order execution, SL/TP, slippage sim
+    │   ├── kraken_client.py          KrakenClient — live Kraken REST, mirrors PaperBroker interface
+    │   └── historical_feed.py        Historical candle loader for backtesting
+    ├── mcp/
+    │   └── server.py                 MCPServer — read-only HTTP on 127.0.0.1:8092 (6 tools)
+    ├── notifications/
+    │   └── notifier.py               Telegram alerts · healthcheck webhook · heartbeat
+    ├── reports/
+    │   ├── trade_report.py           P&L queries, signal driver report, profit factor
+    │   ├── daily_report.py           Daily P&L summary (run_daily_report)
+    │   ├── review_report.py          N-day performance review with verdict
+    │   └── chart_generator.py        Equity curve and trade chart generation
+    ├── risk/
+    │   └── risk_manager.py           validate_buy() 12 gates · validate_sell() 3 gates · circuit breaker
+    ├── runtime/
+    │   ├── research_analyst.py       ResearchAnalystAgent — RAA universe management (background)
+    │   ├── audit_agent.py            AuditAgent — outcome validation, HITL lock (background)
+    │   ├── fulfillment_service.py    FulfillmentService — HTTP order API + SL/TP monitor (background)
+    │   └── data_collector.py         DataCollector — Kraken WS → candle_buffer (background)
+    ├── storage/
+    │   ├── database.py               SQLite schema, get_connection(), get_connection_ro()
+    │   └── audit_logger.py           Append-only audit trail — cycles, signals, trades, balance snapshots
+    └── utils/
+        ├── tz.py                     SGT timezone helpers
+        ├── timing.py                 @timed decorator · cycle_id propagation
+        ├── llm_logger.py             LLM request/response JSON logger (agent-llm-prompts.log)
+        └── cycle_logger.py           RAA cycle report writer
 ```
 
 ---
