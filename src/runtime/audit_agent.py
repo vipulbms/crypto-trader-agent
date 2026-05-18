@@ -467,7 +467,7 @@ def evaluate_proposal_outcome(
     row = conn.execute(
         """SELECT exit_price FROM paper_trades
            WHERE pair=? AND exit_price IS NOT NULL
-           ORDER BY exit_time DESC LIMIT 1""",
+           ORDER BY closed_at DESC LIMIT 1""",
         (pair,),
     ).fetchone()
     conn.close()
@@ -547,32 +547,38 @@ def run_24h_rollup(db_path: str, config: dict) -> None:
 
     # playbook_performance
     try:
-        playbook_rows = conn.execute(
-            """SELECT regime, playbook,
-                      COUNT(*) as n,
-                      SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
-                      SUM(CASE WHEN pnl_usd > 0 THEN pnl_usd ELSE 0 END) as gross_profit,
-                      SUM(CASE WHEN pnl_usd < 0 THEN ABS(pnl_usd) ELSE 0 END) as gross_loss,
-                      MIN(pnl_pct) as worst_pct
-               FROM paper_trades
-               WHERE exit_time >= ? AND regime IS NOT NULL AND playbook IS NOT NULL
-               GROUP BY regime, playbook""",
-            (since_iso,),
-        ).fetchall()
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()}
+        if not {"regime", "playbook"}.issubset(cols):
+            logger.warning(
+                "[AUDIT] playbook_performance rollup skipped: paper_trades missing regime/playbook"
+            )
+        else:
+            playbook_rows = conn.execute(
+                """SELECT regime, playbook,
+                          COUNT(*) as n,
+                          SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+                          SUM(CASE WHEN pnl_usd > 0 THEN pnl_usd ELSE 0 END) as gross_profit,
+                          SUM(CASE WHEN pnl_usd < 0 THEN ABS(pnl_usd) ELSE 0 END) as gross_loss,
+                          MIN(pnl_pct) as worst_pct
+                   FROM paper_trades
+                   WHERE closed_at >= ? AND regime IS NOT NULL AND playbook IS NOT NULL
+                   GROUP BY regime, playbook""",
+                (since_iso,),
+            ).fetchall()
 
-        for row in playbook_rows:
-            regime, playbook, n, wins, gross_profit, gross_loss, worst_pct = row
-            win_rate = (wins / n) if n > 0 else 0.0
-            pf = (gross_profit / gross_loss) if gross_loss and gross_loss > 0 else (
-                float("inf") if gross_profit > 0 else 0.0
-            )
-            upsert_playbook_performance(
-                db_path, regime, playbook, n,
-                win_rate=round(win_rate, 4),
-                profit_factor=round(min(pf, 99.0), 4),
-                max_drawdown=abs(float(worst_pct)) if worst_pct else 0.0,
-            )
-        logger.info("[AUDIT] 24h rollup: %d playbook_performance rows updated", len(playbook_rows))
+            for row in playbook_rows:
+                regime, playbook, n, wins, gross_profit, gross_loss, worst_pct = row
+                win_rate = (wins / n) if n > 0 else 0.0
+                pf = (gross_profit / gross_loss) if gross_loss and gross_loss > 0 else (
+                    float("inf") if gross_profit > 0 else 0.0
+                )
+                upsert_playbook_performance(
+                    db_path, regime, playbook, n,
+                    win_rate=round(win_rate, 4),
+                    profit_factor=round(min(pf, 99.0), 4),
+                    max_drawdown=abs(float(worst_pct)) if worst_pct else 0.0,
+                )
+            logger.info("[AUDIT] 24h rollup: %d playbook_performance rows updated", len(playbook_rows))
     except Exception as exc:
         logger.warning("[AUDIT] playbook_performance rollup failed: %s", exc)
 
@@ -584,10 +590,10 @@ def run_24h_rollup(db_path: str, config: dict) -> None:
                       SUM(CASE WHEN exit_reason IN ('stop_loss','trailing_stop') THEN 1 ELSE 0 END) as sl_hits,
                       SUM(CASE WHEN exit_reason='take_profit' THEN 1 ELSE 0 END) as tp_hits,
                       AVG(CAST(
-                        (julianday(exit_time) - julianday(entry_time)) * 86400 AS REAL
+                        (julianday(closed_at) - julianday(opened_at)) * 86400 AS REAL
                       )) as avg_hold
                FROM paper_trades
-               WHERE exit_time >= ?
+               WHERE closed_at >= ?
                GROUP BY pair
                HAVING n >= 10""",
             (since_iso,),
@@ -662,7 +668,7 @@ def run_6h_rollup(db_path: str) -> None:
 
     # Get all pairs that have trades
     pair_rows = conn.execute(
-        "SELECT DISTINCT pair FROM paper_trades WHERE exit_time >= ?", (since_iso,)
+        "SELECT DISTINCT pair FROM paper_trades WHERE closed_at >= ?", (since_iso,)
     ).fetchall()
     pairs = [r[0] for r in pair_rows]
     conn.close()
@@ -673,8 +679,8 @@ def run_6h_rollup(db_path: str) -> None:
     for pair in pairs:
         conn = _get_conn(db_path)
         trades = conn.execute(
-            """SELECT entry_time, exit_time, pnl_usd
-               FROM paper_trades WHERE pair=? AND exit_time >= ?""",
+            """SELECT opened_at, closed_at, pnl_usd
+               FROM paper_trades WHERE pair=? AND closed_at >= ?""",
             (pair, since_iso),
         ).fetchall()
         conn.close()

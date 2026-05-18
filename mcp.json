@@ -1,0 +1,21 @@
+{
+  "name": "Kryptos MCP Server",
+  "description": "Read-only MCP HTTP query interface for the Kryptos agent.",
+  "type": "http",
+  "transport": "streamable-http",
+  "url": "http://127.0.0.1:8092/mcp",
+  "host": "127.0.0.1",
+  "port": 8092,
+  "mode": "paper",
+  "start_command": "PYTHONPATH=. python src/mcp/server.py --mode paper",
+  "tools": [
+    "get_portfolio_state",
+    "get_signal_snapshot",
+    "get_signal_reasons",
+    "get_open_position_reasons",
+    "get_regime_state",
+    "get_agent_status",
+    "get_universe_state",
+    "get_persistence_scores"
+  ]
+}

@@ -3,7 +3,7 @@ MCP HTTP Server — read-only query interface for Kryptos state.
 
 Story: S17.1.1 | Sprint: S6 | Epic: E17
 
-Provides six read-only tools over HTTP-based MCP on 127.0.0.1:8092.
+Provides seven read-only tools over HTTP-based MCP on 127.0.0.1:8092.
 All tools return pipe-separated strings.  DB connections are opened
 read-only (``?mode=ro``) so this process can never corrupt the trading DB.
 
@@ -11,6 +11,8 @@ Tools
 -----
 get_portfolio_state   : cash, total_usd, open positions summary
 get_signal_snapshot   : last generated signals per pair (from agent_state)
+get_signal_reasons    : latest signal direction, strength, reasons, and indicators
+get_open_position_reasons : open-position-only buy/sell rationale and indicators
 get_regime_state      : playbook, regime, ADX median, BTC dominance
 get_agent_status      : persona, uptime, cycle count, last cycle ts
 get_universe_state    : active pairs with tier and daily win rate
@@ -24,8 +26,15 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
+from pathlib import Path
 from typing import Any
+
+# Allow running from the repo root as a script without requiring PYTHONPATH.
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 try:
     from aiohttp import web
@@ -65,6 +74,18 @@ def _open_positions(db_path: str) -> list[dict]:
         return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+def _open_position_pairs(db_path: str) -> set[str]:
+    try:
+        conn = get_connection_ro(db_path)
+        rows = conn.execute(
+            "SELECT DISTINCT pair FROM paper_positions WHERE status='open'"
+        ).fetchall()
+        conn.close()
+        return {r["pair"] for r in rows}
+    except Exception:
+        return set()
 
 
 def _cash(db_path: str) -> float:
@@ -127,6 +148,90 @@ def tool_get_signal_snapshot(db_path: str) -> str:
             except Exception:
                 parts.append(f"pair|{pair}|raw|{val[:80]}")
     return ";".join(parts) if parts else "no_snapshot"
+
+
+def _latest_signal_reasons(db_path: str) -> list[dict[str, Any]]:
+    try:
+        conn = get_connection_ro(db_path)
+        rows = conn.execute(
+            "SELECT pair, signal_direction, signal_strength, signal_reasons, "
+            "rsi_14, macd_histogram, bb_mid, atr_14, price "
+            "FROM audit_signals "
+            "WHERE id IN (SELECT MAX(id) FROM audit_signals GROUP BY pair) "
+            "ORDER BY pair"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def tool_get_signal_reasons(db_path: str) -> str:
+    """pair|X|signal|BUY|strength|N|reasons|A,B,C|indicators|rsi_14=..,..."""
+    rows = _latest_signal_reasons(db_path)
+    parts: list[str] = []
+    for row in rows:
+        raw_reasons = row.get("signal_reasons")
+        reasons: list[str] = []
+        if raw_reasons:
+            try:
+                parsed = json.loads(raw_reasons)
+            except Exception:
+                parsed = raw_reasons
+            if isinstance(parsed, list):
+                reasons = [str(reason) for reason in parsed if reason is not None]
+            else:
+                reasons = [str(parsed)]
+        reasons_str = ",".join(reasons)
+        indicators: list[str] = []
+        for key in ("rsi_14", "macd_histogram", "bb_mid", "atr_14", "price"):
+            value = row.get(key)
+            if value is not None:
+                indicators.append(f"{key}={round(float(value), 4)}")
+        indicators_str = ",".join(indicators)
+        parts.append(
+            f"pair|{row.get('pair','')}|signal|{row.get('signal_direction','')}|"
+            f"strength|{round(float(row.get('signal_strength', 0)), 2)}|"
+            f"reasons|{reasons_str}|indicators|{indicators_str}"
+        )
+    return ";".join(parts) if parts else "no_signal_reasons"
+
+
+def tool_get_open_position_reasons(db_path: str) -> str:
+    """pair|X|signal|BUY|strength|N|reasons|A,B,C|indicators|... for open positions only"""
+    open_pairs = _open_position_pairs(db_path)
+    if not open_pairs:
+        return "no_open_positions"
+    rows = _latest_signal_reasons(db_path)
+    parts: list[str] = []
+    for row in rows:
+        pair = row.get("pair", "")
+        if pair not in open_pairs:
+            continue
+        raw_reasons = row.get("signal_reasons")
+        reasons: list[str] = []
+        if raw_reasons:
+            try:
+                parsed = json.loads(raw_reasons)
+            except Exception:
+                parsed = raw_reasons
+            if isinstance(parsed, list):
+                reasons = [str(reason) for reason in parsed if reason is not None]
+            else:
+                reasons = [str(parsed)]
+        reasons_str = ",".join(reasons)
+        indicators: list[str] = []
+        for key in ("rsi_14", "macd_histogram", "bb_mid", "atr_14", "price"):
+            value = row.get(key)
+            if value is not None:
+                indicators.append(f"{key}={round(float(value), 4)}")
+        indicators_str = ",".join(indicators)
+        parts.append(
+            f"pair|{pair}|signal|{row.get('signal_direction','')}|"
+            f"strength|{round(float(row.get('signal_strength', 0)), 2)}|"
+            f"reasons|{reasons_str}|indicators|{indicators_str}"
+        )
+    return ";".join(parts) if parts else "no_open_position_reasons"
 
 
 def tool_get_regime_state(db_path: str) -> str:
@@ -238,13 +343,85 @@ class MCPServer:
 
     async def _handle_mcp(self, req: "web.Request") -> "web.Response":
         try:
-            body  = await req.json()
-            tool  = body.get("tool", "")
-            result = self._dispatch(tool)
-            return web.json_response({"result": result})
+            body = await req.json()
+            response = self._build_response(body)
+            return web.json_response(response)
         except Exception as exc:
             logger.warning("[MCP] Request error: %s", exc)
             return web.json_response({"error": str(exc)}, status=400)
+
+    def _build_response(self, body: Any) -> dict[str, Any]:
+        if isinstance(body, dict) and body.get("jsonrpc") == "2.0":
+            if body.get("method") == "initialize":
+                return {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "capabilities": {
+                            "tools": sorted([
+                                "get_portfolio_state",
+                                "get_signal_snapshot",
+                                "get_signal_reasons",
+                                "get_open_position_reasons",
+                                "get_regime_state",
+                                "get_agent_status",
+                                "get_universe_state",
+                                "get_persistence_scores",
+                            ])
+                        }
+                    },
+                }
+            if "method" not in body:
+                raise ValueError("Missing JSON-RPC method")
+            method = body["method"]
+            params = body.get("params", {}) or {}
+            tool = params.get("tool", method)
+            if isinstance(tool, str) and tool.startswith("notifications/"):
+                return {"jsonrpc": "2.0", "id": body.get("id"), "result": "ok"}
+            if tool == "tools/list":
+                return {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "tools": sorted([
+                            "get_portfolio_state",
+                            "get_signal_snapshot",
+                            "get_signal_reasons",
+                            "get_open_position_reasons",
+                            "get_regime_state",
+                            "get_agent_status",
+                            "get_universe_state",
+                            "get_persistence_scores",
+                        ])
+                    }
+                }
+            result = self._dispatch(tool)
+            response = {"jsonrpc": "2.0", "id": body.get("id"), "result": result}
+            return response
+
+        if isinstance(body, dict) and "tool" in body:
+            tool = body["tool"]
+            if not tool or tool == "tools/list":
+                return {
+                    "result": {
+                        "tools": sorted([
+                            "get_portfolio_state",
+                            "get_signal_snapshot",
+                            "get_signal_reasons",
+                            "get_open_position_reasons",
+                            "get_regime_state",
+                            "get_agent_status",
+                            "get_universe_state",
+                            "get_persistence_scores",
+                        ])
+                    }
+                }
+            if tool.startswith("notifications/"):
+                return {"result": "ok"}
+            result = self._dispatch(tool)
+            return {"result": result}
+
+        raise ValueError("Unsupported request format")
 
     def _dispatch(self, tool: str) -> str:
         db = self._db_path
@@ -252,6 +429,8 @@ class MCPServer:
         dispatch: dict[str, Any] = {
             "get_portfolio_state":    lambda: tool_get_portfolio_state(db),
             "get_signal_snapshot":    lambda: tool_get_signal_snapshot(db),
+            "get_signal_reasons":     lambda: tool_get_signal_reasons(db),
+            "get_open_position_reasons": lambda: tool_get_open_position_reasons(db),
             "get_regime_state":       lambda: tool_get_regime_state(db),
             "get_agent_status":       lambda: tool_get_agent_status(db),
             "get_universe_state":     lambda: tool_get_universe_state(db, cfg),

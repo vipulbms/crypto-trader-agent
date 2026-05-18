@@ -1,8 +1,8 @@
 """
-Tests for S17.1.1 — MCP Server with 6 read-only tools.
+Tests for S17.1.1 — MCP Server with 7 read-only tools.
 
 Covers:
-  - All 6 tools return pipe-separated strings (AC3)
+  - All 7 tools return pipe-separated strings (AC3)
   - Unknown tool raises ValueError (AC2)
   - DB opened read-only (AC4) — write attempt raises error
   - tool_get_portfolio_state reflects open positions + cash
@@ -10,6 +10,7 @@ Covers:
   - tool_get_persistence_scores aggregates 14-day trades correctly
 """
 
+import json
 import uuid
 import sqlite3
 import os
@@ -19,6 +20,8 @@ from src.storage.database import get_connection, resolve_trading_db, _get_db_pat
 from src.mcp.server import (
     tool_get_portfolio_state,
     tool_get_signal_snapshot,
+    tool_get_signal_reasons,
+    tool_get_open_position_reasons,
     tool_get_regime_state,
     tool_get_agent_status,
     tool_get_universe_state,
@@ -150,6 +153,95 @@ class TestMCPTools:
         assert "ETH/USD" in result
         assert "tier|1" in result
         assert "tp_pct|8" in result
+        _cleanup(db)
+
+    def test_signal_reasons_returns_indicators_and_reasons(self):
+        db = _mk_db()
+        _seed_db(db)
+        conn = get_connection(db)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS audit_signals ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id INTEGER, pair TEXT NOT NULL, "
+            "price REAL NOT NULL, rsi_14 REAL, macd_histogram REAL, bb_upper REAL, "
+            "bb_mid REAL, bb_lower REAL, atr_14 REAL, signal_direction TEXT NOT NULL, "
+            "signal_strength REAL NOT NULL, signal_reasons TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO audit_signals (cycle_id, pair, price, rsi_14, macd_histogram, bb_mid, atr_14, "
+            "signal_direction, signal_strength, signal_reasons) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                1,
+                "BTC/USD",
+                40000.0,
+                28.5,
+                0.15,
+                39800.0,
+                120.0,
+                "BUY",
+                8.2,
+                json.dumps(["rsi_oversold", "bb_squeeze_release"]),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        result = tool_get_signal_reasons(db)
+        assert "pair|BTC/USD" in result
+        assert "signal|BUY" in result
+        assert "reasons|rsi_oversold,bb_squeeze_release" in result
+        assert "rsi_14=28.5" in result
+        assert "macd_histogram=0.15" in result
+        _cleanup(db)
+
+    def test_open_position_reasons_returns_only_open_pairs(self):
+        db = _mk_db()
+        _seed_db(db)
+        conn = get_connection(db)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS audit_signals ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id INTEGER, pair TEXT NOT NULL, "
+            "price REAL NOT NULL, rsi_14 REAL, macd_histogram REAL, bb_upper REAL, "
+            "bb_mid REAL, bb_lower REAL, atr_14 REAL, signal_direction TEXT NOT NULL, "
+            "signal_strength REAL NOT NULL, signal_reasons TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO audit_signals (cycle_id, pair, price, rsi_14, macd_histogram, bb_mid, atr_14, "
+            "signal_direction, signal_strength, signal_reasons) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    1,
+                    "BTC/USD",
+                    40000.0,
+                    28.5,
+                    0.15,
+                    39800.0,
+                    120.0,
+                    "BUY",
+                    8.2,
+                    json.dumps(["rsi_oversold", "bb_squeeze_release"]),
+                ),
+                (
+                    1,
+                    "ETH/USD",
+                    3000.0,
+                    55.0,
+                    0.05,
+                    2950.0,
+                    80.0,
+                    "SELL",
+                    5.1,
+                    json.dumps(["macd_bearish", "rsi_overbought"]),
+                ),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        result = tool_get_open_position_reasons(db)
+        assert "pair|BTC/USD" in result
+        assert "signal|BUY" in result
+        assert "reasons|rsi_oversold,bb_squeeze_release" in result
+        assert "ETH/USD" not in result
         _cleanup(db)
 
     def test_persistence_scores_win_rate(self):

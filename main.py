@@ -184,14 +184,14 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
     _trading_db = resolve_trading_db(config, mode)   # S12.1.3: persona-aware DB naming
     risk        = RiskManager(config, db_path=_trading_db)
 
-    from src.agent.orchestrator import Orchestrator
-    orchestrator = Orchestrator(config, _trading_db, notifier)
-
     # Persona resolved once at startup (disk re-read per cycle handles runtime switches)
     _agent_cfg      = config.get("agent", {})
     _active_persona = _agent_cfg.get("persona", "conservative")
     _concurrent     = bool(_agent_cfg.get("concurrent_mode", False))
     notifier    = Notifier(config, mode, persona=_active_persona if _concurrent else "")
+
+    from src.agent.orchestrator import Orchestrator
+    orchestrator = Orchestrator(config, _trading_db, notifier)
 
     trading_cfg = config.get("trading", {})
     pairs       = [p["pair"] for p in trading_cfg.get("pairs", [])]
