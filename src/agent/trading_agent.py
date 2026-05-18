@@ -47,12 +47,14 @@ class TradingAgent:
         mode: str,
         audit_logger,
         session_id: str = "",
+        notifier=None,
     ):
         self._tools       = tools
         self._config      = config
         self._mode        = mode
         self._audit       = audit_logger
         self._session_id  = session_id
+        self._notifier    = notifier
         llm_cfg           = config.get("llm", {})
         self._provider    = llm_cfg.get("provider", "ollama")
         self._model       = llm_cfg.get("model", "qwen2.5:14b")
@@ -106,8 +108,10 @@ class TradingAgent:
                     "properties": {
                         "pair":       {"type": "string", "description": "Trading pair e.g. 'BTC/USD'"},
                         "usd_amount": {"type": "number", "description": "USD amount to invest"},
+                        "intent":     {"type": "string", "enum": ["new_entry", "accumulate"], "description": "Intent: 'new_entry' for new position, 'accumulate' to scale into existing winning position"},
                     },
                     "required": ["pair", "usd_amount"],
+                    "optional": ["intent"],
                 },
             },
         },
@@ -217,6 +221,16 @@ class TradingAgent:
         # S14.2.3 — unfilled_clusters injected from main.py via ai_context
         unfilled_clusters = (ai_context or {}).get("unfilled_clusters", None)
 
+        # Build risk_state with persona-driven constraints
+        risk_state = {
+            "persona": self._current_ctx.persona_name if self._current_ctx else "medium",
+            "persona_config": self._persona_config,
+            "kill_switch": (ai_context or {}).get("kill_switch", False),
+            "circuit_open": (ai_context or {}).get("circuit_breaker_active", False),
+            "playbook": (ai_context or {}).get("playbook", "standard"),
+            "positions_max": 10,  # Will be overridden by portfolio.max_per_trade
+        }
+
         cycle_prompt = build_cycle_prompt(
             cycle_time=cycle_time,
             portfolio=portfolio,
@@ -226,6 +240,7 @@ class TradingAgent:
             ai_context=ai_context,
             max_buys_per_cycle=self._max_buys,
             min_order_usd=self._min_order_usd,
+            risk_state=risk_state,
             unfilled_clusters=unfilled_clusters,
         )
 
@@ -295,6 +310,18 @@ class TradingAgent:
                                       f"Timeout after {self._timeout}s — model={attempt}: {e}")
                 if attempt == self._fallback:
                     raw_output = f"LLM timeout after {self._timeout}s"
+                    if self._notifier:
+                        self._notifier.send_error_alert("llm_timeout", f"LLM timeout after {self._timeout}s with {attempt}")
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+                error_detail = str(e)
+                logger.error("[LLM] HTTP %d — model=%s: %s", status_code, attempt, error_detail)
+                self._audit.log_error("llm", f"HTTPError_{status_code}", error_detail)
+                # Send Telegram alert for non-200/201 status codes
+                if self._notifier and status_code not in (200, 201):
+                    self._notifier.send_error_alert("llm_http_error", f"LLM HTTP {status_code}: {error_detail[:100]}")
+                if attempt == self._fallback:
+                    raw_output = f"LLM HTTP {status_code} error"
             except Exception as e:
                 logger.warning("LLM attempt with %s failed: %s", attempt, e)
                 if attempt == self._fallback:

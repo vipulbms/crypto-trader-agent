@@ -114,7 +114,7 @@ trading:
   max_position_pct: 30        # Max % of portfolio per single trade (was 20; #265)
   max_open_positions: 10      # Safety ceiling only — cash guards are primary gate (#167; was 5)
   max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
-  cycle_interval_minutes: 15  # How often the agent runs a decision cycle
+  cycle_interval_minutes: 30  # How often the agent runs a decision cycle (48 cycles/day × 5K tokens = 240K/day, safe within Groq 500K TPD limit)
 
   # Time-of-day filter to avoid low-volume false breakouts
   allowed_trading_hours:
@@ -1118,7 +1118,7 @@ services:
 # ──────────────────────────────────────────────
 raa:
   enabled: false                # Set true to run research_analyst.py alongside main.py
-  poll_interval_minutes: 30     # How often RAA polls Kraken + CoinGecko
+  poll_interval_minutes: 180    # How often RAA polls Kraken + CoinGecko (increased from 30 to stay within Groq 500K TPD limit)
   universe_cap: 35              # Max tradeable pairs; PROPOSE blocked at cap without replace_target
   persistence_gate:
     min_ps: 1.5                 # Persistence Score floor; any drop below resets cycles_sustained

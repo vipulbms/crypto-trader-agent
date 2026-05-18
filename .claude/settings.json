@@ -37,7 +37,15 @@
       "Bash(sqlite3 /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/data/paper_trading.db)",
       "Skill(commit)",
       "Skill(commit:*)",
-      "Bash(gh issue *)"
+      "Bash(gh issue *)",
+      "Bash(git add *)",
+      "Bash(python3 -m py_compile src/agent/trading_agent.py main.py)",
+      "Bash(sqlite3 data/paper_trading.db \"PRAGMA table_info\\(paper_trades\\);\")",
+      "Bash(.venv/bin/python --version)",
+      "Bash(.venv/bin/python -m src.runtime.research_analyst --config config.yaml --db paper_trading.db)",
+      "Bash(python3 -m py_compile src/notifications/notifier.py main.py)",
+      "Bash(python3 -m py_compile src/agent/tools.py src/agent/prompts.py src/risk/risk_manager.py)",
+      "Bash(python3 -m py_compile src/agent/trading_agent.py src/agent/prompts.py)"
     ]
   }
 }
