@@ -25,6 +25,7 @@ tz_mod = types.ModuleType("src.utils.tz")
 tz_mod.SGT = _tz.utc
 tz_mod.now_sgt = lambda: datetime.now(_tz.utc)
 tz_mod.now_sgt_iso = lambda: datetime.now(_tz.utc).isoformat()
+tz_mod.to_sgt = lambda dt: dt
 sys.modules["src.utils.tz"] = tz_mod
 
 from src.agent.prompts import build_cycle_prompt

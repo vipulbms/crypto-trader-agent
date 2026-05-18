@@ -1479,21 +1479,79 @@ raa:
 
 ## 10. Shared Libraries Design
 
-The four cross-cutting libraries are **independent repositories** — each with its own `pyproject.toml`, semver versioning, CI pipeline, and changelog. They are not embedded inside any consuming project's source tree. Every agent and every runtime component installs them as regular Python packages via `requirements.txt`. This makes them reusable across the entire project ecosystem (Kryptos, future trading systems, or any other Python project that needs audit, structured logging, an LLM client, or agent discovery).
+### ADR-008 — Monorepo layout for shared libraries
 
+**Date:** 2026-04-19
+**Status:** Accepted
+
+**Context:**
+S20.0.1 was originally written for four independent repositories. During Sprint S1 grooming the squad agreed that, for a one-team project, a single monorepo (`mocha-python-libraries`) with sub-packages is simpler to operate: one CI pipeline, one tag per release, no cross-repo dependency management overhead.
+
+**Decision:**
+All four libraries live as sub-packages of **`github.com/vipulbms/mocha-python-libraries`**. Each sub-package has its own `pyproject.toml` in its subdirectory. Kryptos installs each via the `#subdirectory=` pip extra.
+
+**Consequences:**
+- Positive: single repo to manage; one CI badge; one release tag covers all four packages.
+- Negative: all four libraries share the same semver tag — bumping one bumps the others even when unchanged.
+- Risks: GitHub rate-limiting on `pip install git+https://…` during clean CI restores — mitigated from S3 onward by evaluating PyPI publishing (tracked separately).
+
+---
+
+The four cross-cutting libraries live as sub-packages in the monorepo **`github.com/vipulbms/mocha-python-libraries`**. Each sub-package has its own `pyproject.toml`, `src/`, `tests/`, `CHANGELOG.md`, and `README.md`. They are not embedded inside any consuming project's source tree.
+
+**Monorepo layout:**
 ```
-# requirements.txt (consuming project — pin to exact version)
-mocha-python-audit==1.0.0
-mocha-python-logging==1.0.0
-mocha-python-ai==1.0.0
-mocha-python-agent==1.0.0
+mocha-python-libraries/
+├── mocha_python_audit/          # Audit trail library
+│   ├── pyproject.toml
+│   ├── src/mocha_python_audit/__init__.py
+│   └── tests/
+├── mocha_python_logging/        # Integration logging library
+│   ├── pyproject.toml
+│   ├── src/mocha_python_logging/__init__.py
+│   └── tests/
+├── mocha_python_ai/             # AI client library
+│   ├── pyproject.toml
+│   ├── src/mocha_python_ai/__init__.py
+│   └── tests/
+├── mocha_python_agent/          # Agent bootstrap library
+│   ├── pyproject.toml
+│   ├── src/mocha_python_agent/__init__.py
+│   └── tests/
+├── .github/workflows/ci.yml     # Single CI workflow — ruff + mypy + pytest across all packages
+└── CHANGELOG.md
 ```
 
-> **Usage in code:** `from mocha_python_audit import AuditLogger` — no path manipulation, no local file imports.
+**Installation in consuming projects (Kryptos `requirements.txt`):**
+```
+git+https://github.com/vipulbms/mocha-python-libraries.git@v1.0.0#subdirectory=mocha_python_audit
+git+https://github.com/vipulbms/mocha-python-libraries.git@v1.0.0#subdirectory=mocha_python_logging
+git+https://github.com/vipulbms/mocha-python-libraries.git@v1.0.0#subdirectory=mocha_python_ai
+git+https://github.com/vipulbms/mocha-python-libraries.git@v1.0.0#subdirectory=mocha_python_agent
+```
+
+> **Usage in code:** `from mocha_python_audit import AuditLogger` — no path manipulation, no local file imports. Import style is identical regardless of monorepo or multi-repo layout.
+
+### ADR-009 — CycleContext stays in the Kryptos repo
+
+**Date:** 2026-04-19
+**Status:** Accepted
+
+**Context:**
+`CycleContext` is a domain object carrying Kryptos-specific fields (persona_config, playbook, open_positions, unfilled_clusters, btc_dominance_trend). Moving it into `mocha-python-agent` would embed fintech domain knowledge in a general-purpose library, violating S20.0.1 AC6.
+
+**Decision:**
+`CycleContext` lives at `src/core/cycle_context.py` in the Kryptos repo. Shared libraries (`mocha-python-*`) contain only infrastructure cross-cuts (audit, logging, AI client, agent registry).
+
+**Consequences:**
+- Positive: libraries remain generic and reusable; domain coupling stays in Kryptos.
+- Negative: none — this is standard DDD aggregate ownership.
+
+---
 
 ### 10.1 mocha-python-audit — Audit Library
 
-**Repo:** `github.com/{org}/mocha-python-audit` | **Package:** `mocha_python_audit` | **Latest:** `mocha-python-audit==1.0.0`
+**Repo:** `github.com/vipulbms/mocha-python-libraries` (subdirectory `mocha_python_audit`) | **Package:** `mocha_python_audit` | **Latest tag:** `v1.0.0`
 
 **Purpose:** Single-writer, structured audit trail. All significant events (signals, trades, decisions, errors, fulfillment records) are funnelled through this library. No agent writes directly to any audit table.
 
@@ -1534,7 +1592,7 @@ class AuditLogger:
 
 ### 10.2 mocha-python-logging — Integration Logging Library
 
-**Repo:** `github.com/{org}/mocha-python-logging` | **Package:** `mocha_python_logging` | **Latest:** `mocha-python-logging==1.0.0`
+**Repo:** `github.com/vipulbms/mocha-python-libraries` | **Sub-directory:** `mocha_python_logging` | **Latest tag:** `v1.0.0`
 
 **Purpose:** Capture every outbound network call — Groq API, Kraken REST, Kraken WebSocket messages, CoinGecko, CoinGlass, Telegram, healthchecks.io — with request payload, response summary, status code, and latency.
 
@@ -1583,7 +1641,7 @@ def log_integration(service: str, operation: str):
 
 ### 10.3 mocha-python-ai — AI Client Library
 
-**Repo:** `github.com/{org}/mocha-python-ai` | **Package:** `mocha_python_ai` | **Latest:** `mocha-python-ai==1.0.0`
+**Repo:** `github.com/vipulbms/mocha-python-libraries` | **Sub-directory:** `mocha_python_ai` | **Latest tag:** `v1.0.0`
 
 **Purpose:** Single abstraction over all LLM providers. No agent or component instantiates its own `groq.Groq()` or `ollama.Client()` — all LLM calls go through `AIClient`.
 
@@ -1640,7 +1698,7 @@ attempt 3: fallback model (Ollama or secondary Groq)
 
 ### 10.4 mocha-python-agent — Agent Bootstrap Library
 
-**Repo:** `github.com/{org}/mocha-python-agent` | **Package:** `mocha_python_agent` | **Latest:** `mocha-python-agent==1.0.0`
+**Repo:** `github.com/vipulbms/mocha-python-libraries` | **Sub-directory:** `mocha_python_agent` | **Latest tag:** `v1.0.0`
 
 **Purpose:** Standardised startup handshake. Every agent process registers itself on launch, making it discoverable by the Orchestrator and by MCP clients.
 

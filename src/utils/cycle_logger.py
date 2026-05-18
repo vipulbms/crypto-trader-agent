@@ -337,3 +337,62 @@ def write_cycle_report(
         logging.getLogger("main").warning(
             "[CYCLE_LOG] Failed to write cycle report: %s", exc
         )
+
+
+def write_raa_cycle_report(
+    cycle_id: int,
+    duration_ms: int,
+    candidates: list[str],
+    decisions: list[dict],
+    persistence_data: dict,
+    persona: str = "conservative",
+) -> None:
+    """
+    Append one RAA cycle record to cycle_decisions.log.
+
+    decisions: list of result dicts from _run_llm_batch_universe_decision,
+               each has keys: pair, action, reason, status.
+    persistence_data: dict mapping pair → {persistence_score, cycles_sustained, classification}.
+    """
+    now = datetime.now(timezone.utc)
+    n_add = sum(1 for d in decisions if d.get("action") == "ADD")
+    n_remove = sum(1 for d in decisions if d.get("action") == "REMOVE")
+    n_hold = sum(1 for d in decisions if d.get("action") == "HOLD")
+    n_no_decision = sum(1 for d in decisions if d.get("reason") == "LLM_NO_DECISION")
+
+    decision_rows = []
+    for d in decisions:
+        pair = d.get("pair", "")
+        p = persistence_data.get(pair, {})
+        decision_rows.append({
+            "pair":           pair,
+            "action":         d.get("action"),
+            "reason":         d.get("reason"),
+            "status":         d.get("status"),
+            "ps":             round(float(p.get("persistence_score", 0)), 4),
+            "cycles":         p.get("cycles_sustained", 0),
+            "classification": p.get("classification", "FOUNDATIONAL"),
+        })
+
+    record = {
+        "source":               "RAA",
+        "cycle_id":             cycle_id,
+        "timestamp":            now.isoformat(),
+        "duration_ms":          duration_ms,
+        "persona":              persona,
+        "candidates_evaluated": len(candidates),
+        "decisions":            decision_rows,
+        "summary": {
+            "n_add":         n_add,
+            "n_hold":        n_hold,
+            "n_remove":      n_remove,
+            "n_no_decision": n_no_decision,
+        },
+    }
+
+    try:
+        _cycle_log.info(json.dumps(record, default=str))
+    except Exception as exc:
+        logging.getLogger("research_analyst").warning(
+            "[CYCLE_LOG] Failed to write RAA cycle report: %s", exc
+        )

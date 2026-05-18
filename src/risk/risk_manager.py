@@ -21,7 +21,8 @@ def validate_config(config: dict) -> None:
     """
     Called once at startup. Raises ValueError if any take-profit value
     is not in the allowed set. Prevents misconfigured agents from starting.
-    Also validates mutually exclusive features (trailing_stop / breakeven_stop).
+    Also validates mutually exclusive features (trailing_stop / breakeven_stop)
+    and the persona config schema (S12.1.1 — AC4).
     """
     allowed = config.get("trading", {}).get(
         "allowed_take_profit_pcts", ALLOWED_TAKE_PROFIT_PCTS
@@ -47,6 +48,46 @@ def validate_config(config: dict) -> None:
             "trailing_stop and breakeven_stop cannot both be enabled simultaneously. "
             "Disable one in config.yaml."
         )
+    # Persona config schema validation (S12.1.1 — AC4)
+    _REQUIRED_PERSONA_KEYS = {
+        "buy_min_score", "max_open_positions", "max_position_pct",
+        "min_profit_floor_pct", "rsi_overbought_veto",
+        "momentum_bypass_rsi", "momentum_bypass_adx",
+        "reallocation_enabled", "reallocation_max_pct_6h",
+        "llm_temperature", "llm_max_tokens",
+        "llm_system_role", "velocity_circuit_breaker_pct", "velocity_halt_hours",
+        # S15.2.2 — PF escalation suspension
+        "pf_escalation_momentum_suspend",
+        # S15.2.3 — Early Momentum score reduction
+        "early_momentum_score_reduction", "early_momentum_rsi_min",
+        "early_momentum_rsi_max", "early_momentum_adx_min",
+    }
+    _VALID_PERSONAS = {"conservative", "medium", "high"}
+    agent_cfg = config.get("agent", {})
+    active_persona = agent_cfg.get("persona")
+    if active_persona is not None and active_persona not in _VALID_PERSONAS:
+        raise ValueError(
+            f"Invalid agent.persona: '{active_persona}'. "
+            f"Must be one of: {sorted(_VALID_PERSONAS)}"
+        )
+    personas_cfg = config.get("personas", {})
+    if not personas_cfg:
+        raise ValueError(
+            "Missing 'personas:' block in config.yaml. "
+            "All three profiles (conservative, medium, high) are required."
+        )
+    for persona_name in _VALID_PERSONAS:
+        if persona_name not in personas_cfg:
+            raise ValueError(
+                f"Missing persona profile '{persona_name}' in config.yaml personas block."
+            )
+        profile = personas_cfg[persona_name]
+        missing = _REQUIRED_PERSONA_KEYS - set(profile.keys())
+        if missing:
+            raise ValueError(
+                f"Persona '{persona_name}' is missing required keys: {sorted(missing)}. "
+                f"Add the missing keys to config.yaml under personas.{persona_name}."
+            )
     # Sanity check: max_open_positions × max_position_pct must not exceed deployable capital
     trading = config.get("trading", {})
     max_pos = trading.get("max_open_positions", 3)
@@ -61,7 +102,7 @@ def validate_config(config: dict) -> None:
             max_pos, base_pct, max_pos * base_pct, max_deployable_pct, reserve_pct,
             int(max_deployable_pct // base_pct),
         )
-    logger.info("Config validation passed — all take-profit values are valid")
+    logger.info("Config validation passed — all take-profit values and persona profiles are valid")
 
 
 class RiskManager:
@@ -72,6 +113,7 @@ class RiskManager:
     """
 
     def __init__(self, config: dict, db_path: Optional[str] = None):
+        self._config = config
         trading = config.get("trading", {})
         risk    = config.get("risk", {})
         self._stop_loss_pct       = trading.get("stop_loss_pct", 5)
@@ -141,6 +183,9 @@ class RiskManager:
         # DB path — used to query trade history for circuit breaker
         self._db_path = db_path
 
+        # S15.1.1, S15.2.1 — full persona config (set by apply_persona_config each cycle)
+        self._persona_config: dict = {}
+
         # Build per-pair TP map
         self._pair_tp: dict = {}
         for p in trading.get("pairs", []):
@@ -150,6 +195,36 @@ class RiskManager:
         """Update the current cycle-top guard state for validate_buy()."""
         self._cycle_top_active = bool(active and self._cycle_top_guard_enabled)
         self._cycle_top_data = data or {}
+
+    def apply_persona_config(self, persona_config: dict) -> None:
+        """
+        Update persona-driven thresholds from the active CycleContext.
+
+        Called once per cycle in main.py after CycleContext is constructed.
+        Overrides the three risk fields that vary by persona so validate_buy()
+        and validate_sell() operate under the correct persona thresholds.
+        Full config stored as _persona_config for S15.1.1 + S15.2.1 access.
+
+        Args:
+            persona_config: The dict at config["personas"][active_persona].
+
+        Story: S12.1.2 — Persona runtime injection into CycleContext (AC3)
+        """
+        self._persona_config: dict = dict(persona_config)  # S15.1.1, S15.2.1
+        if "max_open_positions" in persona_config:
+            self._max_open_positions = int(persona_config["max_open_positions"])
+        if "max_position_pct" in persona_config:
+            self._max_position_pct = float(persona_config["max_position_pct"])
+        if "min_profit_floor_pct" in persona_config:
+            self._min_profit_floor_pct = float(persona_config["min_profit_floor_pct"])
+        logger.debug(
+            "[PERSONA] RiskManager thresholds applied — persona=%s "
+            "max_open=%d max_pos=%.0f%% min_floor=%.2f%%",
+            persona_config.get("_persona_name", "?"),
+            self._max_open_positions,
+            self._max_position_pct,
+            self._min_profit_floor_pct,
+        )
 
     # ── Circuit breaker — derived from trade history ──────────────────────────
     # Queries the last N trades that closed within the pause window.
@@ -344,7 +419,361 @@ class RiskManager:
         tp_pct = override_pct if override_pct is not None else self.get_take_profit_pct(pair)
         return round(entry_price * (1 + tp_pct / 100), 8)
 
-    @timed("pair", "proposed_usd", "open_positions_count")
+    def get_prune_candidate(
+        self,
+        open_positions: list,
+        incoming_score: int = 0,
+    ) -> Optional[str]:
+        """
+        S15.1.1 — Identify the weakest open position eligible for reallocation.
+
+        A position is eligible when ALL apply:
+          - ADX < 25 (trend has faded — momentum stalled)
+          - P&L% < _min_profit_floor_pct * 1.5 (not worth holding as-is)
+          - P&L% > -(stop_loss_pct / 2) (not a deep loss — closing would not realise a large hit)
+
+        Returns the pair name of the weakest eligible position (lowest ADX, then lowest P&L%),
+        or None when reallocation is disabled or no eligible position exists.
+
+        Args:
+            open_positions: list of dicts with keys: pair, adx, pnl_pct
+            incoming_score: buy score of the incoming signal (unused for now, reserved for AC4)
+
+        Story: S15.1.1
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+        if not persona_cfg.get("reallocation_enabled", False):
+            return None
+
+        floor_threshold = self._min_profit_floor_pct * 1.5
+        deep_loss_guard = -(self._stop_loss_pct / 2)
+
+        eligible = [
+            pos for pos in open_positions
+            if (
+                float(pos.get("adx") or 999) < 25
+                and float(pos.get("pnl_pct") or 0) < floor_threshold
+                and float(pos.get("pnl_pct") or 0) > deep_loss_guard
+            )
+        ]
+        if not eligible:
+            return None
+
+        # Weakest: lowest ADX first (most range-bound); then lowest P&L% as tiebreaker
+        eligible.sort(key=lambda p: (float(p.get("adx") or 999), float(p.get("pnl_pct") or 0)))
+        prune_pair = eligible[0].get("pair")
+        logger.info(
+            "[ROM] Prune candidate identified: %s (adx=%.1f, pnl_pct=%.2f%%)",
+            prune_pair,
+            float(eligible[0].get("adx") or 999),
+            float(eligible[0].get("pnl_pct") or 0),
+        )
+        return prune_pair
+
+    def get_effective_min_score(
+        self,
+        pair: str,
+        playbook: str,
+        pair_cfg: dict,
+        indicators: dict,
+        sig_cfg: dict,
+    ) -> int:
+        """
+        S15.2.2 / S15.2.3 — Compute the effective buy_min_score for a pair, incorporating:
+          1. Per-pair override from config (existing #128 behaviour).
+          2. Profit Factor escalation — suspended when playbook='momentum' AND
+             pf_escalation_momentum_suspend=true in persona config (S15.2.2).
+          3. Early Momentum score reduction — when RSI ∈ [rsi_min, rsi_max] AND
+             ADX > early_momentum_adx_min (S15.2.3).  Floor: 1.
+
+        Args:
+            pair:       pair name (e.g. 'BTC/USD')
+            playbook:   current playbook ('momentum' | 'ranging' | 'risk_off' | 'standard')
+            pair_cfg:   the per-pair config dict from trading.pairs[]
+            indicators: current indicators dict for this pair (contains profit_factor, rsi_14, adx_14)
+            sig_cfg:    signals config section (for global buy_min_score, PF thresholds)
+
+        Returns:
+            Effective buy_min_score (int ≥ 1)
+
+        Stories: S15.2.2, S15.2.3
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+
+        # Base score: per-pair override → global default
+        base_score = int(pair_cfg.get("buy_min_score", sig_cfg.get("buy_min_score", 5)))
+
+        # ── Step 1: Profit Factor escalation (S15.2.2) ──────────────────────────
+        pf_cfg = sig_cfg.get("profit_factor_escalation", {})
+        pf_escalation_enabled = bool(pf_cfg.get("enabled", False))
+        pf_suspend = bool(persona_cfg.get("pf_escalation_momentum_suspend", False))
+        pf_delta = 0
+
+        if pf_escalation_enabled and not (pf_suspend and playbook == "momentum"):
+            pf = indicators.get("profit_factor")
+            if pf is not None:
+                pf_warn   = float(pf_cfg.get("pf_warn_threshold", 1.0))
+                pf_severe = float(pf_cfg.get("pf_severe_threshold", 0.7))
+                min_trades = int(pf_cfg.get("min_trades", 10))
+                n_trades = int(indicators.get("pf_trade_count", 0))
+                if n_trades >= min_trades:
+                    if pf < pf_severe:
+                        pf_delta = 2
+                    elif pf < pf_warn:
+                        pf_delta = 1
+        elif pf_escalation_enabled and pf_suspend and playbook == "momentum":
+            pf = indicators.get("profit_factor")
+            if pf is not None and float(pf) < float(pf_cfg.get("pf_warn_threshold", 1.0)):
+                logger.info(
+                    "[ROM] PF_ESCALATION SUSPENDED — playbook=momentum; %s using persona "
+                    "default score %d (PF=%.2f)",
+                    pair, base_score, float(pf),
+                )
+
+        effective = base_score + pf_delta
+
+        # ── Step 2: Early Momentum score reduction (S15.2.3) ────────────────────
+        em_reduction = int(persona_cfg.get("early_momentum_score_reduction", 0))
+        if em_reduction > 0:
+            rsi = indicators.get("rsi_14")
+            adx = indicators.get("adx_14")
+            em_rsi_min = float(persona_cfg.get("early_momentum_rsi_min", 50))
+            em_rsi_max = float(persona_cfg.get("early_momentum_rsi_max", 65))
+            em_adx_min = float(persona_cfg.get("early_momentum_adx_min", 999))
+            if (
+                rsi is not None and adx is not None
+                and em_rsi_min <= float(rsi) <= em_rsi_max
+                and float(adx) > em_adx_min
+            ):
+                effective = max(1, effective - em_reduction)
+                logger.info(
+                    "[ROM] EARLY_MOMENTUM %s RSI=%.0f ADX=%.0f — "
+                    "min_score reduced to %d",
+                    pair, float(rsi), float(adx), effective,
+                )
+
+        # ── Step 3: Playbook score delta (S16.1.2 AC2) ──────────────────────────
+        # ranging  → +1 (filter noise in choppy markets)
+        # risk_off → +2 (block casual buys in adverse conditions)
+        # momentum → 0  (no extra bar — trend is confirmed)
+        _playbook_score_delta = {"ranging": 1, "risk_off": 2, "momentum": 0, "standard": 0}
+        effective += _playbook_score_delta.get(playbook, 0)
+        if playbook in ("ranging", "risk_off"):
+            logger.debug(
+                "[ROM] Playbook score delta applied — %s playbook=%s +%d → effective=%d",
+                pair, playbook, _playbook_score_delta[playbook], effective,
+            )
+
+        return effective
+
+    def check_velocity_circuit(
+        self,
+        portfolio_value: float,
+        db_path: str,
+    ) -> tuple:
+        """
+        S15.3.1 — Return (tripped: bool, resume_until_epoch: float).
+
+        Velocity circuit trips when the hourly loss rate exceeds the persona's
+        velocity_circuit_breaker_pct.  Halt duration = velocity_halt_hours, persisted
+        to agent_state as 'velocity_circuit_open_until'.
+
+        Args:
+            portfolio_value:  current total portfolio USD value
+            db_path:          path to the SQLite trading DB
+
+        Returns:
+            (tripped: bool, resume_until_epoch: float)
+            When tripped=True, resume_until_epoch is a Unix timestamp.
+            When tripped=False, resume_until_epoch is 0.0.
+
+        Story: S15.3.1
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+        threshold_pct = float(persona_cfg.get("velocity_circuit_breaker_pct", 3.0))
+        halt_hours    = float(persona_cfg.get("velocity_halt_hours", 4.0))
+
+        if not db_path:
+            return False, 0.0
+
+        try:
+            from src.storage.database import get_connection
+            conn = get_connection(db_path)
+
+            # Check if already tripped (persisted halt still active)
+            row = conn.execute(
+                "SELECT value FROM agent_state WHERE key='velocity_circuit_open_until'"
+            ).fetchone()
+            if row:
+                resume_until = float(row["value"])
+                if resume_until > time.time():
+                    conn.close()
+                    logger.debug(
+                        "[ROM] VELOCITY CIRCUIT still open — resumes at %s",
+                        datetime.datetime.fromtimestamp(resume_until).isoformat(),
+                    )
+                    return True, resume_until
+                # Halt expired — clear it
+                conn.execute(
+                    "DELETE FROM agent_state WHERE key='velocity_circuit_open_until'"
+                )
+                conn.commit()
+
+            # Compute losses in the last 60 minutes
+            since_iso = datetime.datetime.fromtimestamp(
+                time.time() - 3600, tz=datetime.timezone.utc
+            ).isoformat()
+            trades_table = "paper_trades" if "paper" in db_path else "live_trades"
+            rows = conn.execute(
+                f"SELECT pnl_usd FROM {trades_table} "
+                f"WHERE closed_at >= ? AND pnl_usd < 0",
+                (since_iso,),
+            ).fetchall()
+            conn.close()
+
+            losses_last_hour = sum(float(r["pnl_usd"] or 0) for r in rows)
+            if portfolio_value <= 0:
+                return False, 0.0
+
+            loss_rate_pct = abs(losses_last_hour) / portfolio_value * 100
+            if loss_rate_pct >= threshold_pct:
+                resume_until = time.time() + halt_hours * 3600
+                # Persist halt
+                conn2 = get_connection(db_path)
+                conn2.execute(
+                    "INSERT OR REPLACE INTO agent_state(key, value) VALUES(?,?)",
+                    ("velocity_circuit_open_until", str(resume_until)),
+                )
+                conn2.commit()
+                conn2.close()
+                logger.warning(
+                    "[ROM] VELOCITY CIRCUIT OPEN — loss_rate=%.2f%% >= %.2f%% threshold; "
+                    "halting buys for %.1fh",
+                    loss_rate_pct, threshold_pct, halt_hours,
+                )
+                return True, resume_until
+
+            return False, 0.0
+
+        except Exception as exc:
+            logger.warning("[ROM] velocity_circuit check failed: %s", exc)
+            return False, 0.0
+
+    # ─────────────────────────────────────────────────────────
+    # RAA Universe Proposal Validation — S22.1.2
+    # ─────────────────────────────────────────────────────────
+
+    def validate_universe_proposal(
+        self,
+        pair: str,
+        classification: str,
+        replace_target: Optional[str],
+        replace_class: Optional[str],
+        n_current: int,
+        projected_alpha: float,
+        persona_config: dict,
+        psv_vector: str,
+        db_path: str,
+    ) -> dict:
+        """
+        Validate a RAA universe addition proposal.
+
+        Rules applied in order:
+          1. MEME_BLOCK — reject if target_class=MEME and replace_class=FOUNDATIONAL.
+          2. UNIVERSE_AT_CAP — reject when n_current == universe_cap and no replace_target.
+          3. ALPHA_SPREAD_INSUFFICIENT — reject when projected_alpha < min_alpha_pct.
+          4. On accept: write universe row + universe_events (ADD_PAIR + REMOVE_PAIR if displaced).
+
+        Returns:
+            {
+              "status":       "approved" | "rejected",
+              "reason":       rejection code or None,
+              "http_status":  200 | 422 | 400,
+            }
+
+        Story: S22.1.2
+        """
+        from src.storage.database import get_connection
+
+        universe_cap = int(self._config.get("raa", {}).get("universe_cap", 35))
+        min_alpha = float(
+            self._config.get("raa", {}).get("alpha_spread_gate", {}).get("min_alpha_pct", 2.0)
+        )
+
+        # Rule 1 — MEME_BLOCK (hard rule, no config override)
+        if classification == "MEME" and replace_class == "FOUNDATIONAL":
+            logger.warning(
+                "[RISK] MEME_BLOCK_REJECT: %s (MEME) cannot displace %s (FOUNDATIONAL)",
+                pair, replace_target,
+            )
+            return {"status": "rejected", "reason": "MEME_BLOCK", "http_status": 422}
+
+        # Rule 2 — Universe at cap without a replace target
+        if n_current >= universe_cap and not replace_target:
+            logger.info(
+                "[RISK] UNIVERSE_AT_CAP: n=%d cap=%d, no replace_target provided for %s",
+                n_current, universe_cap, pair,
+            )
+            return {"status": "rejected", "reason": "UNIVERSE_AT_CAP", "http_status": 422}
+
+        # Rule 3 — Alpha spread gate (strict: projected_alpha must be > min_alpha)
+        if projected_alpha <= min_alpha:
+            logger.info(
+                "[RISK] ALPHA_SPREAD_INSUFFICIENT: %s projected_alpha=%.2f%% min=%.2f%%",
+                pair, projected_alpha, min_alpha,
+            )
+            return {"status": "rejected", "reason": "ALPHA_SPREAD_INSUFFICIENT", "http_status": 422}
+
+        # Approved — write universe row and events
+        from datetime import datetime, timezone
+        import json as _json
+
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            conn = get_connection(db_path)
+
+            # Remove displaced pair if applicable
+            if replace_target:
+                conn.execute("DELETE FROM universe WHERE pair = ?", (replace_target,))
+                conn.execute(
+                    """INSERT INTO universe_events (pair, event_type, ts, processed, payload_json)
+                       VALUES (?, 'REMOVE_PAIR', ?, 0, ?)""",
+                    (replace_target, now, _json.dumps({
+                        "reason": "displaced_by",
+                        "incoming_pair": pair,
+                        "classification": replace_class,
+                    })),
+                )
+
+            # Add new pair
+            conn.execute(
+                """INSERT OR REPLACE INTO universe
+                   (pair, classification, added_at, added_by, alpha_spread_at_entry, replace_target_if_any)
+                   VALUES (?, ?, ?, 'RAA', ?, ?)""",
+                (pair, classification, now, projected_alpha, replace_target),
+            )
+            conn.execute(
+                """INSERT INTO universe_events (pair, event_type, ts, processed, payload_json)
+                   VALUES (?, 'ADD_PAIR', ?, 0, ?)""",
+                (pair, now, _json.dumps({
+                    "classification": classification,
+                    "alpha_spread": projected_alpha,
+                    "psv_vector": psv_vector,
+                    "displaced": replace_target,
+                })),
+            )
+            conn.commit()
+            conn.close()
+            logger.info(
+                "[RISK] Universe proposal APPROVED: %s (%s) alpha=%.2f%% replace=%s",
+                pair, classification, projected_alpha, replace_target,
+            )
+        except Exception as exc:
+            logger.error("[RISK] validate_universe_proposal DB write failed: %s", exc)
+            return {"status": "rejected", "reason": "DB_ERROR", "http_status": 500}
+
+        return {"status": "approved", "reason": None, "http_status": 200}
+
     def validate_buy(
         self,
         pair: str,
@@ -356,12 +785,57 @@ class RiskManager:
         starting_balance_usd: float,
         current_price: float = 0.0,
         baseline_price: float = 0.0,
-        candle_timestamp_sec: float = 0.0
+        candle_timestamp_sec: float = 0.0,
+        rsi: Optional[float] = None,
+        adx: Optional[float] = None,
+        playbook: str = "standard",
     ) -> tuple:
         """
         Returns (approved: bool, reason: str, capped_amount: float)
         The capped_amount is the actual amount to trade after applying the 30% cap.
+
+        S15.2.1 — Persona RSI veto with optional momentum bypass:
+          - Standard playbook: RSI >= 70 is always blocked.
+          - Momentum playbook: RSI veto threshold is raised to persona's
+            momentum_bypass_rsi (e.g. 75 for medium, 80 for high) when
+            ADX > persona's momentum_bypass_adx.
+          - Conservative persona: momentum_bypass_adx=999 → bypass never fires.
         """
+        # S15.2.1 — RSI persona veto (before all other guards)
+        if rsi is not None and rsi > 0:
+            persona_cfg = getattr(self, "_persona_config", {})
+            _rsi_hard_veto = 70.0
+            _rsi_threshold = _rsi_hard_veto
+            if playbook == "momentum" and adx is not None:
+                bypass_rsi = float(persona_cfg.get("momentum_bypass_rsi", 70))
+                bypass_adx = float(persona_cfg.get("momentum_bypass_adx", 999))
+                if adx > bypass_adx:
+                    _rsi_threshold = bypass_rsi
+            if rsi >= _rsi_threshold:
+                return (
+                    False,
+                    f"RSI veto: RSI {rsi:.0f} >= {_rsi_threshold:.0f} (playbook={playbook})",
+                    0.0,
+                )
+
+        # S16.1.2 AC3 — Playbook-based profit floor multiplier
+        # momentum: lower floor (×0.8) — trend already confirmed, fees easier to cover
+        # risk_off: raise floor (×1.5) — only accept high-confidence reward setups
+        # ranging / standard: unchanged (×1.0)
+        _floor_mult = {"momentum": 0.8, "risk_off": 1.5}
+        _effective_profit_floor = self._min_profit_floor_pct * _floor_mult.get(playbook, 1.0)
+        # Guard: reject if the pair's TP is below the effective floor.
+        # pair_tp_pct passed via take_profit_pct kwarg (added below in signature)
+        # We derive it here if not passed as a param
+        _pair_tp = self.get_take_profit_pct(pair)
+        if _effective_profit_floor > 0 and _pair_tp > 0 and _pair_tp < _effective_profit_floor:
+            return (
+                False,
+                f"Profit floor guard: pair TP {_pair_tp:.1f}% < effective floor "
+                f"{_effective_profit_floor:.2f}% (playbook={playbook})",
+                0.0,
+            )
+
         # 0.5. Time-of-Day Guard — explicitly block outside of allowed volume overlap
         if self._trading_hours_enabled:
             if candle_timestamp_sec > 0:
@@ -555,6 +1029,64 @@ class RiskManager:
             reason = f"Approved (capped ${proposed_usd:.2f} → ${capped:.2f} by 30% rule)"
 
         return (True, reason, round(capped, 2))
+
+    def check_reallocation_cap(self, prune_usd: float, portfolio_value: float) -> bool:
+        """
+        S15.1.2 — Guard against excessive reallocation within a 6-hour window.
+
+        Returns True (BLOCKED) when the persona's 6-hour reallocation cap would be
+        breached by the proposed close/reopen.
+
+        Logic:
+          - Conservative: reallocation_max_pct_6h = 0.0 → always blocked.
+          - Medium: 20% of portfolio per 6h window.
+          - High: 30% of portfolio per 6h window.
+          - Sum of USD value of positions closed with exit_reason='reallocation' in
+            the past 6 hours + prune_usd must NOT exceed the cap.
+
+        Returns:
+            True  → reallocation is BLOCKED (cap reached or persona disallows)
+            False → reallocation is PERMITTED
+        """
+        persona_cfg = getattr(self, "_persona_config", {})
+        max_pct = float(persona_cfg.get("reallocation_max_pct_6h", 0.0))
+        if max_pct <= 0:
+            return True  # conservative persona or cap exhausted
+
+        cap_usd = portfolio_value * max_pct
+        if cap_usd <= 0:
+            return True
+
+        # Query total USD reallocated in the last 6 hours
+        reallocated_usd = 0.0
+        if self._db_path:
+            try:
+                from src.storage.database import get_connection
+                conn = get_connection(self._db_path)
+                trades_table = "paper_trades" if "paper" in self._db_path else "live_trades"
+                since_iso = datetime.datetime(
+                    *datetime.datetime.utcnow().timetuple()[:6],
+                    tzinfo=datetime.timezone.utc,
+                ) - datetime.timedelta(hours=6)
+                rows = conn.execute(
+                    f"SELECT usd_value FROM {trades_table} "
+                    f"WHERE exit_reason='reallocation' AND closed_at >= ?",
+                    (since_iso.isoformat(),),
+                ).fetchall()
+                conn.close()
+                reallocated_usd = sum(float(r["usd_value"] or 0) for r in rows)
+            except Exception as e:
+                logger.warning("[ROM] Failed to query reallocation history: %s", e)
+
+        if reallocated_usd + prune_usd > cap_usd:
+            logger.info(
+                "[ROM] Reallocation blocked — 6h cap exhausted: "
+                "already_reallocated=$%.2f + this=$%.2f > cap=$%.2f (%.0f%% of $%.2f)",
+                reallocated_usd, prune_usd, cap_usd, max_pct * 100, portfolio_value,
+            )
+            return True
+
+        return False
 
     @timed("pair", "open_positions_count")
     def validate_sell(

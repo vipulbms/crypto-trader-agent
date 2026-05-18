@@ -524,6 +524,44 @@ def fetch_fear_greed(config: dict) -> Optional[dict]:
 _btc_dom_cache: dict = {"data": None, "fetched_at": 0}
 _cycle_top_cache: dict = {"data": None, "fetched_at": 0, "failed_at": 0}
 
+# S13.2.3 — BTC/USD spot-price failover cache (60 s TTL)
+_btc_spot_cache: dict = {"price": None, "fetched_at": 0}
+
+
+def fetch_btc_spot_price(config: dict) -> Optional[float]:
+    """
+    Fetch the current BTC/USD spot price from CoinGecko.
+    Used as failover when the Kraken WebSocket feed for BTC/USD is FROZEN (S13.2.3).
+    Cached for config.qsa.failover.cache_seconds (default 60 s).
+    Returns the price as a float, or None on error / disabled.
+    """
+    failover_cfg = config.get("qsa", {}).get("failover", {})
+    if not failover_cfg.get("enabled", True):
+        return None
+
+    cache_secs = int(failover_cfg.get("cache_seconds", 60))
+    timeout = int(config.get("regime", {}).get("fetch_timeout_secs", 8))
+    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+
+    now = time.time()
+    if _btc_spot_cache["price"] and (now - _btc_spot_cache["fetched_at"]) < cache_secs:
+        return _btc_spot_cache["price"]
+
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        price = float(resp.json()["bitcoin"]["usd"])
+        _btc_spot_cache["price"] = price
+        _btc_spot_cache["fetched_at"] = now
+        logger.info("[QSA] BTC/USD failover → CoinGecko price %.2f", price)
+        return price
+    except Exception as e:
+        logger.warning("[QSA] BTC/USD CoinGecko failover failed: %s", e)
+        # Return stale cached value if available
+        if _btc_spot_cache["price"]:
+            return _btc_spot_cache["price"]
+        return None
+
 
 def _coerce_float(value) -> Optional[float]:
     """Best-effort float coercion for API payload values."""

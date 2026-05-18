@@ -2,6 +2,175 @@
 
 ---
 
+## Session: 2026-05-03 (Part A) — RAA LLM-delegated universe decisions + HTTP/LLM logging
+
+### Features Added
+
+| Feature | Issue | Files Changed |
+|---------|-------|---------------|
+| RAA universe add/remove delegated to LLM via MCP tools | #354 | `src/runtime/research_analyst.py` |
+| Full HTTP + LLM call logging on every outbound request | #354 | `src/runtime/research_analyst.py` |
+
+### Details
+
+- `propose_universe_addition()` replaced by `_run_llm_universe_decision()` — multi-turn tool loop (max 6 rounds, 6k token budget)
+- `_RAA_MCP_TOOLS` defines 5 tools: `kraken_ticker`, `get_universe`, `get_trend_persistence`, `get_confidence_state`, `universe_decision`
+- `_dispatch_raa_tool()` executes data tool calls and returns JSON to the LLM
+- `_build_raa_system_prompt()` encodes all rules (persistence gate, alpha spread, persona gates, universe cap) as LLM instructions
+- Meme-block (S22.2.1) and HITL lock (S23.1.3) remain as hard Python guards applied after LLM decision
+- `RiskManager.py` untouched
+- HTTP logging: `[RAA] HTTP GET <url>` before + `[RAA] HTTP <status> <url> (<ms>ms)` after every `requests.get`
+- LLM logging: `[RAA] LLM call|<tool>|prompt_chars=N` before + `[RAA] LLM response|tool_calls=...` after every `chat_with_tools`
+
+---
+
+## Session: 2026-04-21 (Part C) — Sprint S9/S10: RAA ResearchAnalyst + AuditAgent
+
+### Features Added
+
+| Feature | Story | Files Changed |
+|---------|-------|---------------|
+| RAA `compute_persistence_score` (RSI/MACD/OBV/volume/social) | S22.1.1 | `src/runtime/research_analyst.py` |
+| RAA universe proposal via `validate_universe_proposal` (strict alpha gate) | S22.1.2 | `src/runtime/research_analyst.py`, `src/risk/risk_manager.py` |
+| RAA guardrails — BUY cap + HITL routing | S22.2.1, S22.2.2 | `src/runtime/research_analyst.py` |
+| RAA medium persona gate (RSI/ADX blockers) | S22.3.1 | `src/runtime/research_analyst.py` |
+| RAA high persona gate (oversold+trend required, prune candidate) | S22.3.2 | `src/runtime/research_analyst.py` |
+| AuditAgent outcome tracking + HITL lock + pump detection | S23.1.1, S23.1.3 | `src/runtime/audit_agent.py` |
+| Feedback driver multipliers in signals.py | S23.2.2 | `src/analysis/signals.py` |
+| Orchestrator playbook bias from PF history | S23.2.1 | `src/agent/orchestrator.py` |
+| 8 new DB tables (trend_persistence, universe, universe_events, audit_feedback, hitl_queue, signal_accuracy, playbook_performance, risk_decision_outcomes) | S22/S23 | `src/storage/database.py` |
+
+### Bug Fixes
+
+| Bug | Root cause | Fix |
+|-----|-----------|-----|
+| `_DATA_DIR` AttributeError in 4 test files | Module exports `DATA_DIR_PATH`, not `_DATA_DIR` | Renamed in all 4 test fixtures |
+| `RiskManager has no attribute '_config'` | `__init__` did not store `self._config` | Added as first line of `__init__` |
+| `compute_persistence_score` param mismatch | Body used `coingecko_trending`; tests called `trending_pairs=` | Renamed param + body |
+| Wrong return code `RSI_OUT_OF_RANGE` / `ADX_TOO_HIGH` | Tests expected `MEDIUM_RSI_GATE` / `MEDIUM_ADX_GATE` | Updated return strings |
+| Wrong return code `RSI_BYPASS_CONDITIONS_NOT_MET` | Tests expected `HIGH_RSI_GATE` | Updated return string |
+| Prune candidate sorted by wrong field | Used `adx`; test data only has `latest_score` | Sort key updated |
+| Alpha spread `exact_min` edge case approved | Used `<` instead of `<=` | Changed to strict `<=` |
+
+### Tests
+- 73 new tests pass (S22 + S23 suites)
+- Total: 671 passing, 0 failing
+- Closes: #321, #322, #323, #324, #325, #326, #327, #328, #329, #330, #331, #332, #333
+
+---
+
+## Session: 2026-04-21 (Part B) — Sprint S11: E24 Java API
+
+### Features Added
+- TradesV2 endpoints (detail+explain), Agents, Signals, Universe, Feedback (raa+agents), HITL (proposals+approve/reject)
+- 6 new modules + DTOs; 167 Java tests pass
+- Fixes: IFeedbackService interface extraction, mock-maker-inline for record mocking, FeedbackService.java complete rewrite, @MockBean FeedbackService in AuthControllerTest
+- Closes: #334, #335, #336, #337, #338, #339, #340
+
+---
+
+## Session: 2026-04-21 (Part A) — Sprint S6-S8 AC Gap Fixes
+
+### Fixes / Gaps Closed
+
+| Gap | Story | Files Changed |
+|-----|-------|---------------|
+| MCP server `--mode paper\|live` CLI entrypoint | S17.1.1 AC5 | `src/mcp/server.py` |
+| MCP server documentation in README | S17.1.1 AC7 | `README.md` |
+| Swagger/OpenAPI on PersonaController + springdoc dep | S18.1.3 AC6 | `kryptos-api/pom.xml`, `PersonaController.java` |
+| Feed-frozen pairs surfaced end-to-end in UI | S18.1.4 AC4 | `main.py`, `AgentStatusDto.java`, `AgentService.java`, `types.ts`, `AgentStatusPanel.tsx` |
+| `--all-personas` + `--csv` + `--output` in test_backtest | S19.1.1 AC2+AC4 | `tests/test_backtest.py` |
+| `TestConservativeVsV2Baseline` regression test (4 tests) | S19.1.2 AC1+AC2 | `tests/test_persona_regression.py` |
+
+### Tests
+- 39 tests pass: `test_persona_regression` (24), `test_s17_mcp_server` (8), `test_s18_persona_cli` (7)
+- Java: `mvn compile` clean
+- Closes: #303, #306, #307, #308, #309
+
+---
+
+## Session: 2026-04-20 (Part A) — Sprint S6: MCP Server + Persona/Regime CLI + Java API Persona Endpoints
+
+### Bug Fixes
+- **tz_mod stubs missing `to_sgt`** (`tests/test_coinglass_v4.py`, `test_stale_macro.py`, `test_cycle_top_guard.py`, `test_btc_dominance.py`): Four stub tz modules injected module-level lacked `to_sgt`, causing `ImportError` in `display.py` when full suite ran in a test order where these files loaded first. Added `tz_mod.to_sgt = lambda dt: dt` to all four stubs.
+- **`import os` missing in `commands.py`** (`src/cli/commands.py`): `cmd_persona_set()` uses `os.path.join` but `import os` was absent. Mock patch `src.cli.commands.os` failed with `AttributeError`. Added `import os`.
+- **NL persona_set keywords** (`src/cli/nl_parser.py`): `"switch to aggressive mode high"` fell through to `view_report` because `"aggressive mode"`, `"conservative mode"`, `"medium mode"` were not in the `persona_set` keyword list. Extended the keyword list.
+
+### Features
+- **S17.1.1 — MCP HTTP server** (`src/mcp/server.py`, `src/mcp/__init__.py`): `MCPServer(config, db_path)` on `aiohttp`; `127.0.0.1:8092`; 6 read-only tools returning pipe-separated strings: `get_portfolio_state`, `get_signal_snapshot`, `get_regime_state`, `get_agent_status`, `get_universe_state`, `get_persistence_scores`. `aiohttp` guarded by `_AIOHTTP_AVAILABLE`. All DB reads via `get_connection_ro()`. Agent persists 5 `agent_state` keys per cycle: `current_regime`, `adx_median_last`, `daily_pnl_pct_last`, `btc_dom_trend_current`, `last_cycle_ts`.
+- **S17.1.1 — `get_connection_ro()`** (`src/storage/database.py`): SQLite URI mode `?mode=ro`; in-memory fallback when DB file absent.
+- **S18.1.1 — Persona CLI** (`src/cli/commands.py`, `src/cli/display.py`, `kryptos.py`): `kryptos persona` shows Rich table of all persona presets (active highlighted green). `kryptos persona set <name>` rewrites `config.yaml` via `yaml.dump`.
+- **S18.1.2 — Regime CLI** (`src/cli/commands.py`, `src/cli/display.py`, `kryptos.py`): `kryptos regime` reads `agent_state` and renders colour-coded Panel: momentum=green, ranging=yellow, risk_off=red; shows velocity circuit state + daily PnL.
+- **S18.1.3 — Java API persona endpoints** (`kryptos-api`): `GET /api/v2/persona` (active + available + config), `PUT /api/v2/persona` (writes `active_persona_override` to `agent_state`), `DELETE /api/v2/persona/override` (clears override). Invalid persona → 400. `PersonaController`, `PersonaService`, `PersonaDtos` records.
+- **AC3 — `active_persona_override` in `main.py`**: Each cycle reads `agent_state.active_persona_override`; if set to a valid persona, temporarily overrides `config["agent"]["persona"]` for that cycle only.
+
+### Tests
+- `tests/test_s17_mcp_server.py` (NEW) — 8 tests: tool functions, pipe format, unknown tool error
+- `tests/test_s18_persona_cli.py` (NEW) — 7 tests: persona/persona_set commands + NL keywords
+- `tests/test_s18_regime_cli.py` (NEW) — 7 tests: regime reads, defaults, velocity circuit, NL keywords
+- `kryptos-api/.../PersonaControllerTest.java` (NEW) — 9 tests: GET/PUT/DELETE + 400 validation
+- **Total: 574 Python + 116 Java passing** (was 553 Python + 107 Java before sprint)
+
+---
+
+## Session: 2026-04-19 (Part E) — Sprint S3 QSA Resilience, Prompt Rewrite, AIClient, DataCollector
+
+### Features
+- **S13.2.2 — Feed-frozen Telegram alert** (`src/notifications/notifier.py`, `main.py`): `send_feed_frozen_alert(pair, n_cycles)` sends ⚠️ alert. `main.py` tracks `_freeze_alert_sent` per-pair, resets on thaw.
+- **S13.2.3 — BTC spot failover** (`src/analysis/features.py`, `main.py`): `fetch_btc_spot_price(config)` falls back to CoinGecko REST when BTC/USD WS feed is FROZEN. Config: `qsa.btc_failover`.
+- **S13.3.1 — Volume bypass for momentum breakout** (`src/analysis/signals.py`, `main.py`, `config.yaml`): bypass block before `if vol_blocked:` return. Fires when price > bb_upper AND MACD turning positive. Conservative persona: disabled. Medium/high: enabled.
+- **S14.1.1 — Pipe-format signal blocks** (`src/agent/prompts.py`): `build_pipe_signal_block()` replaces verbose multi-line blocks. Single pipe-delimited row per pair.
+- **S14.1.2 — Token budget trimming** (`src/agent/prompts.py`): `estimate_tokens(prompt)` + trimming loop; weakest BUY signals dropped when over `llm.max_prompt_tokens` budget.
+- **S14.2.1 — Current portfolio block** (`src/agent/prompts.py`): `## CURRENT PORTFOLIO ##` pipe row always emitted; `SYSTEM_PROMPT` updated with no-rebuy guard.
+- **S14.2.2 — Risk constraints block** (`src/agent/prompts.py`): `## RISK CONSTRAINTS ##` pipe row emitted when `risk_state` dict passed to `build_cycle_prompt()`.
+- **S20.2.1 — AIClient in mocha-python-ai** (`mocha-python-libraries/packages/mocha_python_ai`): `ModelConfig` dataclass + `AIClient` with 3-attempt retry/fallback. Lazy `openai` import. Exported from `__init__.py`.
+- **S21.1.1 — DataCollector standalone runtime** (`src/runtime/data_collector.py`, `src/storage/database.py`): standalone asyncio process; Kraken WS v2 ohlc+book; `COLLECTOR_SCHEMA` (`candle_buffer`, `orderbook_snapshots`); `/health` aiohttp endpoint; REST backfill on startup.
+
+### Tests
+- `tests/test_vol_bypass.py` (NEW) — 6 tests: S13.3.1 bypass logic
+- `tests/test_feed_freeze_alert.py` (NEW) — 5 tests: S13.2.2 method + signature + message content
+- `tests/test_btc_failover.py` (NEW) — 6 tests: S13.2.3 CoinGecko fallback
+- `tests/test_pipe_format.py` (NEW) — 12 tests: S14.1.1 pipe block structure
+- `tests/test_token_budget.py` (NEW) — 4 tests: S14.1.2 estimate_tokens + trimming
+- `tests/test_portfolio_block.py` (NEW) — 8 tests: S14.2.1 portfolio block in prompt
+- `tests/test_risk_constraints_block.py` (NEW) — 10 tests: S14.2.2 risk state block
+- `tests/test_data_collector.py` (NEW) — 8 tests: S21.1.1 schema + helper functions
+- `mocha_python_ai/tests/test_ai_client.py` (NEW) — 11 tests: S20.2.1 ModelConfig, retry, fallback, lazy import
+- **Total: 448 kryptos + 11 mocha passed** (was 385 kryptos before sprint)
+
+---
+
+## Session: 2026-04-19 (Part D) — Sprint S2 QSA Data Resilience
+
+### Features
+- **S13.1.1 — Winsorized EMA-14 volume floor** (`src/analysis/indicators.py`, `src/analysis/signals.py`): `compute_indicators()` now returns `winsorized_vol_ema` (float or None). The last `winsorize_lookback` (100) candles are p95-capped, then an EWM with α = 2/(period+1) is applied. Hard Blocker 3 in `signals.py` uses this as highest-priority volume veto when `algorithm=winsorized_ema`.
+- **S13.1.2 — Config-driven algorithm with validation** (`src/analysis/indicators.py`): `qsa.volume_floor.algorithm` must be `"winsorized_ema"` or `"sma"`; any other value raises `ValueError` immediately at indicator computation time.
+- **S13.2.1 — OHLCV variance heartbeat** (`src/analysis/indicators.py`, `src/analysis/signals.py`): `compute_indicators()` returns `feed_status` ("OK" | "FROZEN"). When all 5 OHLCV columns have zero variance across the last `variance_lookback` (3) candles, status is `"FROZEN"`. `generate_signal()` returns HOLD with `reason="feed_frozen"` immediately, skipping all scoring.
+
+### Tests
+- `tests/test_winsorized_ema.py` (NEW) — 7 tests across 5 classes (key present, spike neutralisation, SMA backward-compat, small candle count, invalid algo ValueError)
+- `tests/test_feed_heartbeat.py` (NEW) — 8 tests across 3 classes (feed_status key, OK/FROZEN detection, disabled bypass, HOLD forcing, strength=0)
+- **Total: 385 passed** (was 370 before sprint)
+
+---
+
+
+
+### Features
+- **S12.1.1 — Persona config schema** (`config.yaml`, `src/risk/risk_manager.py`): Added `agent.persona` + `agent.concurrent_mode` config keys. Full `personas:` block with three risk profiles (conservative / medium / high), each with 13 knobs: `max_open_positions`, `max_position_pct`, `base_position_pct`, `min_cash_reserve_pct`, `max_buys_per_cycle`, `buy_min_score_override`, `min_profit_floor_pct`, `trailing_stop_*`, `rsi_overbought_override`, `bearish_caution_factor_override`, `prompt_style`. Added `qsa.enabled: false` placeholder. `validate_config()` extended to enforce all 13 keys across all 3 profiles — raises `ConfigError` on missing. Closes #279.
+- **S12.1.2 — Persona loader and runtime injection** (`src/core/cycle_context.py` NEW, `main.py`, `trading_agent.py`, `risk_manager.py`): `CycleContext` dataclass with `from_config()` factory + 8 convenience `@property` accessors. `apply_persona_config()` hot-patches `_max_open_positions`, `_max_position_pct`, `_min_profit_floor_pct` at cycle start. Wired into `main.py:run_cycle()` so limits are persona-aligned before every trade decision. Closes #280.
+- **S12.1.3 — Persona persistence / concurrent-mode DB naming** (`src/storage/database.py`, `paper_broker.py`, `notifier.py`, `main.py`): `resolve_trading_db(config, mode)` returns persona-suffixed filename when `concurrent_mode: true` (`paper_trading_conservative.db`). `persona TEXT NOT NULL DEFAULT ''` column added to `paper_trades` + `live_trades` with idempotent `ALTER TABLE` migration guards. `PaperBroker` stores `self._persona` and stamps every closed trade row. `Notifier` prefix becomes `[PAPER|CONSERVATIVE]` in concurrent mode. `run_cycle()` writes `active_persona` to `agent_state`. Closes #281.
+- **ADR-008 / ADR-009** (`docs/v2-agentic/Architecture-Design-v3.md` §10): Monorepo layout decision for `mocha-python-libraries`; full directory structure, CI workflow design, semver strategy.
+
+### Tests
+- `tests/test_persona_config_loading.py` (NEW) — 12 tests
+- `tests/test_persona_injection.py` (NEW) — 10 tests
+- `tests/test_concurrent_mode_db_naming.py` (NEW) — 19 tests
+- `tests/test_position_sizing_floor.py` — regression fix (`_MINIMAL_PERSONAS` constant in `_full_config()`)
+- **Total: 370 passed** (was 351 before sprint)
+
+---
+
 ## Session: 2026-04-19 (Part B) — Story signoff workflow in squad skills
 
 ### Process / Skills
@@ -1338,3 +1507,18 @@ The signal scorer and the LLM prompt were misaligned. The scorer awards points f
 
 ### Fix (follow-up)
 - `.claude/skills/trading-rules/SKILL.md`: pair list updated 15→24 active pairs; RAILS/USD marked disabled; `Per-pair Max Buy Size`, `Per-pair Signal Threshold`, and `DECISION STYLE` bearish regime rule updated to reflect new caution tiers and buy_min_score thresholds for 10 new pairs.
+
+## Session: 2026-05-03 (Part B) — RAA batch LLM evaluation (#357)
+
+### Features Added
+- **RAA batch universe evaluation**: All candidate pairs evaluated in a single LLM call instead of one call per pair. Pre-injected ticker + persistence data eliminates data-fetch tool round-trips that triggered Groq rate limits.
+- **`_run_llm_batch_universe_decision()`**: Replaces `_run_llm_universe_decision()`. Single conversation, LLM calls `universe_decision` once per candidate. Skipped candidates get synthetic `HOLD + LLM_NO_DECISION`.
+- **`_apply_llm_decision()`**: Applies a single `universe_decision` tool call; enforces HITL lock + meme-block hard guards; commits to DB. Now returns `pair` key in result dict.
+- **`_RAA_BATCH_TOOLS`**: Decision-only tool list (no kraken_ticker / get_universe / etc.) — removes rate-limit triggers.
+- **`write_raa_cycle_report()`** in `src/utils/cycle_logger.py`: Appends RAA cycle JSON record (`source=RAA`) to `cycle_decisions.log` with per-candidate decision rows and n_add/n_hold/n_remove/n_no_decision summary.
+- **RAA logging infrastructure**: `init_llm_logger` + `log_llm_interaction` wired at startup; `init_cycle_logger` + `write_raa_cycle_report` called after each cycle; `RotatingFileHandler` on `agent.log` (TTY-aware `StreamHandler`); module-level `_RAA_SESSION_ID` + `_raa_cycle_counter`.
+
+### Files Changed
+- `src/runtime/research_analyst.py`
+- `src/utils/cycle_logger.py`
+- `config.yaml` — persona: high, concurrent_mode: true

@@ -26,11 +26,16 @@ class Notifier:
     Can be used without Telegram (logs to console only).
     """
 
-    def __init__(self, config: dict, mode: str):
+    def __init__(self, config: dict, mode: str, persona: str = ""):
         notif_cfg = config.get("notifications", {})
         self._enabled = notif_cfg.get("telegram_enabled", True) and TELEGRAM_AVAILABLE
         self._mode    = mode
-        self._prefix  = "[PAPER] " if mode == "paper" else "[LIVE] "
+        # In concurrent_mode each persona runs as a separate process; include the
+        # persona name in the Telegram prefix so recipients can tell them apart.
+        # When persona is empty (non-concurrent, default), use the plain mode tag.
+        # Story: S12.1.3 — Notifier persona prefix
+        mode_tag = "PAPER" if mode == "paper" else "LIVE"
+        self._prefix = f"[{mode_tag}|{persona.upper()}] " if persona else f"[{mode_tag}] "
         self._bot: Optional[object] = None
         self._chat_id: Optional[str] = None
         self._healthcheck_url = notif_cfg.get("healthcheck_url", "")
@@ -262,6 +267,50 @@ class Notifier:
         msg = (
             f"{self._prefix}⚠️ <b>Missed Signal: {pair}</b> (score {score}/{max_score})\n"
             f"Rejected: {html.escape(str(reason))}"
+        )
+        self._send(msg)
+
+    def send_feed_frozen_alert(self, pair: str, n_cycles: int) -> None:
+        """Alert when a pair's feed has been FROZEN for n_cycles consecutive cycles (S13.2.2)."""
+        pair_esc = html.escape(pair)
+        msg = (
+            f"{self._prefix}🧊 <b>Feed Frozen: {pair_esc}</b>\n"
+            f"No new OHLCV data for {n_cycles} consecutive cycles.\n"
+            f"Signal suppressed until feed recovers."
+        )
+        self._send(msg)
+
+    def send_playbook_changed(self, old_playbook: str, new_playbook: str) -> None:
+        """Alert when the orchestrator switches the active playbook (S16.1.1)."""
+        icons = {"risk_off": "🔴", "ranging": "🟡", "momentum": "🟢", "standard": "⚪"}
+        old_icon = icons.get(old_playbook, "⚪")
+        new_icon = icons.get(new_playbook, "⚪")
+        msg = (
+            f"{self._prefix}🎯 <b>Playbook Changed</b>\n"
+            f"{old_icon} {html.escape(old_playbook)} → {new_icon} {html.escape(new_playbook)}"
+        )
+        self._send(msg)
+
+    def send_velocity_circuit_open(self, loss_rate_pct: float, halt_hours: float) -> None:
+        """Alert when the velocity circuit breaker trips (S15.3.1)."""
+        msg = (
+            f"{self._prefix}⚡ <b>Velocity Circuit Open</b>\n"
+            f"Hourly loss rate: {loss_rate_pct:.2f}%\n"
+            f"Trading halted for {halt_hours:.1f} hours."
+        )
+        self._send(msg)
+
+    def send_velocity_circuit_cleared(self) -> None:
+        """Alert when the velocity circuit breaker clears (S15.3.1)."""
+        msg = f"{self._prefix}✅ <b>Velocity Circuit Cleared</b>\nTrading may resume normally."
+        self._send(msg)
+
+    def send_agent_timeout_risk_off(self, agent_name: str) -> None:
+        """Alert when consecutive agent timeouts force a risk-off playbook (S16.2.1)."""
+        msg = (
+            f"{self._prefix}⚠️ <b>Agent Timeout — Risk-Off Activated</b>\n"
+            f"Agent <b>{html.escape(agent_name)}</b> timed out on 2+ consecutive cycles.\n"
+            f"Playbook forced to <b>risk_off</b> until agent recovers."
         )
         self._send(msg)
 

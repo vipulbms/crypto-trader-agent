@@ -33,7 +33,11 @@ INTENTS = {
     "review":           "Show a multi-day performance review with win rate, drawdown, and a live-trading readiness verdict",
     "win_rate":         "Show win/loss stats and performance metrics",
     "open_positions":   "Show currently open positions",
+    "signal_drivers":   "Show top blocking signal reasons per pair",
     "tail_log":         "Show the last lines of the agent log",
+    "persona":          "Show active persona and all persona parameter summaries",
+    "persona_set":      "Change the active risk persona (conservative, medium, high)",
+    "regime":           "Show current detected market regime and active playbook",
     "help":             "Show available commands",
     "exit":             "Exit the Kryptos CLI",
 }
@@ -236,6 +240,22 @@ class NLParser:
         # Log tail
         if any(kw in lower for kw in ("log", "tail", "last log", "agent log")):
             return self._make("tail_log", params, "keyword", text)
+
+        # Persona set
+        if any(kw in lower for kw in ("set persona", "switch persona", "change persona", "persona set", "aggressive mode", "conservative mode", "medium mode")):
+            for name in ("conservative", "medium", "high"):
+                if name in lower:
+                    params["persona"] = name
+                    break
+            return self._make("persona_set", params, "keyword", text)
+
+        # Persona show
+        if any(kw in lower for kw in ("persona", "risk profile", "trading style")):
+            return self._make("persona", params, "keyword", text)
+
+        # Regime / playbook
+        if any(kw in lower for kw in ("regime", "playbook", "market regime", "current regime", "momentum mode", "ranging mode")):
+            return self._make("regime", params, "keyword", text)
 
         # General report / trades
         if any(kw in lower for kw in ("report", "history", "show trade", "all trade", "closed trade", "how many")):

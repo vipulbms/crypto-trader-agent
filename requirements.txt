@@ -65,3 +65,10 @@ typing_extensions==4.15.0
 urllib3==2.6.3
 websockets==16.0
 yarl==1.23.0
+
+# Mocha shared libraries (S20.4.1) — local workspace packages
+mocha-python-audit @ file:///Users/vipulsanghrajka/Documents/myworkdir/mocha-python-libraries/packages/mocha_python_audit
+mocha-python-logging @ file:///Users/vipulsanghrajka/Documents/myworkdir/mocha-python-libraries/packages/mocha_python_logging
+mocha-python-ai @ file:///Users/vipulsanghrajka/Documents/myworkdir/mocha-python-libraries/packages/mocha_python_ai
+mocha-python-agent @ file:///Users/vipulsanghrajka/Documents/myworkdir/mocha-python-libraries/packages/mocha_python_agent
+

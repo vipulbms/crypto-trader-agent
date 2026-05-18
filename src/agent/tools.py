@@ -47,6 +47,8 @@ class TradingTools:
         self._dynamic_sl_values: dict = {}
         self._pair_max_usd: dict = {}
         self._signal_scores: dict = {}  # pair → score for missed-signal alerting (#268)
+        self._signals_by_pair: dict = {}  # pair → full signal dict (S15.1.2)
+        self._playbook: str = "standard"  # active playbook for RSI bypass (S15.2.1)
 
     def set_cycle_context(self, cycle_id: int) -> None:
         self._current_cycle_id = cycle_id
@@ -67,8 +69,13 @@ class TradingTools:
         """Inject per-pair signal scores so missed-signal alerts can include the score."""
         self._signal_scores = scores or {}
 
-    def set_pair_max_usd(self, values: dict) -> None:
-        self._pair_max_usd = values or {}
+    def set_signals_by_pair(self, signals: list) -> None:
+        """S15.1.2 — Store signals keyed by pair so ADX is available for reallocation checks."""
+        self._signals_by_pair = {s["pair"]: s for s in signals}
+
+    def set_playbook(self, playbook: str) -> None:
+        """S15.2.1 — Set active trading playbook for the current cycle (standard | momentum)."""
+        self._playbook = str(playbook or "standard")
 
     # ──────────────────────────────────────────────
     # Tool: propose_buy
@@ -127,7 +134,10 @@ class TradingTools:
             starting_balance_usd=self._sod_balance,
             current_price=current_price,
             baseline_price=ema_200,
-            candle_timestamp_sec=current_time
+            candle_timestamp_sec=current_time,
+            rsi=float((self._signals_by_pair.get(pair, {}).get("indicators") or {}).get("rsi_14") or 0) or None,
+            adx=float((self._signals_by_pair.get(pair, {}).get("indicators") or {}).get("adx_14") or 0) or None,
+            playbook=self._playbook,
         )
 
         # Audit risk check
@@ -143,13 +153,69 @@ class TradingTools:
 
         if not approved:
             logger.warning("[RISK] BUY rejected for %s: %s", pair, reason)
-            # Fire Telegram alert for high-conviction rejections (#268)
-            missed_threshold = self._config.get("signals", {}).get("missed_signal_min_score", 8)
-            score = self._signal_scores.get(pair, 0)
-            if score >= missed_threshold and self._notifier:
-                max_score = self._config.get("signals", {}).get("max_score", 28)
-                self._notifier.send_missed_signal(pair, score, max_score, reason)
-            return f"REJECTED: {reason}"
+
+            # S15.1.2 — Capital reallocation: if rejected due to capacity, try to prune a
+            # weak position and retry. Only fires when the persona has reallocation_enabled=True.
+            _capacity_reasons = ("Max open positions", "Insufficient cash reserve", "Deployable cash")
+            if any(r in reason for r in _capacity_reasons):
+                open_positions = self._broker.get_open_positions()
+                # Enrich with ADX from current cycle's signals
+                for pos in open_positions:
+                    sig = self._signals_by_pair.get(pos.get("pair", ""), {})
+                    pos["adx"] = (sig.get("indicators") or {}).get("adx_14")
+                    if pos.get("pnl_pct") is None and pos.get("usd_value") and pos.get("current_price"):
+                        entry_val = float(pos.get("usd_value") or 0)
+                        curr_val = float(pos.get("current_price") or 0) * float(pos.get("volume") or 0)
+                        pos["pnl_pct"] = ((curr_val - entry_val) / entry_val * 100) if entry_val > 0 else 0.0
+                incoming_score = self._signal_scores.get(pair, 0)
+                prune_pair = self._risk.get_prune_candidate(open_positions, incoming_score)
+                if prune_pair:
+                    prune_pos = next((p for p in open_positions if p.get("pair") == prune_pair), {})
+                    prune_usd = float(prune_pos.get("usd_value") or 0)
+                    if prune_usd > 0 and not self._risk.check_reallocation_cap(prune_usd, total_usd):
+                        logger.info("[ROM] Reallocating from %s → %s", prune_pair, pair)
+                        try:
+                            prune_price = self._ws.get_latest_price(prune_pair)
+                            self._broker.close_position(
+                                prune_pair,
+                                current_price=prune_price,
+                                exit_reason="reallocation",
+                            )
+                            # Update balance after close
+                            balance = self._broker.get_balance()
+                            total_usd = balance["total_usd"]
+                            cash_usd = balance["available_cash_usd"]
+                            n_positions = (
+                                self._broker.get_open_positions_count()
+                                if hasattr(self._broker, "get_open_positions_count")
+                                else len(self._broker.get_open_positions())
+                            )
+                            # Retry validate_buy with updated balance
+                            approved, reason, capped_amount = self._risk.validate_buy(
+                                pair=pair,
+                                proposed_usd=usd_amount,
+                                portfolio_balance_usd=total_usd,
+                                available_cash_usd=cash_usd,
+                                open_positions_count=n_positions,
+                                daily_loss_usd=self._broker.get_daily_pnl(self._sod_balance)["pnl_usd"],
+                                starting_balance_usd=self._sod_balance,
+                                current_price=current_price,
+                                baseline_price=ema_200,
+                                candle_timestamp_sec=current_time,
+                            )
+                            if not approved:
+                                logger.info("[ROM] Retry after reallocation still rejected: %s", reason)
+                        except Exception as _re:
+                            logger.warning("[ROM] Reallocation of %s failed: %s", prune_pair, _re)
+
+            if not approved:
+                # Fire Telegram alert for high-conviction rejections (#268)
+                missed_threshold = self._config.get("signals", {}).get("missed_signal_min_score", 8)
+                score = self._signal_scores.get(pair, 0)
+                if score >= missed_threshold and self._notifier:
+                    max_score = self._config.get("signals", {}).get("max_score", 28)
+                    self._notifier.send_missed_signal(pair, score, max_score, reason)
+                return f"REJECTED: {reason}"
 
         sl_pct = self._dynamic_sl_values.get(pair) or self._risk.get_stop_loss_pct(pair)
         tp_pct = self._dynamic_tp_values.get(pair) or self._risk.get_take_profit_pct(pair)

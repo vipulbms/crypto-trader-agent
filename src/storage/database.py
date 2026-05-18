@@ -9,11 +9,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Module-level data directory path — tests may monkeypatch this to a tmp_path.
+DATA_DIR_PATH: str = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data",
+)
+
 
 def _get_db_path(db_filename: str) -> str:
-    """Return absolute path to a DB file in the project root data/ directory."""
-    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    data_dir = os.path.join(base, "data")
+    """Return absolute path to a DB file in DATA_DIR_PATH (overrideable by tests)."""
+    import src.storage.database as _self
+    data_dir = _self.DATA_DIR_PATH
     os.makedirs(data_dir, exist_ok=True)
     return os.path.join(data_dir, db_filename)
 
@@ -21,6 +27,42 @@ def _get_db_path(db_filename: str) -> str:
 def get_db_path(db_filename: str) -> str:
     """Public alias for _get_db_path. Returns absolute path to a DB file in data/."""
     return _get_db_path(db_filename)
+
+
+def resolve_trading_db(config: dict, mode: str) -> str:
+    """
+    Return the bare trading DB filename for the current mode and persona.
+
+    When ``agent.concurrent_mode`` is True, the active persona name is embedded
+    in the filename so each persona operates on its own isolated database::
+
+        paper_trading_conservative.db
+        paper_trading_medium.db
+        paper_trading_high.db
+
+    When ``concurrent_mode`` is False (default for S1), the canonical name is
+    used unchanged::
+
+        paper_trading.db  /  live_trading.db
+
+    Story: S12.1.3 — Persona persistence (concurrent_mode DB naming)
+    """
+    storage_cfg = config.get("storage", {})
+    agent_cfg   = config.get("agent", {})
+    concurrent  = bool(agent_cfg.get("concurrent_mode", False))
+
+    base_name = (
+        storage_cfg.get("paper_db", "paper_trading.db")
+        if mode == "paper"
+        else storage_cfg.get("live_db", "live_trading.db")
+    )
+
+    if not concurrent:
+        return base_name
+
+    persona = agent_cfg.get("persona", "conservative")
+    stem, ext = os.path.splitext(base_name)
+    return f"{stem}_{persona}{ext}"
 
 
 def get_connection(db_filename: str) -> sqlite3.Connection:
@@ -39,9 +81,81 @@ def get_connection(db_filename: str) -> sqlite3.Connection:
         raise
 
 
+def get_connection_ro(db_filename: str) -> sqlite3.Connection:
+    """Open a SQLite connection in read-only mode (S17.1.1 AC4).
+
+    Uses URI mode with ``?mode=ro`` so writes are rejected at the SQLite layer.
+    Falls back to a regular connection if the DB file does not exist yet
+    (returns empty results rather than erroring).
+    """
+    path = _get_db_path(db_filename)
+    try:
+        import urllib.parse
+        uri = "file:" + urllib.parse.quote(str(path)) + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        if "unable to open database" in str(e).lower():
+            # DB doesn't exist yet — return an in-memory stub that returns empty results
+            conn = sqlite3.connect(":memory:", check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            return conn
+        logger.error("Read-only DB connection error for %s: %s", db_filename, e)
+        raise
+
+
+# ──────────────────────────────────────────────────────────────
+# DataCollector DB schema — shared by paper and live modes (S21.1.1)
+# ──────────────────────────────────────────────────────────────
+
+COLLECTOR_SCHEMA = """
+CREATE TABLE IF NOT EXISTS candle_buffer (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair        TEXT NOT NULL,
+    ts          INTEGER NOT NULL,   -- UNIX epoch seconds (candle open time)
+    open_price  REAL NOT NULL,
+    high        REAL NOT NULL,
+    low         REAL NOT NULL,
+    close       REAL NOT NULL,
+    volume      REAL NOT NULL,
+    is_closed   INTEGER NOT NULL DEFAULT 1,  -- 1 = completed candle
+    inserted_at TEXT NOT NULL       -- ISO-8601 UTC timestamp
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uix_candle_buffer_pair_ts ON candle_buffer(pair, ts);
+
+CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair        TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    best_bid    REAL NOT NULL,
+    best_ask    REAL NOT NULL,
+    obi         REAL NOT NULL,      -- Order Book Imbalance: (bid-ask)/(bid+ask)
+    inserted_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_ob_pair_ts ON orderbook_snapshots(pair, ts);
+"""
+
 # ──────────────────────────────────────────────────────────────
 # Paper trading DB schema
 # ──────────────────────────────────────────────────────────────
+
+FULFILLMENT_AUDIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fulfillment_audit (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    fulfillment_id    TEXT NOT NULL UNIQUE,
+    pair              TEXT NOT NULL,
+    side              TEXT NOT NULL,
+    requested_at      TEXT NOT NULL,
+    filled_at         TEXT,
+    duration_ms       INTEGER NOT NULL,
+    execution_status  TEXT NOT NULL,
+    request_json      TEXT NOT NULL,
+    response_json     TEXT,
+    kraken_order_id   TEXT,
+    error_message     TEXT
+);
+"""
 
 PAPER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS paper_wallet (
@@ -83,7 +197,8 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     hold_duration_secs  INTEGER NOT NULL,
     fee_usd             REAL NOT NULL DEFAULT 0.0,
     stop_loss_pct       REAL NOT NULL,
-    take_profit_pct     REAL NOT NULL
+    take_profit_pct     REAL NOT NULL,
+    persona             TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS agent_state (
@@ -135,7 +250,8 @@ CREATE TABLE IF NOT EXISTS live_trades (
     stop_loss_pct           REAL NOT NULL,
     take_profit_pct         REAL NOT NULL,
     entry_order_id          TEXT,
-    exit_order_id           TEXT
+    exit_order_id           TEXT,
+    persona                 TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS daily_pnl (
@@ -290,6 +406,135 @@ CREATE TABLE IF NOT EXISTS audit_errors (
 """
 
 
+# ──────────────────────────────────────────────────────────────
+# RAA schema — Research Analyst Agent universe tables (S22.1.1)
+# ──────────────────────────────────────────────────────────────
+
+RAA_SCHEMA = """
+CREATE TABLE IF NOT EXISTS trend_persistence (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair                TEXT NOT NULL UNIQUE,
+    classification      TEXT NOT NULL,
+    persistence_score   REAL NOT NULL DEFAULT 0.0,
+    cycles_sustained    INTEGER NOT NULL DEFAULT 0,
+    first_seen_at       TEXT NOT NULL,
+    last_updated_at     TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'CANDIDATE'
+);
+
+CREATE TABLE IF NOT EXISTS universe (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair                    TEXT NOT NULL UNIQUE,
+    classification          TEXT NOT NULL,
+    added_at                TEXT NOT NULL,
+    added_by                TEXT NOT NULL DEFAULT 'RAA',
+    alpha_spread_at_entry   REAL,
+    replace_target_if_any   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS universe_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair            TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    ts              TEXT NOT NULL,
+    processed       INTEGER NOT NULL DEFAULT 0,
+    payload_json    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_universe_events_pair ON universe_events(pair, ts);
+"""
+
+# ──────────────────────────────────────────────────────────────
+# Feedback schema — Audit Agent closed-loop tables (S23.1.1)
+# ──────────────────────────────────────────────────────────────
+
+FEEDBACK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS audit_feedback (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent           TEXT NOT NULL,
+    pair            TEXT,
+    event_type      TEXT NOT NULL,
+    ts              TEXT NOT NULL,
+    psv_vector      TEXT NOT NULL DEFAULT '',
+    expected_alpha  REAL,
+    actual_alpha    REAL,
+    outcome         TEXT,
+    penalty_weight  REAL NOT NULL DEFAULT 0.0
+);
+CREATE INDEX IF NOT EXISTS ix_audit_feedback_agent_ts ON audit_feedback(agent, ts);
+
+CREATE TABLE IF NOT EXISTS playbook_performance (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    regime          TEXT NOT NULL,
+    playbook        TEXT NOT NULL,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    win_rate        REAL,
+    profit_factor   REAL,
+    max_drawdown    REAL,
+    last_updated_at TEXT NOT NULL,
+    UNIQUE(regime, playbook)
+);
+
+CREATE TABLE IF NOT EXISTS signal_accuracy (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair              TEXT NOT NULL,
+    driver            TEXT NOT NULL,
+    accuracy_pct      REAL NOT NULL DEFAULT 0.0,
+    weight_multiplier REAL NOT NULL DEFAULT 1.0,
+    sample_count      INTEGER NOT NULL DEFAULT 0,
+    last_updated_at   TEXT NOT NULL,
+    UNIQUE(pair, driver)
+);
+
+CREATE TABLE IF NOT EXISTS llm_reflection_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent       TEXT NOT NULL,
+    pair        TEXT,
+    lesson_text TEXT NOT NULL,
+    ts          TEXT NOT NULL,
+    injected    INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS ix_llm_reflection_agent ON llm_reflection_log(agent, ts);
+
+CREATE TABLE IF NOT EXISTS confidence_state (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent                    TEXT NOT NULL UNIQUE,
+    ps_threshold_override    REAL,
+    sector_multiplier_json   TEXT,
+    driver_multiplier_json   TEXT,
+    confidence_reset_count   INTEGER NOT NULL DEFAULT 0,
+    substitution_tool_locked INTEGER NOT NULL DEFAULT 0,
+    locked_until_ts          TEXT,
+    last_updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS risk_decision_outcomes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair            TEXT NOT NULL UNIQUE,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    sl_hit_rate     REAL NOT NULL DEFAULT 0.0,
+    tp_hit_rate     REAL NOT NULL DEFAULT 0.0,
+    avg_hold_secs   REAL,
+    last_updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hitl_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              TEXT NOT NULL,
+    agent           TEXT NOT NULL,
+    proposal_type   TEXT NOT NULL,
+    pair            TEXT NOT NULL,
+    replace_target  TEXT,
+    classification  TEXT,
+    psv_vector      TEXT,
+    rationale       TEXT,
+    status          TEXT NOT NULL DEFAULT 'PENDING',
+    resolved_at     TEXT,
+    resolved_by     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_hitl_queue_status ON hitl_queue(status, ts);
+"""
+
+
 def _init_db(conn: sqlite3.Connection, schema: str, db_name: str) -> None:
     """Execute a multi-statement schema string on the given connection."""
     try:
@@ -305,11 +550,16 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
     """Initialise paper trading DB. Seeds wallet if first run."""
     conn = get_connection(paper_db)
     _init_db(conn, PAPER_SCHEMA, paper_db)
+    _init_db(conn, COLLECTOR_SCHEMA, paper_db)  # S21.1.1: candle_buffer + orderbook_snapshots
+    _init_db(conn, FULFILLMENT_AUDIT_SCHEMA, paper_db)  # S21.2.2: fulfillment audit trail
+    _init_db(conn, RAA_SCHEMA, paper_db)      # S22.1.1: trend_persistence, universe, universe_events
+    _init_db(conn, FEEDBACK_SCHEMA, paper_db) # S23.1.1: audit_feedback, hitl_queue, etc.
     # Idempotent migrations for columns/tables added after initial schema creation
     for col_ddl in [
         "ALTER TABLE paper_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE paper_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "ALTER TABLE paper_trades ADD COLUMN persona TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(col_ddl)
@@ -334,10 +584,15 @@ def init_live_db(live_db: str) -> None:
     """Initialise live trading DB."""
     conn = get_connection(live_db)
     _init_db(conn, LIVE_SCHEMA, live_db)
+    _init_db(conn, COLLECTOR_SCHEMA, live_db)  # S21.1.1: candle_buffer + orderbook_snapshots
+    _init_db(conn, FULFILLMENT_AUDIT_SCHEMA, live_db)  # S21.2.2: fulfillment audit trail
+    _init_db(conn, RAA_SCHEMA, live_db)      # S22.1.1: trend_persistence, universe, universe_events
+    _init_db(conn, FEEDBACK_SCHEMA, live_db) # S23.1.1: audit_feedback, hitl_queue, etc.
     for col_ddl in [
         "ALTER TABLE live_positions ADD COLUMN highest_price_seen REAL",
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "ALTER TABLE live_trades ADD COLUMN persona TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(col_ddl)
@@ -358,18 +613,20 @@ def init_all_databases(config: dict, mode: str) -> None:
     """
     Initialise all required databases based on mode.
     mode: 'paper' or 'live'
+
+    Uses resolve_trading_db() so that concurrent_mode personas get their own
+    isolated DB file (e.g. paper_trading_conservative.db). Story: S12.1.3.
     """
     storage = config.get("storage", {})
     audit_db = storage.get("audit_db", "audit.db")
     init_audit_db(audit_db)
     logger.info("Audit DB ready: %s", audit_db)
 
+    trading_db = resolve_trading_db(config, mode)
     if mode == "paper":
-        paper_db = storage.get("paper_db", "paper_trading.db")
         starting_balance = config.get("paper", {}).get("starting_balance_usd", 1000.0)
-        init_paper_db(paper_db, starting_balance)
-        logger.info("Paper trading DB ready: %s", paper_db)
+        init_paper_db(trading_db, starting_balance)
+        logger.info("Paper trading DB ready: %s", trading_db)
     else:
-        live_db = storage.get("live_db", "live_trading.db")
-        init_live_db(live_db)
-        logger.info("Live trading DB ready: %s", live_db)
+        init_live_db(trading_db)
+        logger.info("Live trading DB ready: %s", trading_db)

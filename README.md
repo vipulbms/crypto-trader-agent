@@ -1239,6 +1239,69 @@ The `kryptos.py report` output includes:
 
 ---
 
+## MCP Server — Read-Only State Query Interface
+
+Kryptos exposes a lightweight HTTP server (`src/mcp/server.py`) implementing the Model Context Protocol (MCP) over plain HTTP. It binds exclusively to `127.0.0.1:8092` — external connections are rejected. All DB access is read-only (`?mode=ro`).
+
+### Starting the server
+
+```bash
+# Paper mode — reads paper_trading.db
+python src/mcp/server.py --mode paper
+
+# Live mode — reads live_trading.db
+python src/mcp/server.py --mode live
+
+# Custom port
+python src/mcp/server.py --mode paper --port 8093
+
+# Custom config path
+python src/mcp/server.py --mode paper --config /path/to/config.yaml
+```
+
+### Health check
+
+```bash
+curl http://127.0.0.1:8092/health
+# → ok
+```
+
+### Available tools (POST /mcp)
+
+Send `{"tool": "<name>"}` to `/mcp`. All responses are pipe-separated strings for easy parsing.
+
+| Tool | Returns |
+|------|---------|
+| `get_portfolio_state` | `cash\|X\|total_usd\|X\|open_positions\|N\|pairs\|A,B` |
+| `get_signal_snapshot` | Per-pair signals from last cycle; semicolon-separated |
+| `get_regime_state` | `playbook\|X\|regime\|X\|adx_median\|N\|btc_dom_trend\|X\|daily_pnl_pct\|N\|vel_circuit\|0` |
+| `get_agent_status` | `persona\|X\|mode\|paper\|cycles_today\|N\|last_cycle_ts\|T\|uptime_secs\|N` |
+| `get_universe_state` | Per-pair tier/TP/min-score config; semicolon-separated |
+| `get_persistence_scores` | Per-pair 14-day win rate + profit factor; semicolon-separated |
+
+```bash
+# Example — query portfolio state
+curl -s -X POST http://127.0.0.1:8092/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "get_portfolio_state"}'
+# → {"result": "cash|850.23|total_usd|1102.45|open_positions|2|pairs|BTC/USD,ETH/USD"}
+
+# Example — query agent status
+curl -s -X POST http://127.0.0.1:8092/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "get_agent_status"}'
+# → {"result": "persona|medium|mode|paper|cycles_today|12|last_cycle_ts|1745123456.0|uptime_secs|3600"}
+```
+
+### Configuration
+
+```yaml
+mcp:
+  port: 8092      # default; override with --port
+```
+
+---
+
 ## Database Storage
 
 The agent uses three local SQLite databases (in the `data/` directory) to maintain state, history, and a complete audit trail.

@@ -153,7 +153,7 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
            When provided, the live WebSocket is not started and the main loop
            steps through candles via feed.advance() instead of sleeping.
     """
-    from src.storage.database import init_all_databases
+    from src.storage.database import init_all_databases, resolve_trading_db
     from src.storage.audit_logger import AuditLogger
     from src.exchange.websocket_feed import WebSocketFeed
     from src.analysis.indicators import compute_indicators
@@ -181,9 +181,17 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
     audit       = AuditLogger(audit_db=audit_db, mode=mode)
 
     ws_feed     = feed if is_backtest else WebSocketFeed(config)
-    _trading_db = storage_cfg.get("paper_db" if mode == "paper" else "live_db", "paper_trading.db")
+    _trading_db = resolve_trading_db(config, mode)   # S12.1.3: persona-aware DB naming
     risk        = RiskManager(config, db_path=_trading_db)
-    notifier    = Notifier(config, mode)
+
+    from src.agent.orchestrator import Orchestrator
+    orchestrator = Orchestrator(config, _trading_db, notifier)
+
+    # Persona resolved once at startup (disk re-read per cycle handles runtime switches)
+    _agent_cfg      = config.get("agent", {})
+    _active_persona = _agent_cfg.get("persona", "conservative")
+    _concurrent     = bool(_agent_cfg.get("concurrent_mode", False))
+    notifier    = Notifier(config, mode, persona=_active_persona if _concurrent else "")
 
     trading_cfg = config.get("trading", {})
     pairs       = [p["pair"] for p in trading_cfg.get("pairs", [])]
@@ -195,8 +203,13 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
         paper_cfg   = config.get("paper", {})
         slippage    = paper_cfg.get("slippage_pct", 0.05)
         maker_fee   = paper_cfg.get("maker_fee_pct", 0.26)
-        paper_db    = storage_cfg.get("paper_db", "paper_trading.db")
-        broker      = PaperBroker(paper_db=paper_db, slippage_pct=slippage, maker_fee_pct=maker_fee, config=config)
+        broker      = PaperBroker(
+            paper_db=_trading_db,
+            slippage_pct=slippage,
+            maker_fee_pct=maker_fee,
+            config=config,
+            persona=_active_persona,
+        )
     else:
         from src.exchange.kraken_client import KrakenClient
         api_key    = os.getenv("KRAKEN_API_KEY")
@@ -274,6 +287,13 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
         "buys_since_heartbeat": 0,
         "sells_since_heartbeat": 0,
         "balance_at_heartbeat": start_of_day_bal,
+        # S13.2.2 — per-pair OHLCV freeze tracking
+        "freeze_cycle_count": {},   # {pair: int} consecutive FROZEN cycles
+        "freeze_alert_sent":  {},   # {pair: bool} alert emitted for current episode
+        # S15.3.1 — velocity circuit
+        "velocity_circuit_open": False,
+        # S16.2.1 — consecutive agent timeout counter
+        "agent_consecutive_timeouts": 0,
     }
     try:
         while True:
@@ -346,6 +366,7 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                     loop_state=loop_state,
                     is_backtest=is_backtest,
                     trading_db_path=_trading_db,
+                    orchestrator=orchestrator,
                 )
                 loop_state["cycles_since_heartbeat"] += 1
                 if cycle_result:
@@ -439,12 +460,13 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
 async def run_cycle(
     broker, agent, ws_feed, audit, notifier, risk, config,
     pairs, mode, start_of_day_balance, loop_state=None,
-    is_backtest=False, trading_db_path=None,
+    is_backtest=False, trading_db_path=None, orchestrator=None,
 ) -> None:
     """Execute one decision cycle: collect data → build signals → run LLM → execute."""
     from src.analysis.indicators import compute_indicators
     from src.analysis.signals import generate_signal
     from src.utils.timing import set_cycle_id
+    from src.core.cycle_context import CycleContext
 
     cycle_start_ms = int(time.time() * 1000)
     ind_cfg = config.get("indicators", {})
@@ -480,6 +502,56 @@ async def run_cycle(
         daily_pnl_pct=daily_pnl["pnl_pct"],
     )
     set_cycle_id(cycle_id)  # propagate to all @timed calls in this cycle
+
+    # AC3 (S18.1.3): Check API-set persona override from agent_state each cycle.
+    # If present, temporarily overlay config["agent"]["persona"] for this cycle only.
+    if trading_db_path:
+        try:
+            from src.storage.database import get_connection
+            _ov_conn = get_connection(trading_db_path)
+            _ov_row = _ov_conn.execute(
+                "SELECT value FROM agent_state WHERE key = 'active_persona_override'"
+            ).fetchone()
+            _ov_conn.close()
+            if _ov_row and _ov_row[0] in ("conservative", "medium", "high"):
+                _prev_persona = config.get("agent", {}).get("persona", "conservative")
+                if _prev_persona != _ov_row[0]:
+                    logger.info(
+                        "[PERSONA] API override active: %s → %s",
+                        _prev_persona, _ov_row[0]
+                    )
+                config.setdefault("agent", {})["persona"] = _ov_row[0]
+        except Exception as _ov_err:
+            logger.debug("[PERSONA] Override check failed (non-fatal): %s", _ov_err)
+
+    # Build CycleContext — single source of truth for persona thresholds this cycle (S12.1.2)
+    _btc_trend = ""
+    ctx = CycleContext.from_config(
+        config,
+        cycle_id=str(cycle_id),
+        open_positions=open_positions,
+        btc_dominance_trend=_btc_trend,
+    )
+    risk.apply_persona_config(ctx.persona_config)
+    logger.info(
+        "[PERSONA] Active: %s | buy_min_score=%d | max_open=%d | max_pos=%.0f%% | floor=%.2f%%",
+        ctx.persona, ctx.buy_min_score, ctx.max_open_positions,
+        ctx.max_position_pct, ctx.min_profit_floor_pct,
+    )
+
+    # Persist active persona to agent_state for traceability and hot-reload detection (S12.1.3 AC1)
+    if trading_db_path:
+        try:
+            from src.storage.database import get_connection
+            _conn = get_connection(trading_db_path)
+            _conn.execute(
+                "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+                ("active_persona", ctx.persona),
+            )
+            _conn.commit()
+            _conn.close()
+        except Exception as _pe:
+            logger.warning("[PERSONA] Failed to persist active_persona to agent_state: %s", _pe)
 
     # Check daily loss limit
     trading_cfg     = config.get("trading", {})
@@ -521,6 +593,28 @@ async def run_cycle(
             notifier.send_daily_loss_limit_reached(abs(daily_pnl["pnl_pct"]))
             loop_state["daily_loss_notified_date"] = today
         return {"buys": 0, "sells": len(open_pos)}
+
+    # ── S15.3.1 Velocity Circuit Breaker ──────────────────────────────────────
+    if not is_backtest:
+        _vc_tripped, _vc_resume_until = risk.check_velocity_circuit(total_usd, trading_db_path or "")
+        _vc_was_open = loop_state.get("velocity_circuit_open", False) if loop_state else False
+        if _vc_tripped:
+            if not _vc_was_open:
+                _vc_loss_rate = abs(daily_pnl["pnl_pct"])
+                _halt_hours = risk._persona_cfg.get("velocity_halt_hours", 2)
+                notifier.send_velocity_circuit_open(_vc_loss_rate, _halt_hours)
+                logger.warning(
+                    "[ROM] VELOCITY CIRCUIT OPEN until %s",
+                    datetime.fromtimestamp(_vc_resume_until, tz=timezone.utc).isoformat(),
+                )
+                if loop_state is not None:
+                    loop_state["velocity_circuit_open"] = True
+            return {"buys": 0, "sells": 0}
+        elif _vc_was_open:
+            notifier.send_velocity_circuit_cleared()
+            logger.info("[ROM] Velocity circuit cleared — trading resumed")
+            if loop_state is not None:
+                loop_state["velocity_circuit_open"] = False
 
     daily_limit_pct = risk_cfg.get("daily_loss_limit_pct", 10)
     if (daily_pnl["pnl_usd"] < 0 and start_of_day_balance > 0 and
@@ -612,6 +706,33 @@ async def run_cycle(
         if not indicators:
             logger.warning("Insufficient candles for %s indicators — skipping", pair)
             continue
+
+        # S13.2.2 — Track per-pair OHLCV freeze and alert once per episode
+        if loop_state is not None and not is_backtest:
+            feed_status = indicators.get("feed_status", "OK")
+            fh_cfg = config.get("qsa", {}).get("feed_heartbeat", {})
+            freeze_alert_cycles = int(fh_cfg.get("freeze_alert_cycles", 3))
+            if feed_status == "FROZEN":
+                loop_state["freeze_cycle_count"][pair] = (
+                    loop_state["freeze_cycle_count"].get(pair, 0) + 1
+                )
+                n_frozen = loop_state["freeze_cycle_count"][pair]
+                if n_frozen >= freeze_alert_cycles and not loop_state["freeze_alert_sent"].get(pair, False):
+                    notifier.send_feed_frozen_alert(pair, n_frozen)
+                    loop_state["freeze_alert_sent"][pair] = True
+                    logger.warning("[QSA] Feed frozen alert sent for %s (%d cycles)", pair, n_frozen)
+                # S13.2.3 — BTC/USD failover price for regime context
+                if pair == "BTC/USD":
+                    from src.analysis.features import fetch_btc_spot_price as _fetch_btc_spot
+                    btc_spot = _fetch_btc_spot(config)
+                    if btc_spot:
+                        indicators["btc_failover_price"] = btc_spot
+            else:
+                # Feed recovered — reset episode state
+                if loop_state["freeze_cycle_count"].get(pair, 0) > 0:
+                    logger.info("[QSA] Feed recovered for %s", pair)
+                loop_state["freeze_cycle_count"][pair] = 0
+                loop_state["freeze_alert_sent"][pair] = False
 
         # Inject sentiment so generate_signal() can score it
         if fear_greed_index is not None:
@@ -712,7 +833,22 @@ async def run_cycle(
             except Exception as _pf_err:
                 logger.debug("[PF] %s: skipped — %s", pair, _pf_err)
 
-        sig = generate_signal(pair, indicators, config)
+        # S13.3.1 — Inject volume bypass flag from active persona config
+        _active_persona = config.get("agent", {}).get("persona", "medium")
+        _persona_vol_cfg = config.get("personas", {}).get(_active_persona, {})
+        indicators["volume_bypass_enabled"] = _persona_vol_cfg.get("volume_bypass_enabled", True)
+
+        # S23.2.2 — Inject QSA signal accuracy multipliers from audit_agent feedback
+        if config.get("feedback", {}).get("enabled", False):
+            try:
+                from src.runtime.audit_agent import get_signal_accuracy
+                _driver_mults = get_signal_accuracy(_trading_db, pair)
+                if _driver_mults:
+                    indicators["driver_weight_multipliers"] = _driver_mults
+            except Exception as _dw_err:
+                logger.debug("[S23.2.2] Driver weight fetch skipped for %s: %s", pair, _dw_err)
+
+        sig = generate_signal(pair, indicators, config, playbook="standard", risk_manager=risk)
         sig["indicators"] = indicators  # attach raw indicators for prompt
 
         signals.append(sig)
@@ -799,12 +935,107 @@ async def run_cycle(
         )
 
     # Run LLM agent
-    results = agent.run_cycle(
-        cycle_id=cycle_id,
-        portfolio=portfolio,
-        signals=signals,
-        ai_context=ai_context,
-    )
+    # Patch btc_dominance_trend into ctx now that macro data is available
+    if btc_dom_data:
+        ctx = CycleContext.from_config(
+            config,
+            cycle_id=str(cycle_id),
+            open_positions=open_positions,
+            btc_dominance_trend=btc_dom_data.get("trend", ""),
+        )
+        risk.apply_persona_config(ctx.persona_config)
+
+    # ── S16.1.1 + S16.1.2 — Select playbook and inject into context ──────────
+    if orchestrator is not None:
+        import statistics as _stats
+        _adx_vals = [
+            float(s["indicators"].get("adx_14") or 0)
+            for s in signals if s.get("indicators")
+        ]
+        adx_median = _stats.median(_adx_vals) if _adx_vals else 0.0
+        _kill_switch_active = daily_pnl["pnl_pct"] <= -risk_cfg.get("global_max_daily_loss_pct", 7.0)
+        playbook = orchestrator.select_playbook(
+            regime_state=regime,
+            adx_median=adx_median,
+            daily_pnl_pct=daily_pnl["pnl_pct"],
+            kill_switch=_kill_switch_active,
+        )
+        ctx.playbook = playbook
+
+        # Persist regime + cycle diagnostics to agent_state for CLI / MCP (S17/S18)
+        try:
+            # S18.1.4 AC4 — derive currently-frozen pairs for UI display
+            _frozen_pairs = (
+                ",".join(
+                    p for p, cnt in loop_state["freeze_cycle_count"].items() if cnt > 0
+                )
+                if loop_state is not None else ""
+            )
+            _as_conn = get_connection(trading_db_path)
+            _as_conn.executemany(
+                "INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)",
+                [
+                    ("current_regime",      str(regime)),
+                    ("adx_median_last",     str(round(adx_median, 2))),
+                    ("daily_pnl_pct_last",  str(round(daily_pnl["pnl_pct"], 4))),
+                    ("btc_dom_trend_current", str(_btc_trend)),
+                    ("last_cycle_ts",       str(int(time.time()))),
+                    ("feed_frozen_pairs",   _frozen_pairs),
+                ],
+            )
+            _as_conn.commit()
+            _as_conn.close()
+        except Exception as _as_exc:
+            logger.debug("[MAIN] Failed to persist cycle diagnostics to agent_state: %s", _as_exc)
+
+        # Re-run generate_signal with the resolved playbook so PF escalation + score
+        # delta use the correct playbook (first pass above used 'standard' as placeholder)
+        for sig in signals:
+            _ind = sig.get("indicators", {})
+            sig.update(
+                generate_signal(sig["pair"], _ind, config, playbook=playbook, risk_manager=risk)
+            )
+            sig["indicators"] = _ind
+
+    # S14.2.3 — inject unfilled correlation clusters so the LLM avoids doubling into saturated sectors
+    _clusters_cfg = config.get("risk", {}).get("correlation_clusters", [])
+    _max_cluster_pos = config.get("risk", {}).get("max_cluster_positions", 2)
+    _open_pairs_set = {p["pair"] for p in open_positions}
+    ai_context["unfilled_clusters"] = [
+        c["name"]
+        for c in _clusters_cfg
+        if sum(1 for _p in c.get("pairs", []) if _p in _open_pairs_set) < _max_cluster_pos
+    ]
+
+    # ── S16.2.1 — Agent timeout guard ─────────────────────────────────────────
+    _agent_timeout = float(config.get("llm", {}).get("agent_timeout_secs", 120.0))
+    try:
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                agent.run_cycle,
+                cycle_id=cycle_id,
+                portfolio=portfolio,
+                signals=signals,
+                ai_context=ai_context,
+                cycle_context=ctx,
+            ),
+            timeout=_agent_timeout,
+        )
+        if loop_state is not None:
+            loop_state["agent_consecutive_timeouts"] = 0
+    except asyncio.TimeoutError:
+        _n_timeouts = (loop_state.get("agent_consecutive_timeouts", 0) + 1) if loop_state else 1
+        if loop_state is not None:
+            loop_state["agent_consecutive_timeouts"] = _n_timeouts
+        logger.warning(
+            "[ORCH] Agent timed out after %.0fs — skipping cycle (consecutive=%d)",
+            _agent_timeout, _n_timeouts,
+        )
+        if _n_timeouts >= 2 and orchestrator is not None:
+            orchestrator._persist_playbook("risk_off")
+            ctx.playbook = "risk_off"
+            notifier.send_agent_timeout_risk_off("TradingAgent")
+        return {"buys": 0, "sells": 0}
 
     buys = sells = 0
     for r in results:
