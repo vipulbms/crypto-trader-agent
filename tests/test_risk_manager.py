@@ -163,6 +163,12 @@ class TestValidateSellTPProximityGuard(unittest.TestCase):
             },
         }
         self.rm = RiskManager(self.config)
+        # Set to conservative persona so Early Exit Guard applies (disabled for medium/high)
+        self.rm.apply_persona_config({
+            "min_profit_floor_pct": 1.0,
+            "max_position_pct": 30,
+            "max_open_positions": 10,
+        }, persona_name="conservative")
 
     def _pos(self, entry_price: float, take_profit_pct: float) -> list:
         return [{"entry_price": entry_price, "take_profit_pct": take_profit_pct}]
@@ -506,12 +512,13 @@ class TestDuplicatePairGuard(unittest.TestCase):
         )
         return broker, tmp
 
-    def test_duplicate_pair_rejected(self):
-        """BUY on a pair that already has an open position is rejected (#230)."""
+    def test_duplicate_pair_allowed_for_accumulation(self):
+        """BUY on a pair that already has an open position is ALLOWED for accumulation (disabled guard in #230)."""
         broker, db_path = self._make_broker_with_open_eth()
         cfg = self._make_cfg()
         risk = RiskManager(cfg, db_path=db_path)
 
+        # Duplicate position guard was disabled to allow LLM-controlled position accumulation
         approved, reason, amount = risk.validate_buy(
             pair="ETH/USD",
             proposed_usd=100.0,
@@ -521,9 +528,10 @@ class TestDuplicatePairGuard(unittest.TestCase):
             daily_loss_usd=0.0,
             starting_balance_usd=1000.0,
         )
-        self.assertFalse(approved)
-        self.assertIn("Position already open for ETH/USD", reason)
-        self.assertEqual(amount, 0.0)
+        # Should NOT be blocked by duplicate guard anymore
+        if not approved:
+            self.assertNotIn("Position already open", reason,
+                           "Duplicate guard should be disabled for accumulation")
 
     def test_new_pair_not_blocked(self):
         """BUY on a different pair (BTC) not blocked by duplicate guard when ETH is already open (#230)."""

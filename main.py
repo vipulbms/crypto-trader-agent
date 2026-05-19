@@ -445,6 +445,9 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                     "hourly_pnl_usd":       round(hourly_pnl_usd, 2),
                     "hourly_pnl_pct":       round(hourly_pnl_pct, 2),
                     "cycles_completed":     loop_state["cycles_since_heartbeat"],
+                    "buys_since_heartbeat": loop_state["buys_since_heartbeat"],
+                    "sells_since_heartbeat": loop_state["sells_since_heartbeat"],
+                    "open_positions_count": len(open_pos),
                     "circuit_breaker_active": cb_active,
                     "positions_detail":     positions_detail,
                     # Win rate
@@ -580,7 +583,7 @@ async def run_cycle(
         open_positions=open_positions,
         btc_dominance_trend=_btc_trend,
     )
-    risk.apply_persona_config(ctx.persona_config)
+    risk.apply_persona_config(ctx.persona_config, persona_name=ctx.persona)
     logger.info(
         "[PERSONA] Active: %s | buy_min_score=%d | max_open=%d | max_pos=%.0f%% | floor=%.2f%%",
         ctx.persona, ctx.buy_min_score, ctx.max_open_positions,
@@ -1006,7 +1009,7 @@ async def run_cycle(
             open_positions=open_positions,
             btc_dominance_trend=btc_dom_data.get("trend", ""),
         )
-        risk.apply_persona_config(ctx.persona_config)
+        risk.apply_persona_config(ctx.persona_config, persona_name=ctx.persona)
 
     # ── S16.1.1 + S16.1.2 — Select playbook and inject into context ──────────
     if orchestrator is not None:

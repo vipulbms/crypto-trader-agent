@@ -183,30 +183,30 @@ class TestApplyPersonaConfig:
 
     def test_apply_conservative_max_open(self):
         risk = _make_risk_manager(_make_config("conservative"))
-        risk.apply_persona_config(_CONSERVATIVE_PROFILE)
+        risk.apply_persona_config(_CONSERVATIVE_PROFILE, persona_name="conservative")
         assert risk._max_open_positions == 10
 
     def test_apply_medium_buy_score_not_in_risk_manager(self):
         """buy_min_score lives in signals.py; apply_persona_config ignores unknown keys."""
         risk = _make_risk_manager(_make_config("medium"))
         # Should not raise even though buy_min_score is not a RiskManager field
-        risk.apply_persona_config(_MEDIUM_PROFILE)
+        risk.apply_persona_config(_MEDIUM_PROFILE, persona_name="medium")
 
     def test_apply_high_min_profit_floor(self):
         """High persona relaxes the profit floor to 0.5%."""
         risk = _make_risk_manager(_make_config("high"))
-        risk.apply_persona_config(_HIGH_PROFILE)
+        risk.apply_persona_config(_HIGH_PROFILE, persona_name="high")
         assert risk._min_profit_floor_pct == pytest.approx(0.5)
 
     def test_apply_conservative_min_profit_floor(self):
         risk = _make_risk_manager(_make_config("conservative"))
-        risk.apply_persona_config(_CONSERVATIVE_PROFILE)
+        risk.apply_persona_config(_CONSERVATIVE_PROFILE, persona_name="conservative")
         assert risk._min_profit_floor_pct == pytest.approx(1.0)
 
     def test_apply_max_position_pct_updated(self):
         risk = _make_risk_manager(_make_config("conservative"))
         custom = {**_CONSERVATIVE_PROFILE, "max_position_pct": 20}
-        risk.apply_persona_config(custom)
+        risk.apply_persona_config(custom, persona_name="conservative")
         assert risk._max_position_pct == pytest.approx(20.0)
 
     def test_apply_converts_strings_to_numeric_types(self):
@@ -216,7 +216,7 @@ class TestApplyPersonaConfig:
             "max_open_positions": "7",
             "max_position_pct": "25.0",
             "min_profit_floor_pct": "0.8",
-        })
+        }, persona_name="conservative")
         assert risk._max_open_positions == 7
         assert risk._max_position_pct == pytest.approx(25.0)
         assert risk._min_profit_floor_pct == pytest.approx(0.8)
@@ -238,21 +238,21 @@ class TestPersonaMidRunSwitch:
 
         # Cycle 1 — conservative
         ctx1 = CycleContext.from_config(_make_config("conservative"), _new_cycle_id())
-        risk.apply_persona_config(ctx1.persona_config)
+        risk.apply_persona_config(ctx1.persona_config, persona_name="conservative")
         assert risk._min_profit_floor_pct == pytest.approx(1.0)
 
         # Cycle 2 — high
         ctx2 = CycleContext.from_config(_make_config("high"), _new_cycle_id())
-        risk.apply_persona_config(ctx2.persona_config)
+        risk.apply_persona_config(ctx2.persona_config, persona_name="high")
         assert risk._min_profit_floor_pct == pytest.approx(0.5)
 
     def test_high_then_conservative_restores_floor(self):
         """Switching back to conservative resets to v2 production baseline."""
         risk = _make_risk_manager(_make_config("high"))
-        risk.apply_persona_config(_HIGH_PROFILE)
+        risk.apply_persona_config(_HIGH_PROFILE, persona_name="high")
         assert risk._min_profit_floor_pct == pytest.approx(0.5)
 
-        risk.apply_persona_config(_CONSERVATIVE_PROFILE)
+        risk.apply_persona_config(_CONSERVATIVE_PROFILE, persona_name="conservative")
         assert risk._min_profit_floor_pct == pytest.approx(1.0)
 
     def test_conservative_matches_v2_production_defaults(self):

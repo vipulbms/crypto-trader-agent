@@ -48,7 +48,7 @@ BASE_CONFIG = {
 def _make_risk():
     init_paper_db(DB_PATH)
     r = RiskManager(BASE_CONFIG, db_path=DB_PATH)
-    r.apply_persona_config(PERSONA)
+    r.apply_persona_config(PERSONA, persona_name="medium")
     return r
 
 
@@ -92,7 +92,7 @@ def test_early_momentum_floor_at_one():
     """Score cannot drop below 1 even with big reduction + playbook delta is 0 (momentum)."""
     persona_big_reduction = {**PERSONA, "early_momentum_score_reduction": 10}
     r = RiskManager({**BASE_CONFIG, "personas": {"medium": persona_big_reduction}}, db_path=DB_PATH)
-    r.apply_persona_config(persona_big_reduction)
+    r.apply_persona_config(persona_big_reduction, persona_name="medium")
     indicators = {"rsi_14": 55, "adx_14": 30}
     sig_cfg = BASE_CONFIG["signals"]
     score = r.get_effective_min_score("BTC/USD", "momentum", {}, indicators, sig_cfg)

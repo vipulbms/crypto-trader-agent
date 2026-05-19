@@ -51,7 +51,7 @@ def _mk_db():
 def _make_risk(db_path: str):
     init_paper_db(db_path)
     r = RiskManager(BASE_CONFIG, db_path=db_path)
-    r.apply_persona_config(PERSONA)
+    r.apply_persona_config(PERSONA, persona_name="medium")
     return r
 
 

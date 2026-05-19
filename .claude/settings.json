@@ -45,7 +45,16 @@
       "Bash(.venv/bin/python -m src.runtime.research_analyst --config config.yaml --db paper_trading.db)",
       "Bash(python3 -m py_compile src/notifications/notifier.py main.py)",
       "Bash(python3 -m py_compile src/agent/tools.py src/agent/prompts.py src/risk/risk_manager.py)",
-      "Bash(python3 -m py_compile src/agent/trading_agent.py src/agent/prompts.py)"
+      "Bash(python3 -m py_compile src/agent/trading_agent.py src/agent/prompts.py)",
+      "Bash(gh pr *)",
+      "Bash(chmod +x /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/scripts/manage_services.sh)",
+      "Bash(chmod +x /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/scripts/healthcheck.sh)",
+      "Bash(./scripts/manage_services.sh status *)",
+      "Bash(./scripts/manage_services.sh verify *)",
+      "Bash(./scripts/manage_services.sh logs *)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(python -c \"from main import run_agent; print\\('[OK] main.py imports successfully'\\)\")"
     ]
   }
 }

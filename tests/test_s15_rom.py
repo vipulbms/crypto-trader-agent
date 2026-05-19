@@ -118,7 +118,7 @@ def _make_risk_manager(persona_name: str = "medium", db_path: str = None) -> Ris
         "medium":        _medium_persona(),
         "high":          _high_persona(),
     }
-    rm.apply_persona_config(persona_map[persona_name])
+    rm.apply_persona_config(persona_map[persona_name], persona_name=persona_name)
     return rm
 
 

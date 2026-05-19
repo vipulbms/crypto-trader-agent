@@ -54,7 +54,7 @@ BASE_CONFIG = {
 def _make_risk():
     init_paper_db(DB_PATH)
     r = RiskManager(BASE_CONFIG, db_path=DB_PATH)
-    r.apply_persona_config(PERSONA)
+    r.apply_persona_config(PERSONA, persona_name="medium")
     return r
 
 
