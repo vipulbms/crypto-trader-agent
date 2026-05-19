@@ -35,7 +35,7 @@ personas:
     reallocation_max_pct_6h: 0.0  # No reallocation
     # LLM parameters
     llm_temperature: 0            # Deterministic output for tool calling
-    llm_max_tokens: 1024          # Bounded context window
+    llm_max_tokens: 512           # Reduced from 1024 for token efficiency
     llm_system_role: conservative # System prompt variant: conservative | medium | high
     # Velocity circuit breaker (S16) — trips when intraday P&L drops faster than threshold
     velocity_circuit_breaker_pct: 3.0   # Trip at -3% hourly velocity loss
@@ -60,7 +60,7 @@ personas:
     reallocation_enabled: true    # ROM capital reallocation active
     reallocation_max_pct_6h: 0.20 # Cap: reallocate at most 20% of portfolio per 6h window
     llm_temperature: 0.1          # Light randomness for more varied position sizing
-    llm_max_tokens: 2048
+    llm_max_tokens: 512           # Reduced from 2048 for token efficiency
     llm_system_role: medium       # System prompt variant
     velocity_circuit_breaker_pct: 5.0
     velocity_halt_hours: 2
@@ -84,7 +84,7 @@ personas:
     reallocation_enabled: true
     reallocation_max_pct_6h: 0.05 # Reduced from 0.30 — conservative reallocation (5% per 6h)
     llm_temperature: 0.3          # Increased from 0.2 — slightly more creative sizing
-    llm_max_tokens: 2048
+    llm_max_tokens: 512           # Reduced from 2048 for token efficiency
     llm_system_role: high         # Extended system prompt with breakout directives
     velocity_circuit_breaker_pct: 7.0
     velocity_halt_hours: 1
@@ -114,7 +114,7 @@ trading:
   max_position_pct: 30        # Max % of portfolio per single trade (was 20; #265)
   max_open_positions: 10      # Safety ceiling only — cash guards are primary gate (#167; was 5)
   max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
-  cycle_interval_minutes: 30  # How often the agent runs a decision cycle (48 cycles/day × 5K tokens = 240K/day, safe within Groq 500K TPD limit)
+  cycle_interval_minutes: 60  # How often the agent runs a decision cycle (24 cycles/day × 3.5K tokens = 84K/day, safe within Groq 500K TPD limit)
 
   # Time-of-day filter to avoid low-volume false breakouts
   allowed_trading_hours:

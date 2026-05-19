@@ -348,7 +348,7 @@ def build_cycle_prompt(
             lines.append(f"  reasons|{'; '.join(reasons)}")
 
     # ── S14.1.2 — Token budget guard: trim lowest-score BUY pairs ─
-    _TOKEN_BUDGET = 5800
+    _TOKEN_BUDGET = 3500
     partial = "\n".join(lines)
     if estimate_tokens(partial) > _TOKEN_BUDGET:
         # Sort BUY signals ascending by score so we drop weakest first
