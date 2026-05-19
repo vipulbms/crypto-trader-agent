@@ -194,7 +194,15 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
     orchestrator = Orchestrator(config, _trading_db, notifier)
 
     trading_cfg = config.get("trading", {})
-    pairs       = [p["pair"] for p in trading_cfg.get("pairs", [])]
+    # Option 2: Hybrid universe (core + RAA-approved pairs)
+    from src.storage.database import get_trading_universe_hybrid
+    pairs, universe_composition = get_trading_universe_hybrid(config, _trading_db)
+    logger.info(
+        "[INIT] Trading universe: %d core + %d RAA-approved = %d total pairs",
+        universe_composition["core_count"],
+        universe_composition["raa_count"],
+        universe_composition["total"],
+    )
     interval_s  = trading_cfg.get("cycle_interval_minutes", 15) * 60
 
     # ── Broker setup ───────────────────────────────────────────
@@ -579,6 +587,14 @@ async def run_cycle(
         ctx.max_position_pct, ctx.min_profit_floor_pct,
     )
 
+    # Log universe composition (Option 2: core + RAA-approved)
+    logger.info(
+        "[UNIVERSE] Current composition: %d core + %d RAA-approved = %d total pairs",
+        universe_composition["core_count"],
+        universe_composition["raa_count"],
+        universe_composition["total"],
+    )
+
     # Persist active persona to agent_state for traceability and hot-reload detection (S12.1.3 AC1)
     if trading_db_path:
         try:
@@ -736,7 +752,14 @@ async def run_cycle(
 
     # Compute indicators and signals for each pair
     signals = []
+    processed_pairs = set()  # Track pairs already processed to prevent duplicates
     for pair in pairs:
+        # Dedup guard: skip if pair was already processed this cycle
+        if pair in processed_pairs:
+            logger.warning("[CYCLE] Duplicate pair in cycle loop: %s — skipping", pair)
+            continue
+        processed_pairs.add(pair)
+
         candles = ws_feed.get_candles(pair)
         if not candles:
             logger.warning("No candles for %s — skipping", pair)
