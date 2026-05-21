@@ -262,6 +262,8 @@ Development history is documented in `docs/sessions/`. Each file covers one sess
 | session_2026_04_18b | Fix: missing pnl_pct in Telegram trade close message — `send_trade_executed()` now shows `(+8.12%)` alongside USD P&L; closes #248 |
 | session_2026_05_03a | Feat: RAA LLM-delegated universe decisions — `propose_universe_addition()` replaced by `_run_llm_universe_decision()` + `_RAA_MCP_TOOLS` (kraken_ticker/get_universe/get_trend_persistence/get_confidence_state/universe_decision); meme-block + HITL lock remain hard Python guards; full HTTP + LLM call logging on every outbound request; closes #354 |
 | session_2026_05_03b | Feat: RAA batch LLM evaluation — all candidates in one call (#357); `_run_llm_universe_decision` replaced by `_run_llm_batch_universe_decision` + `_apply_llm_decision`; `_RAA_BATCH_TOOLS` (decision only); pre-injected ticker/persistence data; `write_raa_cycle_report` in cycle_logger.py; RAA logging infrastructure wired (llm_logger, cycle_logger, agent.log RotatingFileHandler) |
+| session_2026_05_21a | Fix: CycleContext.persona_name → persona attribute error (#365) — trading_agent.py line 226 was accessing non-existent `persona_name` instead of `persona`; closes #365 |
+| session_2026_05_21b | Fix: UnboundLocalError in build_cycle_prompt — `usd_val` initialized before conditional so it's always available for pos_size_pct calculation; cherry-picked to main (commit 6158d55); closes #367 |
 
 ---
 
