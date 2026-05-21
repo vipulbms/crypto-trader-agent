@@ -590,14 +590,6 @@ async def run_cycle(
         ctx.max_position_pct, ctx.min_profit_floor_pct,
     )
 
-    # Log universe composition (Option 2: core + RAA-approved)
-    logger.info(
-        "[UNIVERSE] Current composition: %d core + %d RAA-approved = %d total pairs",
-        universe_composition["core_count"],
-        universe_composition["raa_count"],
-        universe_composition["total"],
-    )
-
     # Persist active persona to agent_state for traceability and hot-reload detection (S12.1.3 AC1)
     if trading_db_path:
         try:
