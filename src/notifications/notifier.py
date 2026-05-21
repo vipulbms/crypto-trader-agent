@@ -260,13 +260,18 @@ class Notifier:
         best_pnl   = summary.get("best_position_pnl_pct", 0)
         worst_pnl  = summary.get("worst_position_pnl_pct", 0)
 
+        # Activity summary
+        buys       = summary.get("buys_since_heartbeat", 0)
+        sells      = summary.get("sells_since_heartbeat", 0)
+        open_count = summary.get("open_positions_count", 0)
+
         lines = [
             f"{self._prefix}💓 <b>Heartbeat</b>{cb_note}",
             f"Balance: ${balance:.2f} ({pnl_usd:+.2f} / {pnl_pct:+.2f}% last hour)",
             f"Win Rate: {wins}/{total_trades} ({win_rate:.0f}%) | Daily: {trades_today} trades ({daily_win_rate:.0f}%)",
             f"Portfolio: Cash {cash_pct:.0f}% | Deployed {deployed_pct:.0f}%",
             f"Positions: Avg {avg_pnl:+.1f}% | Best {best_pnl:+.1f}% | Worst {worst_pnl:+.1f}%",
-            f"Cycles: {cycles}",
+            f"Cycles: {cycles} | Open: {open_count} | Buys: {buys} | Sells: {sells}",
         ]
         positions_detail = summary.get("positions_detail", [])
         if positions_detail:
