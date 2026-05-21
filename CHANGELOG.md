@@ -2,6 +2,22 @@
 
 ---
 
+## Session: 2026-05-21 (Part A) — Fix CycleContext.persona_name attribute error
+
+### Bugs Fixed
+
+| Bug | Issue | Root Cause | Fix |
+|-----|-------|-----------|-----|
+| Agent crashes every cycle with `AttributeError: 'CycleContext' object has no attribute 'persona_name'` | #365 | `trading_agent.py:226` tried to access non-existent `persona_name` attribute | Changed `self._current_ctx.persona_name` to `self._current_ctx.persona` |
+
+### Details
+
+- The `CycleContext` class (in `src/core/cycle_context.py`) has a `persona` attribute, not `persona_name`
+- `trading_agent.py` line 226 was trying to build `risk_state` dict with the wrong attribute name
+- This caused the agent to crash on every trading cycle with an AttributeError
+
+---
+
 ## Session: 2026-05-03 (Part A) — RAA LLM-delegated universe decisions + HTTP/LLM logging
 
 ### Features Added

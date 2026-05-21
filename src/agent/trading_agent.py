@@ -223,7 +223,7 @@ class TradingAgent:
 
         # Build risk_state with persona-driven constraints
         risk_state = {
-            "persona": self._current_ctx.persona_name if self._current_ctx else "medium",
+            "persona": self._current_ctx.persona if self._current_ctx else "medium",
             "persona_config": self._persona_config,
             "kill_switch": (ai_context or {}).get("kill_switch", False),
             "circuit_open": (ai_context or {}).get("circuit_breaker_active", False),
