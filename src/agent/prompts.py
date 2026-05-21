@@ -276,9 +276,9 @@ def build_cycle_prompt(
             tp_dist = ((tp - entry) / entry * 100) if entry else 0
             # Current P&L — available if position was enriched with current_price
             cur_price = pos.get("current_price")
+            usd_val = pos.get("usd_value", 0) or 0
             if cur_price and entry:
                 pnl_pct = (cur_price - entry) / entry * 100
-                usd_val = pos.get("usd_value", 0) or 0
                 pnl_usd = usd_val * pnl_pct / 100
             else:
                 pnl_pct = None
