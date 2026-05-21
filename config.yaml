@@ -114,7 +114,7 @@ trading:
   max_position_pct: 30        # Max % of portfolio per single trade (was 20; #265)
   max_open_positions: 10      # Safety ceiling only — cash guards are primary gate (#167; was 5)
   max_buys_per_cycle: 7       # LLM may propose at most this many buys per cycle (Fix #130 — was 5)
-  cycle_interval_minutes: 60  # How often the agent runs a decision cycle (24 cycles/day × 3.5K tokens = 84K/day, safe within Groq 500K TPD limit)
+  cycle_interval_minutes: 45  # How often the agent runs a decision cycle (24 cycles/day × 3.5K tokens = 84K/day, safe within Groq 500K TPD limit)
 
   # Time-of-day filter to avoid low-volume false breakouts
   allowed_trading_hours:
