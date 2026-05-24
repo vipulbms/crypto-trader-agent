@@ -16,7 +16,7 @@ import os
 import time
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # ──────────────────────────────────────────────────────────────
 # Pricing table (Groq pay-as-you-go, USD per 1M tokens, April 2026)
@@ -51,7 +51,7 @@ def _estimate_cost(model_id: str, prompt_tokens: Optional[int], completion_token
     return round(input_cost + output_cost, 8)
 
 
-def init_llm_logger(log_dir: str = "/logs", config: dict | None = None) -> None:
+def init_llm_logger(log_dir: str = "/logs", config: Optional[Dict] = None) -> None:
     """
     Set up the RotatingFileHandler for agent-llm-prompts.log.
     Call once at agent startup, after the main log handlers are configured.
@@ -90,9 +90,9 @@ def log_llm_interaction(
     system_prompt: str,
     user_message: str,
     raw_output: str,
-    tool_calls: list[dict[str, Any]],
-    prompt_tokens: int | None,
-    completion_tokens: int | None,
+    tool_calls: List[Dict[str, Any]],
+    prompt_tokens: Optional[int],
+    completion_tokens: Optional[int],
     latency_ms: int,
     call_start_utc: str,
     user_id: str = "kryptos",
@@ -119,7 +119,7 @@ def log_llm_interaction(
         else None
     )
 
-    record: dict[str, Any] = {
+    record: Dict[str, Any] = {
         # 1. Request metadata
         "request_id":      request_id,
         "session_id":      session_id,

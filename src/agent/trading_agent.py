@@ -509,7 +509,7 @@ class TradingAgent:
 
         # S26: Rotate Groq API keys if two are available
         if self._api_key_secondary and self._provider == "openai_compat":
-            cycle_id = current_cycle_id() or 0
+            cycle_id = current_cycle_id.get() or 0
             selected_key = self._api_key_secondary if (cycle_id % 2) == 1 else self._api_key_primary
             if selected_key != self._api_key_primary:
                 logger.info("[S26] Rotating to secondary Groq key (cycle %d)", cycle_id)

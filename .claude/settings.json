@@ -9,7 +9,29 @@
       "Edit(/.claude/skills/trading-rules/**)",
       "Bash(/dev/null grep:*)",
       "Bash(head -15 grep -n \"heartbeat\\\\|still alive\\\\|hourly\\\\|60.*min\\\\|summary.*hour\" /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/src/notifications/notifier.py /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/main.py)",
-      "Bash(ls /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/*.md)"
+      "Bash(ls /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/*.md)",
+      "Bash(~/.pyenv/versions/3.11.15/bin/python3 tests/test_backtest.py --start-date 2026-04-24 --no-llm --all-personas)",
+      "Bash(python3)",
+      "Bash(python main.py --paper)",
+      "Bash(mvn spring-boot:run -DskipTests)",
+      "Bash(npm start *)",
+      "Bash(curl -s http://localhost:8080/actuator/health)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(npm run *)",
+      "Bash(pkill -f \"spring-boot:run\")",
+      "Bash(mvn clean *)",
+      "Bash(echo \"Build status: $?\")",
+      "Bash(sqlite3 /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/data/paper_trading_high.db)",
+      "Bash(sqlite3 /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/data/paper_trading_high.db \".schema\")",
+      "Bash(sqlite3 /Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/data/paper_trading_high.db \".tables\")",
+      "Bash(python3 -m pip install --upgrade websockets)",
+      "Bash(python3 -c \"import websockets; print\\('websockets is available'\\)\")",
+      "Bash(python3 main.py --paper)",
+      "Bash(kill 16304)",
+      "Bash(/Users/vipulsanghrajka/.pyenv/versions/3.11.15/bin/python3 main.py --paper)",
+      "Bash(KRYPTOS_PAPER_DB=/Users/vipulsanghrajka/Documents/myworkdir/crypto-trader-agent/data/paper_trading_high.db mvn spring-boot:run -DskipTests)",
+      "Bash(curl -s -k https://localhost:8443/api/v2/portfolio)",
+      "Bash(curl -s -k https://localhost:8443/actuator/health)"
     ]
   }
 }
