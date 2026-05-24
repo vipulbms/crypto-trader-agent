@@ -16,14 +16,14 @@ import os
 import time
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
-from typing import Any
+from typing import Any, Dict, Optional
 
 # ──────────────────────────────────────────────────────────────
 # Pricing table (Groq pay-as-you-go, USD per 1M tokens, April 2026)
 # Update when model pricing changes.
 # Local Ollama models have zero cost.
 # ──────────────────────────────────────────────────────────────
-_PRICING: dict[str, dict[str, float]] = {
+_PRICING: Dict[str, Dict[str, float]] = {
     "qwen/qwen3-32b":            {"input": 0.29,  "output": 0.59},
     "qwen3-32b":                 {"input": 0.29,  "output": 0.59},
     "llama-3.3-70b-versatile":   {"input": 0.59,  "output": 0.79},
@@ -34,14 +34,14 @@ _PRICING: dict[str, dict[str, float]] = {
     "deepseek-r1:7b":            {"input": 0.0,   "output": 0.0},
 }
 
-_DEFAULT_PRICING: dict[str, float] = {"input": 0.0, "output": 0.0}
+_DEFAULT_PRICING: Dict[str, float] = {"input": 0.0, "output": 0.0}
 
 # Internal logger (writes to the JSON handler only)
 _llm_log: logging.Logger = logging.getLogger("llm_prompts")
 _llm_log.propagate = False  # do not bubble up to root logger / agent.log
 
 
-def _estimate_cost(model_id: str, prompt_tokens: int | None, completion_tokens: int | None) -> float | None:
+def _estimate_cost(model_id: str, prompt_tokens: Optional[int], completion_tokens: Optional[int]) -> Optional[float]:
     """Return estimated USD cost, or None if token counts are unavailable."""
     if prompt_tokens is None and completion_tokens is None:
         return None
