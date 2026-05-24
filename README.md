@@ -11,24 +11,25 @@
 1. [Features](#features)
 2. [Quick Start — Paper Trading](#quick-start--paper-trading)
 3. [Telegram Setup](#telegram-setup)
-4. [How the Decision Cycle Works](#how-the-decision-cycle-works)
-5. [Technical Indicators](#technical-indicators)
-6. [BUY Signal — Complete Reference](#buy-signal--complete-reference)
-7. [SELL Signal — Complete Reference](#sell-signal--complete-reference)
-8. [HOLD Logic](#hold-logic)
-9. [Sequence Diagrams](#sequence-diagrams)
-10. [Defence Mechanisms](#defence-mechanisms)
-11. [Market Sentiment in Practice](#market-sentiment-in-practice)
-12. [Trading Pairs — Full Reference](#trading-pairs--full-reference)
-13. [Kryptos CLI](#kryptos-cli)
-14. [Database Storage](#database-storage)
-15. [Risk Rules](#risk-rules)
-16. [Paper vs Live Mode](#paper-vs-live-mode)
-17. [Backtesting & Live Readiness](#backtesting--live-readiness)
-18. [File Structure](#file-structure)
-19. [Configuration (`config.yaml`)](#configuration-configyaml)
-20. [Documentation Index](#documentation-index)
-21. [Known Behaviours](#known-behaviours)
+4. [Trading Personas](#trading-personas)
+5. [How the Decision Cycle Works](#how-the-decision-cycle-works)
+6. [Technical Indicators](#technical-indicators)
+7. [BUY Signal — Complete Reference](#buy-signal--complete-reference)
+8. [SELL Signal — Complete Reference](#sell-signal--complete-reference)
+9. [HOLD Logic](#hold-logic)
+10. [Sequence Diagrams](#sequence-diagrams)
+11. [Defence Mechanisms](#defence-mechanisms)
+12. [Market Sentiment in Practice](#market-sentiment-in-practice)
+13. [Trading Pairs — Full Reference](#trading-pairs--full-reference)
+14. [Kryptos CLI](#kryptos-cli)
+15. [Database Storage](#database-storage)
+16. [Risk Rules](#risk-rules)
+17. [Paper vs Live Mode](#paper-vs-live-mode)
+18. [Backtesting & Live Readiness](#backtesting--live-readiness)
+19. [File Structure](#file-structure)
+20. [Configuration (`config.yaml`)](#configuration-configyaml)
+21. [Documentation Index](#documentation-index)
+22. [Known Behaviours](#known-behaviours)
 
 ---
 
@@ -139,6 +140,100 @@ You should receive a test message within a few seconds.
 ### Disabling Notifications
 
 Set `notifications.telegram_enabled: false` in `config.yaml`, or simply omit the environment variables — the notifier silently no-ops when the token is missing.
+
+---
+
+## Trading Personas
+
+Kryptos supports three distinct trading personas — each with different risk profiles, entry bars, and operational frequencies. Switch personas anytime without restarting.
+
+### Persona Comparison
+
+| Aspect | CONSERVATIVE | MEDIUM | HIGH |
+|--------|--------------|--------|------|
+| **Cycle Frequency** | 30 min | 30 min | **15 min** |
+| **Entry Threshold** | `buy_min_score: 5` | `buy_min_score: 5` | **`buy_min_score: 4`** |
+| **Position Size** | 20% of portfolio | 30% of portfolio | **40% of portfolio** |
+| **Profit Floor** | 1.0% PNL | 1.0% PNL | **0.5% PNL** |
+| **2-Year P&L Target** | +50% | **+500%** (10x) | +3,000% (30x) |
+| **Daily Return Target** | 0.15% | **0.34%** | 1.0% |
+| **Entry Confluence** | High (score ≥5) | Balanced (score ≥5) | **Aggressive (score ≥4)** |
+| **Use Case** | Capital preservation | Steady 10x growth | Aggressive scaling |
+
+### Activate a Persona
+
+**CLI:**
+```bash
+kryptos persona set high     # Switch to HIGH (15-min cycles)
+kryptos persona set medium   # Switch to MEDIUM (30-min cycles, 0.34% daily)
+kryptos persona set conservative  # Back to safe mode
+```
+
+**Environment (permanent):**
+```bash
+# Edit config.yaml
+agent:
+  persona: high
+```
+
+**Runtime Override (API, no restart needed):**
+```bash
+curl -X PUT http://localhost:9999/api/v2/persona -d '{"persona":"high"}'
+```
+
+### Groq API Key Rotation (for HIGH persona)
+
+HIGH persona at 15-min cycles requires 1M tokens/day. Kryptos automatically **load-balances across two Groq API keys** to stay within budget:
+
+```bash
+# .env setup
+GROQ_API_KEY=gsk_primary...     # 500k tokens/day
+GROQ_API_KEY_2=gsk_secondary... # 500k tokens/day
+```
+
+- **Even cycles** (0, 2, 4...): uses `GROQ_API_KEY` (primary)
+- **Odd cycles** (1, 3, 5...)**: uses `GROQ_API_KEY_2` (secondary)
+- **Total budget**: 1M tokens/day ✅ (HIGH persona uses ~240k/day)
+
+Rotation is logged: `[S26] Rotating to secondary Groq key (cycle 1527)`
+
+### 10x Growth Strategy (MEDIUM Persona)
+
+To achieve $1,000 → $10,000 in 2 years with MEDIUM persona:
+
+**Math:**
+- Daily rate needed: 0.338%
+- MEDIUM persona frequency (0.34% daily): achieves ~$10,500 in 2 years ✅
+- Requires: 2–3 profitable trades/week at current 4.46% avg P&L per trade
+
+**Requirements:**
+1. Win rate ≥ 63%
+2. Avg P&L per trade ≥ 4.46%
+3. Consistent execution (no forced holds from circuit breaker)
+
+**Monitor:**
+```bash
+python kryptos.py report      # P&L and win rate
+kryptos drivers               # Which signal types are blocking/triggering
+kryptos balance               # Current capital and deployment
+```
+
+### 30x Growth Strategy (HIGH Persona) — Advanced
+
+HIGH persona with 15-min cycles can theoretically reach 30x (target 1% daily), but requires **35% improvement in per-trade P&L** beyond current 4.46%. This can come from:
+
+1. **Better signal confluence** — lower `buy_min_score=4` catches higher-quality setups if it improves timing
+2. **Pair-specific tuning** — focus capital on top-performing pairs, disable underperformers
+3. **Dynamic exit timing** — lock in gains faster on high-volatility pairs
+4. **Slippage optimization** — position sizing to reduce friction
+
+**First 7 days checklist for HIGH:**
+- [ ] Win rate stays ≥ 63%
+- [ ] Avg P&L per trade ≥ 5.0% (up from 4.46%)
+- [ ] Trades/day: 2–3 (4x frequency active)
+- [ ] No circuit breaker trips (≤ 2 consecutive stops)
+
+If any metric drops below target, revert to MEDIUM.
 
 ---
 
