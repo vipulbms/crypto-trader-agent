@@ -195,7 +195,8 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
 
     trading_cfg = config.get("trading", {})
     pairs       = [p["pair"] for p in trading_cfg.get("pairs", [])]
-    interval_s  = trading_cfg.get("cycle_interval_minutes", 15) * 60
+    # Global fallback — will be overridden per cycle from persona config
+    _global_interval_minutes = trading_cfg.get("cycle_interval_minutes", 15)
 
     # ── Broker setup ───────────────────────────────────────────
     if mode == "paper":
@@ -437,11 +438,23 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                     logger.info("Backtest complete — history exhausted (%s)", ws_feed.progress)
                     break
             else:
+                # Read persona-specific cycle interval (can change per cycle via API override)
+                _active_persona = config.get("agent", {}).get("persona", "medium")
+                if not is_backtest:
+                    try:
+                        from src.core.cycle_context import get_active_persona_from_db
+                        _active_persona = get_active_persona_from_db(_trading_db) or _active_persona
+                    except Exception:
+                        pass  # Use config-based persona if DB read fails
+                _persona_cfg = config.get("personas", {}).get(_active_persona, {})
+                cycle_interval_minutes = _persona_cfg.get("cycle_interval_minutes", _global_interval_minutes)
+                interval_s = cycle_interval_minutes * 60
+
                 elapsed   = time.time() - cycle_start
                 sleep_for = max(0, interval_s - elapsed)
                 logger.info(
-                    "Cycle complete in %.1fs. Next cycle in %.0fs.",
-                    elapsed, sleep_for,
+                    "Cycle complete in %.1fs. Next cycle in %.0fs (persona=%s, interval=%dmin).",
+                    elapsed, sleep_for, _active_persona, cycle_interval_minutes,
                 )
                 notifier.ping_healthcheck()
                 await asyncio.sleep(sleep_for)

@@ -71,10 +71,14 @@ class TradingAgent:
 
         if self._provider == "openai_compat":
             from openai import OpenAI
-            api_key = os.environ.get(llm_cfg.get("api_key_env", "OPENAI_API_KEY"), "")
+            # S26: Groq key rotation — read both keys, rotate per cycle
+            self._api_key_primary = os.environ.get(llm_cfg.get("api_key_env", "OPENAI_API_KEY"), "")
+            self._api_key_secondary = os.environ.get("GROQ_API_KEY_2", "")  # Optional second key
+            self._base_url = llm_cfg.get("base_url")
+            # Create initial client with primary key
             self._client = OpenAI(
-                api_key=api_key,
-                base_url=llm_cfg.get("base_url"),
+                api_key=self._api_key_primary,
+                base_url=self._base_url,
                 timeout=self._timeout,
             )
         else:
@@ -489,6 +493,9 @@ class TradingAgent:
         Returns (tool_calls, raw_output, prompt_tokens, completion_tokens)
         where tool_calls is a list of objects with .function.name and .function.arguments.
 
+        S26: Groq key rotation — when two API keys are available, alternates between them
+        based on cycle_id to distribute token usage across daily quotas.
+
         For qwen3-class reasoning models on Groq: when disable_thinking=True,
         extra_body={"reasoning_effort": "none"} is passed to suppress the <think> block
         that would otherwise cause a 400 tool_use_failed error. Applied only to qwen3
@@ -499,6 +506,20 @@ class TradingAgent:
         call_start_utc = datetime.now(timezone.utc).isoformat()
         call_start = time.time()
         set_request_id(request_id)
+
+        # S26: Rotate Groq API keys if two are available
+        if self._api_key_secondary and self._provider == "openai_compat":
+            cycle_id = current_cycle_id() or 0
+            selected_key = self._api_key_secondary if (cycle_id % 2) == 1 else self._api_key_primary
+            if selected_key != self._api_key_primary:
+                logger.info("[S26] Rotating to secondary Groq key (cycle %d)", cycle_id)
+            # Recreate client with selected key
+            from openai import OpenAI
+            self._client = OpenAI(
+                api_key=selected_key,
+                base_url=self._base_url,
+                timeout=self._timeout,
+            )
 
         kwargs = dict(
             model=model,

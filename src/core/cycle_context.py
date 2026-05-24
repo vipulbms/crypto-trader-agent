@@ -145,3 +145,24 @@ class CycleContext:
             unfilled_clusters=unfilled_clusters or [],
             btc_dominance_trend=btc_dominance_trend,
         )
+
+
+def get_active_persona_from_db(db_path: str) -> Optional[str]:
+    """
+    S26: Read the active persona from the agent_state table.
+    Used by main.py to detect API-level persona overrides (S18.1.3).
+
+    Returns the persona name if set, None if absent or on DB error.
+    """
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        c = conn.cursor()
+        c.execute(
+            "SELECT value FROM agent_state WHERE key = 'active_persona_override' LIMIT 1"
+        )
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
