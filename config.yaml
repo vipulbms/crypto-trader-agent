@@ -22,6 +22,7 @@ personas:
     # Position limits
     max_open_positions: 10        # v2 default — cash guards are primary gate
     max_position_pct: 30          # v2 default (% of portfolio per trade)
+    max_buys_per_cycle: 7         # Conservative: limit to 7 buys per cycle
     # P&L floor
     min_profit_floor_pct: 1.0     # v2 default — covers round-trip fees
     # Signal vetoes
@@ -52,6 +53,7 @@ personas:
     buy_min_score: 6              # Slightly higher bar — more selective entries
     max_open_positions: 10
     max_position_pct: 30
+    max_buys_per_cycle: 7         # Medium: limit to 7 buys per cycle
     min_profit_floor_pct: 1.0
     rsi_overbought_veto: 72       # Slightly relaxed — stays in trending moves longer
     volume_bypass_enabled: true   # Suspend volume veto on MACD crossover + price > BB upper
@@ -76,6 +78,7 @@ personas:
     buy_min_score: 5              # Aggressive — lowest entry bar
     max_open_positions: 15        # Increased from 10 — capital efficiency over position count (Option 2)
     max_position_pct: 40          # Increased from 30 — larger per-position bets
+    max_buys_per_cycle: 15        # HIGH persona: allow up to 15 buys per cycle (aggressive)
     min_profit_floor_pct: 0.5     # Reduced floor — captures smaller moves net of fees
     rsi_overbought_veto: 75       # Hold longer in strong uptrends
     volume_bypass_enabled: true   # Aggressive bypass — any confirmed momentum geometry

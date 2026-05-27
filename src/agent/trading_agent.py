@@ -168,6 +168,9 @@ class TradingAgent:
         # S14.2.4 — build per-cycle persona-scoped system prompt
         if cycle_context is not None:
             self._persona_config = getattr(cycle_context, "persona_config", {})
+        # Update max_buys per cycle based on persona config
+        self._max_buys = self._persona_config.get("max_buys_per_cycle",
+                                                   self._config.get("trading", {}).get("max_buys_per_cycle", 7))
         persona_system_msg = (
             build_system_prompt(self._persona_config)
             if self._persona_config
