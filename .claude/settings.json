@@ -54,7 +54,23 @@
       "Bash(./scripts/manage_services.sh logs *)",
       "Bash(cat)",
       "Read(//tmp/**)",
-      "Bash(python -c \"from main import run_agent; print\\('[OK] main.py imports successfully'\\)\")"
+      "Bash(python -c \"from main import run_agent; print\\('[OK] main.py imports successfully'\\)\")",
+      "Bash(./scripts/manage_services.sh stop *)",
+      "Bash(pip uninstall *)",
+      "Bash(python main.py --paper)",
+      "Bash(./scripts/manage_services.sh start *)",
+      "Bash(timeout 5 python kryptos.py start --paper)",
+      "Bash(pkill -f \"main.py\")",
+      "Bash(pkill -f \"src.runtime\")",
+      "Bash(pkill -f \"src.mcp\")",
+      "Bash(nohup python -m src.mcp.server --config config.yaml --mode paper)",
+      "Bash(pkill -f \"main.py --paper\")",
+      "Bash(python kryptos.py start --paper)",
+      "Bash(pkill -f \"src.runtime.audit_agent\")",
+      "Bash(pkill -f \"src.runtime.research_analyst\")",
+      "Bash(nohup python -m src.runtime.audit_agent --config config.yaml --db paper_trading.db)",
+      "Bash(nohup python -m src.runtime.research_analyst --config config.yaml --db paper_trading.db)",
+      "Bash(nohup python -m src.runtime.fulfillment_service --config config.yaml --mode paper)"
     ]
   }
 }

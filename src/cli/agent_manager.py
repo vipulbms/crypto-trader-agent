@@ -76,6 +76,27 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+def _find_agent_pid_real_time() -> Optional[int]:
+    """
+    Search for a running agent process via pgrep.
+    Returns the PID of the running main.py agent, or None if not found.
+    This bypasses the PID file and discovers the actual running process.
+    """
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "python.*main\\.py"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            return int(pids[0])  # Return first match
+    except Exception:
+        pass
+    return None
+
+
 # ──────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────
@@ -83,17 +104,22 @@ def _is_running(pid: int) -> bool:
 def start(mode: str = "paper") -> dict:
     """
     Launch the agent as a detached background subprocess.
+    Uses real-time process discovery to detect already-running agents.
     Returns {'ok': bool, 'message': str, 'pid': int|None}.
     """
-    existing = _read_pid()
-    if existing and _is_running(existing["pid"]):
+    # Check for already running agent via real-time discovery
+    running_pid = _find_agent_pid_real_time()
+    if running_pid:
+        existing = _read_pid()
+        mode_str = existing.get("mode", "paper").upper() if existing else "paper"
+        started_str = existing.get("started_at", "unknown") if existing else "unknown"
         return {
             "ok": False,
             "message": (
-                f"Agent is already running in {existing['mode'].upper()} mode "
-                f"(PID {existing['pid']}, started {existing['started_at']})."
+                f"Agent is already running in {mode_str} mode "
+                f"(PID {running_pid}, started {started_str})."
             ),
-            "pid": existing["pid"],
+            "pid": running_pid,
         }
 
     if not os.path.exists(_MAIN_SCRIPT):
@@ -131,13 +157,19 @@ def start(mode: str = "paper") -> dict:
 def stop() -> dict:
     """
     Gracefully stop the running agent (SIGTERM, then SIGKILL after 10 s).
+    Uses real-time process discovery first, falls back to PID file.
     Returns {'ok': bool, 'message': str}.
     """
-    info = _read_pid()
-    if not info:
-        return {"ok": False, "message": "No running agent found (no PID file)."}
+    # Try real-time discovery first
+    pid = _find_agent_pid_real_time()
 
-    pid = info["pid"]
+    if not pid:
+        # Fall back to PID file
+        info = _read_pid()
+        if not info:
+            return {"ok": False, "message": "No running agent found."}
+        pid = info["pid"]
+
     if not _is_running(pid):
         _clear_pid()
         return {"ok": False, "message": f"Agent PID {pid} is not running. Cleaned up stale PID file."}
@@ -163,10 +195,10 @@ def stop() -> dict:
 def status(config: Optional[dict] = None) -> dict:
     """
     Return a status dict describing the agent's current state.
+    Uses real-time process discovery (pgrep) for accuracy instead of relying on PID file.
 
     config is optional — if provided, the last audit cycle is included.
     """
-    info   = _read_pid()
     result = {
         "running": False,
         "pid": None,
@@ -177,16 +209,34 @@ def status(config: Optional[dict] = None) -> dict:
         "log_file": _LOG_FILE,
     }
 
-    if info:
-        result["pid"]        = info.get("pid")
-        result["mode"]       = info.get("mode")
-        result["started_at"] = info.get("started_at")
-        result["running"]    = _is_running(info["pid"])
+    # First, try real-time process discovery via pgrep
+    discovered_pid = _find_agent_pid_real_time()
+    info = _read_pid()
 
-        if result["running"] and info.get("started_at"):
+    if discovered_pid:
+        # Process is running — use discovered PID
+        result["pid"] = discovered_pid
+        result["running"] = True
+
+        # Sync with PID file for mode and start time if available
+        if info and info.get("pid") == discovered_pid:
+            result["mode"] = info.get("mode")
+            result["started_at"] = info.get("started_at")
+        elif info:
+            # PID file has different PID — update it with discovered PID
+            result["mode"] = info.get("mode", "paper")  # Fallback to paper mode
+            result["started_at"] = info.get("started_at")
+            _write_pid(discovered_pid, result["mode"])
+        else:
+            # No PID file at all — write one
+            result["mode"] = "paper"
+            _write_pid(discovered_pid, "paper")
+
+        # Calculate uptime
+        if result.get("started_at"):
             try:
-                started = datetime.fromisoformat(info["started_at"]).astimezone(SGT)
-                uptime  = now_sgt() - started
+                started = datetime.fromisoformat(result["started_at"]).astimezone(SGT)
+                uptime = now_sgt() - started
                 total_s = int(uptime.total_seconds())
                 h = total_s // 3600
                 m = (total_s % 3600) // 60
@@ -194,16 +244,22 @@ def status(config: Optional[dict] = None) -> dict:
             except Exception:
                 pass
 
-        if not result["running"]:
-            _clear_pid()
+    else:
+        # No process found via pgrep
+        if info:
+            # PID file exists but process is not running
+            result["pid"] = info.get("pid")
+            result["mode"] = info.get("mode")
+            result["started_at"] = info.get("started_at")
+            _clear_pid()  # Clean up stale file
 
     # Pull last cycle from audit DB if possible
-    if config:
+    if config and result.get("mode"):
         try:
             from src.storage.database import get_connection
-            mode = info["mode"] if info else "paper"
-            ac   = get_connection(config["storage"]["audit_db"])
-            row  = ac.execute(
+            mode = result["mode"]
+            ac = get_connection(config["storage"]["audit_db"])
+            row = ac.execute(
                 "SELECT * FROM audit_cycles WHERE mode=? ORDER BY cycle_at DESC LIMIT 1",
                 (mode,),
             ).fetchone()
