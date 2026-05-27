@@ -950,6 +950,7 @@ class RiskManager:
         cluster_penalty_factor = 1.0
         cluster = self._get_correlation_cluster(pair)
         if cluster and self._correlation_clusters:
+            open_pairs = self._get_open_pairs()
             cluster_open = [p for p in open_pairs if p in cluster["pairs"] and p != pair]
             if len(cluster_open) >= self._max_cluster_positions:
                 return (
