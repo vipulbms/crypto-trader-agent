@@ -1,0 +1,123 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                  KRYPTOS SERVICE MANAGEMENT — QUICK REFERENCE                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+DAILY OPERATIONS
+════════════════════════════════════════════════════════════════════════════════
+
+  Start all services:              ./scripts/manage_services.sh start
+  Stop all services:               ./scripts/manage_services.sh stop
+  Restart everything:              ./scripts/manage_services.sh restart
+  Check service status:            ./scripts/manage_services.sh status
+  Verify health + check logs:      ./scripts/manage_services.sh verify
+  View logs:                       ./scripts/manage_services.sh logs [service] [N]
+
+EXAMPLES
+  ./scripts/manage_services.sh logs all 50             # All services, 50 lines
+  ./scripts/manage_services.sh logs audit_agent 100    # Audit only, 100 lines
+
+
+BACKGROUND MONITORING (Auto-Restart)
+════════════════════════════════════════════════════════════════════════════════
+
+  One-time health check:           ./scripts/healthcheck.sh
+  With auto-restart:               ./scripts/healthcheck.sh --auto-restart
+  With Telegram alerts:            ./scripts/healthcheck.sh --telegram
+  Full monitoring:                 ./scripts/healthcheck.sh --auto-restart --telegram
+
+CRON SETUP (Every 5 Minutes)
+  crontab -e
+  */5 * * * * cd /path/to/repo && ./scripts/healthcheck.sh --auto-restart --telegram >> logs/healthcheck.log 2>&1
+
+
+LOG FILES
+════════════════════════════════════════════════════════════════════════════════
+
+  Core Agent:              logs/core_agent.log
+  Audit Agent:             logs/audit_agent.log
+  Data Collector:          logs/data_collector.log
+  Research Analyst:        logs/research_analyst.log
+  Fulfillment Service:     logs/fulfillment_service.log
+  MCP Server:              logs/mcp_server.log
+  Health Checks:           logs/healthcheck.log
+
+
+TROUBLESHOOTING
+════════════════════════════════════════════════════════════════════════════════
+
+  Services won't start?
+    → ./scripts/manage_services.sh verify
+    → ./scripts/manage_services.sh logs all 100
+
+  Services running but errors?
+    → grep -i error logs/*.log | tail -20
+    → ./scripts/manage_services.sh logs [service] 200
+
+  Auto-restart not working?
+    → tail logs/healthcheck.log
+    → Check: crontab -l
+
+
+SERVICES MANAGED
+════════════════════════════════════════════════════════════════════════════════
+
+  ✓ Core Agent              (Main trading loop)
+  ✓ AuditAgent              (Cycle and trade logging)
+  ✓ DataCollector           (Market data collection)
+  ✓ ResearchAnalyst         (Market analysis)
+  ✓ FulfillmentService      (Order execution)
+  ✓ MCP Server              (HTTP API for tools)
+
+
+DOCUMENTATION
+════════════════════════════════════════════════════════════════════════════════
+
+  Quick start (one page):          QUICK_START_SERVICES.md
+  Full reference:                  docs/SERVICE_MANAGEMENT.md
+  Cron examples:                   scripts/CRON_EXAMPLES.sh
+  This summary:                    SERVICE_MANAGEMENT_SUMMARY.md
+
+
+PRODUCTION SETUP (RECOMMENDED)
+════════════════════════════════════════════════════════════════════════════════
+
+  Step 1: Start services
+    ./scripts/manage_services.sh start
+
+  Step 2: Set up monitoring (crontab -e)
+    */5 * * * * cd /path/to/repo && ./scripts/healthcheck.sh --auto-restart --telegram >> logs/healthcheck.log 2>&1
+
+  Step 3: Optional - Daily restart at 2 AM
+    0 2 * * * cd /path/to/repo && ./scripts/manage_services.sh restart >> logs/cron-restart.log 2>&1
+
+  That's it! Services will auto-restart on failure and you'll get Telegram alerts.
+
+
+KEY FEATURES
+════════════════════════════════════════════════════════════════════════════════
+
+  • Start/stop/restart all services with one command
+  • Graceful shutdown (waits 30s before force kill)
+  • Process verification after startup
+  • Log error detection (ERROR, EXCEPTION, FATAL, etc.)
+  • Activity monitoring (detects stalled services)
+  • Auto-restart with limits (up to 3 attempts)
+  • Telegram notifications (failures, restarts)
+  • Color-coded output (easy to read)
+  • Service health status tracking
+  • Comprehensive logging to logs/healthcheck.log
+
+
+QUICK CHECKS
+════════════════════════════════════════════════════════════════════════════════
+
+  Everything running?               ./scripts/manage_services.sh status
+  Any problems?                     ./scripts/manage_services.sh verify
+  Check specific service logs?      ./scripts/manage_services.sh logs [name]
+  Monitor in real-time?             tail -f logs/audit_agent.log
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  For full documentation, see: docs/SERVICE_MANAGEMENT.md                     ║
+║  For examples, see: scripts/CRON_EXAMPLES.sh                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝

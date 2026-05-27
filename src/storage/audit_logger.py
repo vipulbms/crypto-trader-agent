@@ -57,6 +57,12 @@ class AuditLogger:
             conn.commit()
             cycle_id = cur.lastrowid
             conn.close()
+            logger.info(
+                "[AUDIT] Cycle %d started: balance=$%.2f, cash=$%.2f, "
+                "positions=%d, daily_pnl=%.2f%% ($%.2f)",
+                cycle_id, portfolio_balance_usd, available_cash_usd,
+                open_positions_count, daily_pnl_pct, daily_pnl_usd,
+            )
             return cycle_id
         except Exception:
             logger.warning("AuditLogger.log_cycle failed:\n%s", traceback.format_exc())
@@ -72,6 +78,7 @@ class AuditLogger:
             )
             conn.commit()
             conn.close()
+            logger.debug("[AUDIT] Cycle %d completed in %.1fms", cycle_id, duration_ms)
         except Exception:
             logger.warning("AuditLogger.update_cycle_duration failed:\n%s", traceback.format_exc())
 
@@ -119,6 +126,11 @@ class AuditLogger:
             conn.commit()
             row_id = cur.lastrowid
             conn.close()
+            logger.debug(
+                "[AUDIT] Signal %d logged: %s/%s score=%.1f direction=%s reasons=%s",
+                row_id, pair, cycle_id, signal_strength, signal_direction,
+                len(signal_reasons),
+            )
             return row_id
         except Exception:
             logger.warning("AuditLogger.log_signal failed:\n%s", traceback.format_exc())
@@ -170,6 +182,11 @@ class AuditLogger:
             conn.commit()
             row_id = cur.lastrowid
             conn.close()
+            logger.info(
+                "[AUDIT] LLM decision %d: %s/%s → %s tool=%s tokens=%s+%s latency=%sms",
+                row_id, pair, cycle_id, decision_type, tool_called,
+                prompt_tokens, completion_tokens, latency_ms,
+            )
             return row_id
         except Exception:
             logger.warning("AuditLogger.log_llm_decision failed:\n%s", traceback.format_exc())
@@ -205,6 +222,14 @@ class AuditLogger:
             conn.commit()
             row_id = cur.lastrowid
             conn.close()
+            status = "APPROVED" if approved else "REJECTED"
+            logger.info(
+                "[AUDIT] Risk check %d: %s %s/%s $%.2f → %s (adjusted=$%.2f) — %s",
+                row_id, status, proposed_action, proposed_pair,
+                proposed_usd_amount or 0, "✓" if approved else "✗",
+                adjusted_usd_amount or 0,
+                rejection_reason or "OK",
+            )
             return row_id
         except Exception:
             logger.warning("AuditLogger.log_risk_check failed:\n%s", traceback.format_exc())
@@ -250,6 +275,14 @@ class AuditLogger:
             conn.commit()
             row_id = cur.lastrowid
             conn.close()
+            logger.info(
+                "[AUDIT] Order %d: %s %s %s role=%s status=%s price=%.2f vol=%.4f "
+                "sl=%.1f%% tp=%.1f%% %s",
+                row_id, side, order_type, pair, role, status,
+                requested_price or 0, requested_volume or 0,
+                configured_stop_loss_pct or 0, configured_take_profit_pct or 0,
+                f"(filled@{paper_fill_price})" if paper_fill_price else "(pending)",
+            )
             return row_id
         except Exception:
             logger.warning("AuditLogger.log_order failed:\n%s", traceback.format_exc())
@@ -282,6 +315,10 @@ class AuditLogger:
             conn.commit()
             row_id = cur.lastrowid
             conn.close()
+            logger.info(
+                "[AUDIT] Fill %d: order=%d price=%.2f vol=%.4f usd=$%.2f fee=$%.2f slippage=%.2f%%",
+                row_id, order_id, fill_price, fill_volume, fill_usd_value, fee_usd, slippage_pct,
+            )
             return row_id
         except Exception:
             logger.warning("AuditLogger.log_fill failed:\n%s", traceback.format_exc())

@@ -194,7 +194,15 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
     orchestrator = Orchestrator(config, _trading_db, notifier)
 
     trading_cfg = config.get("trading", {})
-    pairs       = [p["pair"] for p in trading_cfg.get("pairs", [])]
+    # Option 2: Hybrid universe (core + RAA-approved pairs)
+    from src.storage.database import get_trading_universe_hybrid
+    pairs, universe_composition = get_trading_universe_hybrid(config, _trading_db)
+    logger.info(
+        "[INIT] Trading universe: %d core + %d RAA-approved = %d total pairs",
+        universe_composition["core_count"],
+        universe_composition["raa_count"],
+        universe_composition["total"],
+    )
     interval_s  = trading_cfg.get("cycle_interval_minutes", 15) * 60
 
     # ── Broker setup ───────────────────────────────────────────
@@ -437,6 +445,9 @@ async def run_agent(config: dict, mode: str, feed=None, session_id: str = "") ->
                     "hourly_pnl_usd":       round(hourly_pnl_usd, 2),
                     "hourly_pnl_pct":       round(hourly_pnl_pct, 2),
                     "cycles_completed":     loop_state["cycles_since_heartbeat"],
+                    "buys_since_heartbeat": loop_state["buys_since_heartbeat"],
+                    "sells_since_heartbeat": loop_state["sells_since_heartbeat"],
+                    "open_positions_count": len(open_pos),
                     "circuit_breaker_active": cb_active,
                     "positions_detail":     positions_detail,
                     # Win rate
@@ -572,7 +583,7 @@ async def run_cycle(
         open_positions=open_positions,
         btc_dominance_trend=_btc_trend,
     )
-    risk.apply_persona_config(ctx.persona_config)
+    risk.apply_persona_config(ctx.persona_config, persona_name=ctx.persona)
     logger.info(
         "[PERSONA] Active: %s | buy_min_score=%d | max_open=%d | max_pos=%.0f%% | floor=%.2f%%",
         ctx.persona, ctx.buy_min_score, ctx.max_open_positions,
@@ -736,7 +747,14 @@ async def run_cycle(
 
     # Compute indicators and signals for each pair
     signals = []
+    processed_pairs = set()  # Track pairs already processed to prevent duplicates
     for pair in pairs:
+        # Dedup guard: skip if pair was already processed this cycle
+        if pair in processed_pairs:
+            logger.warning("[CYCLE] Duplicate pair in cycle loop: %s — skipping", pair)
+            continue
+        processed_pairs.add(pair)
+
         candles = ws_feed.get_candles(pair)
         if not candles:
             logger.warning("No candles for %s — skipping", pair)
@@ -983,7 +1001,7 @@ async def run_cycle(
             open_positions=open_positions,
             btc_dominance_trend=btc_dom_data.get("trend", ""),
         )
-        risk.apply_persona_config(ctx.persona_config)
+        risk.apply_persona_config(ctx.persona_config, persona_name=ctx.persona)
 
     # ── S16.1.1 + S16.1.2 — Select playbook and inject into context ──────────
     if orchestrator is not None:

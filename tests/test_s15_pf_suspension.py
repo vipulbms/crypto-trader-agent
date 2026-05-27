@@ -59,9 +59,9 @@ def _make_risk(extra_persona=None):
     if extra_persona:
         cfg = {**cfg, "personas": {**cfg["personas"], "medium": {**cfg["personas"]["medium"], **extra_persona}}}
     r = RiskManager(cfg, db_path=DB_PATH)
-    r.apply_persona_config(cfg["personas"]["medium"])
+    r.apply_persona_config(cfg["personas"]["medium"], persona_name="medium")
     if extra_persona:
-        r.apply_persona_config({**cfg["personas"]["medium"], **extra_persona})
+        r.apply_persona_config({**cfg["personas"]["medium"], **extra_persona}, persona_name="medium")
     return r
 
 
@@ -104,7 +104,7 @@ def test_momentum_playbook_pf_not_suspended_when_flag_false():
         "medium": {**BASE_CONFIG["personas"]["medium"], "pf_escalation_momentum_suspend": False}
     }}
     risk = RiskManager(cfg, db_path=DB_PATH)
-    risk.apply_persona_config(cfg["personas"]["medium"])
+    risk.apply_persona_config(cfg["personas"]["medium"], persona_name="medium")
     pair_cfg = {"pair": "BTC/USD"}
     indicators = {"profit_factor": 0.5, "pf_trade_count": 5}
     sig_cfg = BASE_CONFIG["signals"]

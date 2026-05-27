@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Kept for backward-compat import in trading_agent.py during transition
 SYSTEM_PROMPT = (
     "You are Kryptos, a quantitative AI crypto trading agent. "
-    "Do NOT propose_buy for any pair listed in CURRENT PORTFOLIO."
+    "Position accumulation is permitted under specific conditions (see POSITION ACCUMULATION LOGIC)."
 )
 
 _PERSONA_ROLES = {
@@ -54,10 +54,12 @@ _SHARED_RULES = (
     "3. Call propose_sell only when P&L > +2% AND reversal is confirmed.\n"
     "4. Reason briefly (1 sentence) before each tool call.\n"
     "5. If cycle top warning is active, treat Tier 3/4 BUYs as blocked.\n"
+    "6. Use POSITION ACCUMULATION LOGIC to decide when to buy existing portfolio pairs.\n"
     "\n"
     "POSITION ACCUMULATION LOGIC (proposal_buy intent parameter):\n"
     "• If pair is in CURRENT PORTFOLIO with P&L > +5% AND tp_dist_pct > 30%: use intent='accumulate' to scale in.\n"
     "• If pair is in CURRENT PORTFOLIO with P&L < 0% OR tp_dist_pct < 15%: SKIP proposal_buy (wait for exit).\n"
+    "• If pair is in CURRENT PORTFOLIO with 0% ≤ P&L ≤ +5% OR 15% ≤ tp_dist_pct ≤ 30%: HOLD (no decision).\n"
     "• If pair NOT in CURRENT PORTFOLIO: use intent='new_entry' (normal buy).\n"
     "• Never accumulate if position size > 60% of max per-pair size shown in CURRENT PORTFOLIO.\n"
 )
@@ -195,6 +197,24 @@ def build_cycle_prompt(
     hold_count   = len(signals) - len(buy_signals) - len(sell_signals)
     actionable   = buy_signals + sell_signals
 
+    # Dedup guard: ensure no duplicate pairs reach the LLM
+    seen_pairs = set()
+    actionable_dedup = []
+    for sig in actionable:
+        pair = sig.get("pair", "")
+        if pair in seen_pairs:
+            logger.warning("[PROMPT] Duplicate pair in actionable signals: %s — skipping", pair)
+            continue
+        seen_pairs.add(pair)
+        actionable_dedup.append(sig)
+
+    if len(actionable_dedup) < len(actionable):
+        logger.warning(
+            "[PROMPT] Removed %d duplicate pairs from LLM prompt (%d → %d actionable)",
+            len(actionable) - len(actionable_dedup), len(actionable), len(actionable_dedup),
+        )
+    actionable = actionable_dedup
+
     lines = [
         f"=== CYCLE: {cycle_time} SGT {mode_label} ===",
         "",
@@ -328,7 +348,7 @@ def build_cycle_prompt(
             lines.append(f"  reasons|{'; '.join(reasons)}")
 
     # ── S14.1.2 — Token budget guard: trim lowest-score BUY pairs ─
-    _TOKEN_BUDGET = 5800
+    _TOKEN_BUDGET = 3500
     partial = "\n".join(lines)
     if estimate_tokens(partial) > _TOKEN_BUDGET:
         # Sort BUY signals ascending by score so we drop weakest first
@@ -363,5 +383,16 @@ def build_cycle_prompt(
         "5. If a [CYCLE TOP WARNING] block is present, treat Tier 3 / Tier 4 BUYs as blocked.",
         "6. If any macro block shows 'unavailable', rely on the technical signal scores and reasons alone. Missing macro data is NOT a reason to hold.",
     ]
+
+    # Summary: log final prompt composition
+    buy_count = len([s for s in actionable if s.get("signal") == "BUY"])
+    sell_count = len([s for s in actionable if s.get("signal") == "SELL"])
+    all_unique_pairs = [s.get("pair") for s in actionable]
+    logger.info(
+        "[PROMPT] LLM prompt ready: %d unique pairs (BUY=%d, SELL=%d, HOLD=%d) | "
+        "estimated tokens=%d",
+        len(all_unique_pairs), buy_count, sell_count, hold_count,
+        estimate_tokens("\n".join(lines)),
+    )
 
     return "\n".join(lines)

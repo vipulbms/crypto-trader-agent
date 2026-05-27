@@ -6,6 +6,7 @@ Call init_all_databases() once at startup to ensure all tables exist.
 import sqlite3
 import os
 import logging
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -560,6 +561,11 @@ def init_paper_db(paper_db: str, starting_balance: float = 1000.0) -> None:
         "ALTER TABLE paper_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         "ALTER TABLE paper_trades ADD COLUMN persona TEXT NOT NULL DEFAULT ''",
+        # Option 2 RAA architecture (S24.1.1)
+        "ALTER TABLE universe ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+        "ALTER TABLE universe ADD COLUMN raa_confidence_score REAL DEFAULT 0.0",
+        "ALTER TABLE universe ADD COLUMN grace_period_hours INTEGER DEFAULT 1",
+        "ALTER TABLE universe ADD COLUMN promoted_at TEXT",
     ]:
         try:
             conn.execute(col_ddl)
@@ -593,6 +599,11 @@ def init_live_db(live_db: str) -> None:
         "ALTER TABLE live_positions ADD COLUMN partial_exited INTEGER DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         "ALTER TABLE live_trades ADD COLUMN persona TEXT NOT NULL DEFAULT ''",
+        # Option 2 RAA architecture (S24.1.1)
+        "ALTER TABLE universe ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+        "ALTER TABLE universe ADD COLUMN raa_confidence_score REAL DEFAULT 0.0",
+        "ALTER TABLE universe ADD COLUMN grace_period_hours INTEGER DEFAULT 1",
+        "ALTER TABLE universe ADD COLUMN promoted_at TEXT",
     ]:
         try:
             conn.execute(col_ddl)
@@ -630,3 +641,134 @@ def init_all_databases(config: dict, mode: str) -> None:
     else:
         init_live_db(trading_db)
         logger.info("Live trading DB ready: %s", trading_db)
+
+
+# ──────────────────────────────────────────────────────────────
+# Option 2 RAA Integration — Hybrid Universe (S24.1.1)
+# ──────────────────────────────────────────────────────────────
+
+
+def get_trading_universe_hybrid(config: dict, db_path: str) -> tuple[list[str], dict]:
+    """
+    Get hybrid trading universe: core pairs from config + RAA-approved additions.
+
+    Returns:
+        (pairs_list, composition_dict)
+        pairs_list: ordered list of unique pairs [core + RAA-approved]
+        composition_dict: {
+            'core': [...],
+            'raa_approved': [...],
+            'total': int,
+            'core_count': int,
+            'raa_count': int,
+        }
+    """
+    import logging
+    logger = logging.getLogger("database")
+
+    # Step 1: Get core pairs from config (always available)
+    trading_cfg = config.get("trading", {})
+    core_pairs_raw = [p["pair"] for p in trading_cfg.get("pairs", [])]
+    core_pairs = list(dict.fromkeys(core_pairs_raw))  # deduplicate
+    logger.info("[UNIVERSE] Core pairs from config: %d", len(core_pairs))
+
+    # Step 2: Query RAA-approved pairs from universe table (status='active' or status='proposed' past grace period)
+    try:
+        conn = get_connection(db_path)
+        cursor = conn.cursor()
+
+        # Get all pairs marked as approved by RAA (status='active')
+        # Plus 'proposed' pairs past grace period (added_at + grace_period_hours <= now)
+        now = datetime.now(timezone.utc).isoformat()
+        cursor.execute("""
+            SELECT pair, status, raa_confidence_score, added_at, grace_period_hours
+            FROM universe
+            WHERE status='active'
+               OR (status='proposed' AND
+                   datetime(added_at) <= datetime('now', '-' || grace_period_hours || ' hours'))
+            ORDER BY added_at ASC
+        """)
+        raa_rows = cursor.fetchall()
+        conn.close()
+
+        raa_approved = [row[0] for row in raa_rows]
+        logger.info("[UNIVERSE] RAA-approved pairs (active + past grace): %d", len(raa_approved))
+
+    except Exception as e:
+        logger.error("[UNIVERSE] Error querying RAA universe: %s", e)
+        raa_approved = []
+
+    # Step 3: Merge core + RAA, preserving order and deduplicating
+    all_pairs = []
+    seen = set()
+
+    # Add core pairs first (always prioritized)
+    for p in core_pairs:
+        if p not in seen:
+            all_pairs.append(p)
+            seen.add(p)
+
+    # Add RAA pairs (only if not already in core)
+    for p in raa_approved:
+        if p not in seen:
+            all_pairs.append(p)
+            seen.add(p)
+
+    composition = {
+        "core": core_pairs,
+        "raa_approved": raa_approved,
+        "total": len(all_pairs),
+        "core_count": len(core_pairs),
+        "raa_count": len(raa_approved),
+    }
+
+    logger.info(
+        "[UNIVERSE] Trading pairs: %d core + %d RAA-approved = %d total",
+        len(core_pairs), len(raa_approved), len(all_pairs)
+    )
+    return all_pairs, composition
+
+
+def is_pair_approved_by_raa(pair: str, db_path: str, grace_period_hours: int = 1) -> bool:
+    """
+    Check if a pair is RAA-approved and past grace period (eligible for trading).
+
+    Returns:
+        True if pair is in universe table with status='active' OR status='proposed' past grace period
+        False otherwise
+    """
+    try:
+        conn = get_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT status, added_at, grace_period_hours
+            FROM universe
+            WHERE pair = ?
+        """, (pair,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return False  # Pair not in RAA universe
+
+        status, added_at_str, grace_hours = row
+
+        # Active pairs are always approved
+        if status == "active":
+            return True
+
+        # Proposed pairs are approved only after grace period
+        if status == "proposed":
+            added_at = datetime.fromisoformat(added_at_str)
+            now = datetime.now(timezone.utc)
+            grace_period = timedelta(hours=grace_hours or grace_period_hours)
+            return (now - added_at) >= grace_period
+
+        return False
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("database")
+        logger.error("[UNIVERSE] Error checking pair approval for %s: %s", pair, e)
+        return False

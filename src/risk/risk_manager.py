@@ -185,6 +185,7 @@ class RiskManager:
 
         # S15.1.1, S15.2.1 — full persona config (set by apply_persona_config each cycle)
         self._persona_config: dict = {}
+        self._active_persona: str = "medium"  # Default; overridden by apply_persona_config
 
         # Build per-pair TP map
         self._pair_tp: dict = {}
@@ -196,7 +197,7 @@ class RiskManager:
         self._cycle_top_active = bool(active and self._cycle_top_guard_enabled)
         self._cycle_top_data = data or {}
 
-    def apply_persona_config(self, persona_config: dict) -> None:
+    def apply_persona_config(self, persona_config: dict, persona_name: str = "medium") -> None:
         """
         Update persona-driven thresholds from the active CycleContext.
 
@@ -207,10 +208,12 @@ class RiskManager:
 
         Args:
             persona_config: The dict at config["personas"][active_persona].
+            persona_name: The persona identifier (conservative | medium | high).
 
         Story: S12.1.2 — Persona runtime injection into CycleContext (AC3)
         """
         self._persona_config: dict = dict(persona_config)  # S15.1.1, S15.2.1
+        self._active_persona: str = persona_name  # Track persona for conditional checks in validate_sell
         if "max_open_positions" in persona_config:
             self._max_open_positions = int(persona_config["max_open_positions"])
         if "max_position_pct" in persona_config:
@@ -220,7 +223,7 @@ class RiskManager:
         logger.debug(
             "[PERSONA] RiskManager thresholds applied — persona=%s "
             "max_open=%d max_pos=%.0f%% min_floor=%.2f%%",
-            persona_config.get("_persona_name", "?"),
+            persona_name,
             self._max_open_positions,
             self._max_position_pct,
             self._min_profit_floor_pct,
@@ -1029,6 +1032,10 @@ class RiskManager:
         if capped < proposed_usd:
             reason = f"Approved (capped ${proposed_usd:.2f} → ${capped:.2f} by 30% rule)"
 
+        logger.info(
+            "[RISK] BUY %s APPROVED: $%.2f (capped from $%.2f) — rsi=%.0f playbook=%s",
+            pair, capped, proposed_usd, rsi or 0, playbook,
+        )
         return (True, reason, round(capped, 2))
 
     def check_reallocation_cap(self, prune_usd: float, portfolio_value: float) -> bool:
@@ -1116,9 +1123,11 @@ class RiskManager:
                     0.0
                 )
 
-            # BLOCK early exits below 80% of the TP target (BRD FR-20 — code-enforced)
+            # BLOCK early exits below 60% of the TP target (BRD FR-20) — conservative persona only
+            # Medium and high personas allow reallocation of capital (S15.2.3).
             take_profit_pct = pos.get("take_profit_pct")
-            if take_profit_pct and take_profit_pct > 0:
+            proximity_threshold_pct = 0.0
+            if self._active_persona == "conservative" and take_profit_pct and take_profit_pct > 0:
                 proximity_threshold_pct = take_profit_pct * (self._early_sell_min_tp_proximity_pct / 100)
                 if est_pnl_pct < proximity_threshold_pct:
                     return (
@@ -1129,4 +1138,9 @@ class RiskManager:
                         0.0,
                     )
 
+        logger.info(
+            "[RISK] SELL %s APPROVED: pnl=%+.2f%% (floor=%.1f%% tp=%.1f%% gate=%.1f%%)",
+            pair, est_pnl_pct, self._min_profit_floor_pct,
+            pos.get("take_profit_pct", 0), proximity_threshold_pct,
+        )
         return (True, "Approved", 0.0)

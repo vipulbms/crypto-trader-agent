@@ -25,12 +25,13 @@
 15. [MCP Server — Read-Only State Query Interface](#mcp-server--read-only-state-query-interface)
 16. [Database Storage](#database-storage)
 17. [Risk Rules](#risk-rules)
-18. [Paper vs Live Mode](#paper-vs-live-mode)
-19. [Backtesting & Live Readiness](#backtesting--live-readiness)
-20. [File Structure](#file-structure)
-21. [Configuration (`config.yaml`)](#configuration-configyaml)
-22. [Documentation Index](#documentation-index)
-23. [Known Behaviours](#known-behaviours)
+18. [Guardrails & Trade Rejection Analysis](#guardrails--trade-rejection-analysis)
+19. [Paper vs Live Mode](#paper-vs-live-mode)
+20. [Backtesting & Live Readiness](#backtesting--live-readiness)
+21. [File Structure](#file-structure)
+22. [Configuration (`config.yaml`)](#configuration-configyaml)
+23. [Documentation Index](#documentation-index)
+24. [Known Behaviours](#known-behaviours)
 
 ---
 
@@ -1704,6 +1705,531 @@ All rules enforced by deterministic Python (`RiskManager`) — the LLM cannot ov
 | Kill switch | **−7%** portfolio drawdown | Emergency market-sell all positions |
 | Circuit breaker | **3 consecutive SLs** → 1h/2h/4h pause | Graduated; resets every 24h |
 | Min order | **$20** | Raised to cover realistic fee amounts |
+
+---
+
+## Guardrails & Trade Rejection Analysis
+
+Every proposed BUY and SELL passes through a series of deterministic gates in `RiskManager`. This section explains each guardrail, real examples of rejections, and how to diagnose why trades are blocked.
+
+### RiskManager Guardrails — Complete Reference
+
+#### **1. RSI Veto (Overbought Entry Block)**
+**Function:** `validate_buy()` — S15.2.1
+- **Standard playbook:** RSI ≥ 70 → BLOCK (hard veto)
+- **Momentum playbook:** RSI threshold raised to persona's `momentum_bypass_rsi` (e.g., 75–80) when ADX > persona's `momentum_bypass_adx`
+- **Conservative persona:** Bypass never fires (bypass_adx=999)
+- **Example rejection:**
+  ```
+  RSI veto: RSI 73 >= 70.0 (playbook=standard)
+  ```
+- **Real case:** BTC/USD breaks 20-period resistance, RSI pops to 74. LLM wants to buy the momentum breakout. Guard blocks → forces LLM to wait for a pullback (RSI < 70) before entry.
+
+---
+
+#### **2. Minimum Profit Floor Guard**
+**Function:** `validate_sell()` — validates exit PNL
+- **Threshold:** 1.0% (configurable per persona)
+- **Why:** Kraken maker fee (0.26%) + taker fee (0.26%) + slippage (0.05%) ≈ 0.57% round-trip friction
+- **Guard rule:** Do NOT close a position if `P&L < min_profit_floor_pct`; prevents fee bleed
+- **Example rejection (most common — ~40–50% of all rejections):**
+  ```
+  REJECTED: Minimum Profit Floor Guardrail: Projected PNL is -2.09%, 
+    which is below the 0.5% required to cover exchange fees.
+  
+  REJECTED: Minimum Profit Floor Guardrail: Projected PNL is -0.62%, 
+    which is below the 0.5% required to cover exchange fees.
+  ```
+- **Real case:** Position entered at $100, now $98 (−2% PNL). MACD turns negative, LLM detects exit signal. Risk manager blocks → prevents locking in a net loss after fees.
+- **Persona playbook adjustment:** Risk_off playbook raises effective floor to `1.0% × 1.5 = 1.5%` (only high-confidence exits permitted in adverse conditions).
+
+---
+
+#### **3. Early Exit Guard (TP Proximity)**
+**Function:** `validate_sell()` — BR-20, configurable per pair
+- **Threshold:** 60% of TP target (configurable: `early_sell_min_tp_proximity_pct`)
+- **Why:** Prevents exiting too early and leaving money on the table; forces discipline
+- **Example rejection (2nd most common — ~30–35% of rejections):**
+  ```
+  REJECTED: Early Exit Guard: P&L +0.98% is below 4.8% (60% of 8.0% TP target). 
+    Let the trade run.
+  
+  REJECTED: Early Exit Guard: P&L +6.42% is below 12.0% (60% of 20.0% TP target). 
+    Let the trade run.
+  ```
+- **Real case:** BTC/USD has 8% TP. 60% proximity = 4.8% target. Position up +0.98%, MACD reverses, LLM exits. Guard blocks → forces position to either hit SL or reach 4.8%+ before closing. Position eventually hits 5.2% TP and fills at take-profit orders automatically.
+- **Exception:** Automatic SL and TP exits bypass this guard entirely.
+
+---
+
+#### **4. Circuit Breaker (Graduated Backoff)**
+**Function:** `is_circuit_open()` — #143, graduated 1h/2h/4h pauses
+- **Trigger:** 3 consecutive stop-losses within `tier_reset_hours` (24h)
+- **Pause duration (graduated):**
+  - Fire 1 (3 consecutive SLs in last 24h) → 1 hour pause
+  - Fire 2 (another 3 consecutive SLs) → 2 hour pause
+  - Fire 3+ → 4 hour pause
+- **Why:** Consecutive stops indicate a regime shift or broken signals. Forcing a pause prevents revenge trading and cascade losses.
+- **Example:**
+  - 14:00 UTC: Position SL'd on SOL/USD (SL #1)
+  - 14:30 UTC: Position SL'd on INJ/USD (SL #2)
+  - 15:00 UTC: Position SL'd on RENDER/USD (SL #3) → **Circuit breaker trips for 1 hour**
+  - All new BUY proposals from 15:00–16:00 UTC are rejected with:
+    ```
+    REJECTED: Circuit breaker active — 3 consecutive stop-losses. Resumes in 45 min.
+    ```
+- **Recovery:** If a profitable exit (not SL) occurs before circuit expires, the streak is broken immediately and the circuit resets.
+
+---
+
+#### **5. Daily Loss Limit (Kill Switch)**
+**Function:** `validate_buy()` — `daily_loss_limit_pct`
+- **Threshold:** −10% portfolio loss from start-of-day balance (configurable)
+- **Why:** Hard stop to prevent emotional decisions; forces a reset day
+- **Example:** Portfolio starts at $1,000. After 4 trades, down to $898 (−10.2%). All new buys blocked for the rest of UTC day.
+- **Resets:** At midnight UTC every day.
+
+---
+
+#### **6. Cycle-Top Guard (On-Chain Peak Detection)**
+**Function:** `set_cycle_top_state()` + `validate_buy()` — #205
+- **Requires:** `risk.cycle_top_guard.enabled: true` + CoinGlass API key
+- **Trigger:** MVRV Z-Score > 7.0 AND NUPL > 0.70 (on-chain cycle peak)
+- **Effect:** Tier 3 (speculative alts) and Tier 4 (meme pairs) buys are blocked
+- **Example:**
+  ```
+  REJECTED: Cycle top guard active — Tier 4 BUYs blocked (MVRV 7.3, NUPL 0.75)
+  ```
+- **Real case:** On-chain metrics hit peak. LLM proposes buying BONK/USD (Tier 4 meme). Guard blocks → forces HOLD. Later that day, market pulls back 12% and BONK dumps 18%. Guard prevented a large drawdown.
+- **Tier 1/2 (BTC, ETH, large-cap alts) are NOT blocked** — only speculative pairs face the guard.
+
+---
+
+#### **7. Drawdown Recovery Mode**
+**Function:** `is_in_drawdown_recovery()` + `validate_buy()` — #182
+- **Trigger:** Daily P&L ≤ −3% (configurable)
+- **Restrictions:** Only BTC/USD, ETH/USD, BNB/USD permitted; position size capped at 10% (vs normal 30%)
+- **Exit hysteresis:** Mode disables when P&L > −1.5% (prevents oscillation in −3% to −1.5% band)
+- **Example rejection:**
+  ```
+  REJECTED: Drawdown recovery mode (-3.5% daily P&L) — only BTC/USD, ETH/USD, BNB/USD permitted
+  ```
+- **Real case:** Down −3.2% at 10:00 UTC. LLM proposes buying PEPE/USD (speculative). Guard blocks → only majors allowed. Later, LLM buys BTC/USD at $100 position (half normal). Recovery mode exits at −1.3% P&L as market recovers. Total day P&L: −1.8% (much better than −6%+ without the guard).
+
+---
+
+#### **8. Min Cash Reserve**
+**Function:** `validate_buy()` — Guard 3
+- **Threshold:** Minimum 5% of portfolio must remain as cash (configurable: `min_cash_reserve_pct`)
+- **Why:** Ensures liquidity for SL exits and margin buffer
+- **Example rejection:**
+  ```
+  REJECTED: Insufficient cash reserve ($8.50 <= min $50.00)
+  ```
+- **Real case:** Portfolio $1,000, reserve floor $50. After 3 large buys, cash = $45. Trying to buy a 4th position → BLOCK. Forces wait for a position to close before new entries.
+
+---
+
+#### **9. Deployable Cash Below Min Order**
+**Function:** `validate_buy()` — Guard 0.5
+- **Calculation:** `deployable = available_cash - min_reserve`
+- **Threshold:** Deployable must be ≥ `min_order_usd` ($20)
+- **Why:** Prevents dust orders that don't justify per-trade fees
+- **Example rejection:**
+  ```
+  REJECTED: Deployable cash $12.50 below min_order_usd $20.00
+  ```
+- **Real case:** Portfolio $1,000, reserve $50. After large buys, cash = $60. Deployable = $60 − $50 = $10. Below $20 floor → BLOCK.
+
+---
+
+#### **10. Max Open Positions (Safety Ceiling)**
+**Function:** `validate_buy()` — Guard 2
+- **Threshold:** 10 simultaneous open positions (configurable: `max_open_positions`)
+- **Note:** Cash guards (min reserve, deployable, 30% cap) are primary gates. This is a safety net for rare edge cases.
+- **Example rejection:**
+  ```
+  REJECTED: Max open positions reached (10/10)
+  ```
+- **When triggered:** Only when caution-factor positions have consumed all 10 slots before cash is exhausted (rare in normal operation).
+
+---
+
+#### **11. Correlation Cluster Guard**
+**Function:** `validate_buy()` — Guard 2a, #139
+- **Logic:** Pairs are grouped into correlation clusters (e.g., "Solana" = SOL/WIF/JUP)
+- **Rules:**
+  - Max 2 open positions per cluster
+  - If 1 position open in cluster → 50% size penalty applied
+- **Example rejection:**
+  ```
+  REJECTED: Cluster 'Solana' already has 2 open (SOL/USD, JUP/USD) — max 2.
+  ```
+- **Real case:** You have SOL/USD open (+3% P&L, trending up). LLM spots a strong WIF/USD signal. Cluster has SOL, so WIF can enter but at 50% size. If JUP/USD was also open → BLOCK (2 already in cluster).
+
+---
+
+#### **12. Flash Crash Guard**
+**Function:** `validate_buy()` — Guard 2
+- **Trigger:** Current price dropped > 15% from baseline price in the last candle
+- **Why:** Detects broken order books or extreme wicks; avoids SL-hunting fills
+- **Example rejection:**
+  ```
+  REJECTED: Flash Crash Guard triggered: Price ($48,000) dropped 26.1% below baseline.
+  ```
+- **Real case:** BTC spike-wicks to $48k (24% drop in seconds), then recovers. Guard blocks the entry → avoids a fill on a wick that fills against you.
+
+---
+
+#### **13. Fat Finger Guard**
+**Function:** `validate_buy()` — Guard 2, two layers
+- **Layer 1 (Token volume):** Estimated token quantity < `max_token_volume_per_trade` (500k tokens)
+- **Layer 2 (Safe allocation):** Proposed USD < 98% of available cash (2% buffer for slippage/fees)
+- **Example rejection (Layer 2 — most common):**
+  ```
+  REJECTED: Risk Guard triggered: Proposed USD ($5,000) exceeds the 98% safe 
+    available balance buffer ($5,100).
+  ```
+- **Real case:** You have $5,100 cash. LLM proposes $5,000 buy. Guard blocks → forces spacing to prevent overdraw if slippage is worse than expected.
+
+---
+
+#### **14. Minimum Order Size**
+**Function:** `validate_buy()` — Guard 1
+- **Threshold:** $20 minimum (configurable: `min_order_usd`)
+- **Why:** Liquidity floor; prevents orders too small to move the book
+- **Example rejection:**
+  ```
+  REJECTED: Proposed USD ($15.00) is below minimum order size ($20.00).
+  ```
+- **Real case:** After caution-factor sizing, position calculates to $18. Below $20 → BLOCK, prevents a low-impact, high-friction order.
+
+---
+
+#### **15. Profit Factor Auto-Escalation (Dynamic Score Adjustment)**
+**Function:** `get_effective_min_score()` — S15.2.2, #183
+- **Logic:** Underperforming pairs automatically face higher buy gates
+  - Profit Factor < 0.7 (severe) → `buy_min_score += 2`
+  - Profit Factor < 1.0 (warning) → `buy_min_score += 1`
+- **Exception:** Suspended when playbook='momentum' + persona flag enables suspension (S15.2.2)
+- **Example:** INJ/USD has 30 closed trades over 30 days, PF = 0.65. Base `buy_min_score = 5`. Effective = 5 + 2 = **7 (harder to trigger)**.
+- **Rationale:** If a pair is losing money, require stronger confluence before the next buy.
+
+---
+
+#### **16. Reallocation Cap Guard**
+**Function:** `check_reallocation_cap()` — S15.1.2
+- **Logic:** Limits position turnover per persona in a 6-hour window
+  - Conservative: 0% (always blocked)
+  - Medium: 20% of portfolio per 6h
+  - High: 30% of portfolio per 6h
+- **Example:** Medium persona, $1,000 portfolio. 6h cap = $200. Already reallocated $150. Trying to close $100 for reallocation → **BLOCKED** ($150 + $100 > $200 limit).
+- **Why:** Prevents churn-driven fee bleed from constant position turnover.
+
+---
+
+#### **17. Velocity Circuit Breaker**
+**Function:** `check_velocity_circuit()` — S15.3.1
+- **Trigger:** Hourly loss rate exceeds persona's `velocity_circuit_breaker_pct` (e.g., 3%)
+- **Effect:** Halt all buys for persona's `velocity_halt_hours` (e.g., 4h), persisted to DB
+- **Example:** Portfolio $1,000, lost $35 in the last hour (3.5% > 3% threshold) → circuit trips for 4 hours.
+- **Why:** Catches rapid cascading losses before portfolio is decimated.
+
+---
+
+### Top Rejection Reasons (Ranked by Frequency)
+
+**Analysis of 1,108 trading cycles:**
+
+| Rank | Reason | % of Rejections | Root Cause |
+|------|--------|-----------------|-----------|
+| 1 | **Minimum Profit Floor** | ~40–50% | Position P&L below 0.5% (would lock loss after fees) |
+| 2 | **Early Exit Guard** | ~30–35% | P&L < 60% of TP (exiting too early) |
+| 3 | **Min Order Size** | ~3–5% | Caution factor sizing below $20 floor |
+| 4 | **Deployable Below Min** | ~3–5% | Remaining cash exhausted after reserve |
+| 5 | **Max Open Positions** | ~0.5–1% | 10 positions already open (rare) |
+| 6 | **Circuit Breaker** | ~0.1–0.5% | 3 consecutive stop-losses within pause window |
+| 7 | **Correlation Cluster** | ~0.2–0.5% | 2+ related pairs already open |
+| 8 | **Flash Crash Guard** | <0.1% | Price spike-wick > 15% |
+| 9 | **Others** | <0.1% | Daily loss limit, cycle-top, drawdown recovery, etc. |
+
+### Diagnosing High Rejection Rates
+
+If your logs show high rejection counts, here's where to tune:
+
+**1. Minimum Profit Floor rejections (40%+)**
+- **Symptom:** Many "Projected PNL is -0.5%" rejections
+- **Root cause:** Pair TP% too low; fees eating profits
+- **Fix:** Raise `take_profit_pct` in `config.yaml → trading.pairs[]` by +2–3%
+
+**2. Early Exit Guard rejections (30%+)**
+- **Symptom:** Many "+1.5% is below 4.8%" rejections
+- **Root cause:** LLM exiting too early; trend still intact
+- **Fix:** Raise `early_sell_min_tp_proximity_pct` from 60% to 70–80%, OR tune exit signals (reduce MACD decay weight)
+
+**3. Min Order Size rejections (3–5%)**
+- **Symptom:** Many "$15 below $20" rejections
+- **Root cause:** Caution factors too aggressive, OR deployable cash low
+- **Fix:** 
+  - Reduce `caution_factor_bearish` from 0.5 → 0.4 for underperformers
+  - Raise `min_cash_reserve_pct` from 5% → 3% (deploy more capital)
+  - Reduce `max_open_positions` to 5–7 to free up position slots
+
+**4. Deployable Below Min rejections (3–5%)**
+- **Symptom:** "$10 below $20" even with good cash balance
+- **Root cause:** Portfolio fragmented into many tiny positions
+- **Fix:**
+  - Close underperforming positions manually
+  - Reduce `max_open_positions` to force consolidation
+  - Raise `min_order_usd` from $20 → $30 to force bigger, fewer trades
+
+**5. Command to audit rejections programmatically:**
+```bash
+# Count all rejection reasons in order
+grep "REJECTED:" logs/agent.log | cut -d: -f3- | sort | uniq -c | sort -rn | head -10
+
+# Track over time (hourly)
+grep "REJECTED:" logs/agent.log | grep "2026-05-19 1[4-6]:" | wc -l
+```
+
+---
+
+### Research Analyst Agent (RAA) Guardrails
+
+The Research Analyst Agent autonomously evaluates the broader crypto universe to propose pair additions and removals. Unlike the trading agent's deterministic risk gates, RAA guardrails are **LLM-driven assessments** filtered through a hardened proposal validation pipeline. This section documents the 4 active guardrails that control universe composition.
+
+#### **RAA-G1: MEME-BLOCK (Hard Guard)**
+
+**Function:** `check_meme_block()` in `src/runtime/research_analyst.py`
+
+**Type:** Hard Guard (cannot be overridden by RAA LLM or any proposal)
+
+**Trigger:** Pair matches meme-coin detection heuristics:
+- Name contains: "doge", "shib", "pepe", "floki", "bonk", "wif", "hype", etc.
+- Ticker matches meme-coin registry (CoinGecko category='meme-coin')
+- Community-driven asset with no fundamental utility
+
+**Guard behavior:**
+- Rejects the pair immediately before LLM-driven scoring runs
+- Returns status `MEME_BLOCK` with confidence 0.0
+- Logs:
+  ```
+  [RAA] Pair BONK/USD rejected — MEME_BLOCK (hard guard, cannot override)
+  ```
+
+**Impact on universe table:**
+- Meme pairs are NEVER added to the `universe` table via RAA proposals
+- Meme pairs in active trading list are NOT removed by RAA (backward-compatible protection)
+- If a pair becomes classified as meme (e.g., sentiment shift), existing open positions are allowed to close naturally
+
+**Real case:**
+- RAA's LLM scores DOGE/USD at 8.8/10.0 confidence (strong fundamentals). MEME_BLOCK triggers → pair rejected immediately. Rationale: volatile risk profile, regulatory uncertainty, lower institutional custody optionality.
+- LLM notes: "Popular memecoin, but extreme volatility." System response: BLOCK (not subject to LLM override).
+
+**Configuration:**
+```yaml
+raa:
+  meme_block:
+    enabled: true
+    categories: ["meme-coin"]  # CoinGecko categories
+    keyword_patterns: ["doge", "shib", "pepe", "floki", "bonk", "wif", "hype"]
+```
+
+**When pairs are added/removed:**
+- **Never added via RAA** if meme-block triggers
+- Meme pairs in `trading.pairs[]` stay in universe indefinitely (no removal)
+
+---
+
+#### **RAA-G2: HITL-LOCK (Hard Guard)**
+
+**Function:** `_is_substitution_locked()` + `enforce_hitl_lock()` in `src/runtime/research_analyst.py` + `src/runtime/audit_agent.py`
+
+**Type:** Hard Guard (human-in-the-loop enforcement)
+
+**Trigger:** FOUNDATIONAL_REPLACEMENT_BLOCK violations
+- RAA proposes removing a core pair (BTC/ETH/BNB) without explicit human approval
+- RAA proposes swapping out a pair that is currently profitable or near TP
+- ≥3 FOUNDATIONAL_REPLACEMENT_BLOCK violations in 24h
+
+**Guard behavior:**
+- After ≥3 violations, `enforce_hitl_lock()` sets `_substitution_locked = True` in DB
+- All subsequent `universe_decision` tool calls are rejected with HTTP 423 (Locked)
+- RAA receives feedback:
+  ```
+  Tool call rejected: 'universe_decision' tool is LOCKED.
+  Reason: ≥3 FOUNDATIONAL_REPLACEMENT_BLOCK violations in 24h.
+  RAA will resume substitution authority after human review.
+  ```
+- Telegram alert sent to operator:
+  ```
+  ⚠️ RAA HITL Lock Engaged
+  Reason: 3 risky substitution proposals in 24h
+  Locked pairs: {list}
+  Action: Review audit_feedback table. Run 'kryptos raa-unlock' when ready.
+  ```
+
+**Impact on universe table:**
+- Locked pairs remain in `universe` with status='active'
+- No additions or removals until HITL lock is cleared
+- `audit_feedback` table records penalty with timestamp + reason
+
+**Real case:**
+- Cycle 1: RAA proposes swapping BTC/USD for SHIB/USD (PF scores heavily meme-biased). System: BLOCK (FOUNDATIONAL_REPLACEMENT_BLOCK)
+- Cycle 2: RAA proposes removing ETH/USD (profitable, +15% P&L). System: BLOCK (FOUNDATIONAL_REPLACEMENT_BLOCK)
+- Cycle 3: RAA proposes replacing SOL/USD with WIF/USD (both high-vol). System: BLOCK (FOUNDATIONAL_REPLACEMENT_BLOCK #3 → **HITL LOCK TRIGGERED**)
+- Result: RAA cannot propose substitutions for 8 hours until human reviews and unlocks via `kryptos raa-unlock`
+
+**Configuration:**
+```yaml
+raa:
+  hitl_lock:
+    enabled: true
+    violation_threshold: 3       # lock after N violations
+    violation_window_hours: 24   # look back N hours
+    lock_duration_hours: 8       # auto-unlock after N hours OR manual override
+```
+
+**When pairs are added/removed:**
+- No changes while lock is active
+- After unlock, fresh proposals can resume
+
+---
+
+#### **RAA-G3: ALPHA-SPREAD GATE (Soft Guard)**
+
+**Function:** `compute_alpha_spread()` + `apply_alpha_spread_gate()` in `src/runtime/research_analyst.py`
+
+**Type:** Soft Guard (configurable threshold, soft rejection with feedback)
+
+**Trigger:** Proposed pair's expected alpha spread is too wide
+- Alpha spread = [max expected drawdown from entry to TP] minus [min expected drawdown from entry to SL]
+- If spread < `alpha_spread_min_basis_points` (default 800 bps = 8.0%), proposal is soft-rejected
+
+**Guard behavior:**
+- Computes spread from 30-day historical volatility and ATR patterns
+- Logs:
+  ```
+  [RAA] Pair XRP/USD alpha spread 420 bps (< 800 min) — soft reject
+  Reasoning: Tight TP targets not justified by volatility regime
+  ```
+- Feedback loop: RAA sees rejection and can re-propose with justification OR wait for volatility to increase
+
+**Impact on universe table:**
+- Soft-rejected pairs are added to `universe` table with status='proposed' (pending)
+- Grace period of `alpha_spread_grace_period_days: 7` allows time for volatility to expand
+- After grace period expires, auto-remove if spread still below threshold
+- If user manually forces pair into trading.pairs[], it overrides and is tracked separately
+
+**Real case:**
+- RAA evaluates ZEC/USD as candidate. Current ATR% = 0.65%, TP target = 12%. Implied spread = 650 bps (< 800 min).
+- RAA's LLM scores confidence = 7.2/10.0 (decent). Alpha spread gate soft-rejects:
+  ```
+  Status: PROPOSED (soft reject)
+  Alpha spread: 650 bps vs 800 bps min
+  Feedback: Volatility regime too tight for 12% TP. Recommend 16% TP or wait for volatility to expand.
+  Next check: 7 days
+  ```
+- User reviews and decides: "Lower TP to 10%, override alpha spread gate." Admin approves → pair added with custom `take_profit_pct: 10` in config.
+
+**Configuration:**
+```yaml
+raa:
+  alpha_spread_gate:
+    enabled: true
+    min_basis_points: 800      # 8.0% min spread
+    grace_period_days: 7       # days before auto-removal if not resolved
+    volatility_lookback: 30    # candles for ATR calculation
+```
+
+**When pairs are added/removed:**
+- Added with status='proposed' initially (soft reject)
+- Promoted to status='active' when spread improves or admin override
+- Removed if spread remains low after grace period
+
+---
+
+#### **RAA-G4: UNIVERSE-AT-CAP GATE (Soft Guard)**
+
+**Function:** `validate_universe_proposal()` + universe capacity check in `src/runtime/research_analyst.py`
+
+**Type:** Soft Guard (soft rejection with auto-queue)
+
+**Trigger:** Active universe size would exceed `max_universe_size` (default: 28 pairs)
+- Substitution proposal adds new pair without removing expired pair
+- Multiple addition proposals queue up faster than removals
+
+**Guard behavior:**
+- Soft-rejects the proposal with status='UNIVERSE_AT_CAP'
+- Queues the proposal in `universe_proposals` table with timestamp
+- Logs:
+  ```
+  [RAA] UNIVERSE_AT_CAP: Queue position 2/5 for AVAX/USD
+  Active pairs: 28/28. One pair must exit before new entry.
+  Next eligible removal: OP/USD (expires in 3 days)
+  ```
+- FIFO auto-promotion: When a pair is removed, next queued proposal auto-promotes
+
+**Impact on universe table:**
+- Queued proposals added to `universe_proposals` (not `universe`) with status='queued'
+- No trading until promoted to `universe` with status='active'
+- Auto-dequeue if pair is already being actively traded
+
+**Real case:**
+- Current universe: 28/28 capacity (BTC, ETH, BNB, SOL, XRP, TRX, DOGE, ADA, LTC, AVAX, SUI, HYPE, UNI, INJ, WIF, TON, OP, ARB, JUP, PEPE, TIA, RENDER, FET, STX, PENDLE, ONDO, BONK, MOVR)
+- RAA proposes adding BLUR/USD (new DeFi protocol). System:
+  ```
+  Status: QUEUED (at-cap soft reject)
+  Queue position: 1/3
+  Note: OP/USD currently underperforming (PF 0.62). When OP is removed, BLUR will auto-promote.
+  ```
+- 2 hours later: OP/USD closed its last open position, removed from universe. BLUR/USD auto-promotes:
+  ```
+  Status: ACTIVE
+  Added at: 2026-05-19 15:47 UTC
+  Promotion reason: OP/USD retired; auto-dequeued BLUR from queue position 1
+  ```
+
+**Configuration:**
+```yaml
+raa:
+  universe_at_cap:
+    enabled: true
+    max_universe_size: 28      # hard cap
+    queue_max_depth: 5         # max queued proposals
+    auto_promote_on_removal: true  # FIFO promotion
+```
+
+**When pairs are added/removed:**
+- Queued pairs stay in `universe_proposals` with status='queued'
+- Auto-promoted to `universe` when capacity opens
+- Manual admin override available via `kryptos raa-force-add PAIR`
+
+---
+
+### Summary: RAA Guardrail Flow Diagram
+
+```
+RAA LLM Batch Decision
+       ↓
+[1] MEME_BLOCK? ──→ YES ──→ REJECT (status=MEME_BLOCK) ──→ Log, no DB entry
+       ↓
+      NO
+       ↓
+[2] HITL_LOCK? ──→ YES ──→ REJECT (status=LOCKED) ──→ Notify operator, no changes
+       ↓
+      NO
+       ↓
+[3] ALPHA_SPREAD? ──→ YES ──→ SOFT REJECT (status=PROPOSED) ──→ Add to universe with proposed, grace period
+       ↓
+      NO
+       ↓
+[4] UNIVERSE_AT_CAP? ──→ YES ──→ SOFT REJECT (status=QUEUED) ──→ Queue in proposals, FIFO auto-promote
+       ↓
+      NO
+       ↓
+    APPROVE ──→ (status=ACTIVE) ──→ Add to universe, enable trading after grace_period_hours
+```
 
 ---
 
