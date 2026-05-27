@@ -95,6 +95,9 @@ personas:
     llm_system_role: high         # Extended system prompt with breakout directives
     velocity_circuit_breaker_pct: 7.0
     velocity_halt_hours: 1
+    # Risk parameters — HIGH persona tolerance
+    daily_loss_limit_pct: 25.0    # Stop all trading if daily loss exceeds 25% (aggressive)
+    global_max_daily_loss_pct: 25.0  # Kill Switch: panic-sell all if total drops 25% from SOD (aggressive)
     # Profit Factor escalation suspension (S15.2.2)
     pf_escalation_momentum_suspend: true  # Suppress PF penalty in momentum playbook
     # Early Momentum Accumulation score reduction (S15.2.3)
