@@ -829,7 +829,7 @@ risk:
       pairs: [RENDER/USD, FET/USD]                    # ASI/AI narrative co-movement
     - name: solana_ecosystem
       pairs: [JUP/USD, STX/USD]                       # SOL-adjacent DeFi + BTC L2 — risk-off co-movement
-  max_cluster_positions: 2    # Max open positions per cluster
+  max_cluster_positions: 3    # Max open positions per cluster (increased from 2 to allow multiple XRP positions)
   cluster_size_penalty: 0.5   # Multiply position size when cluster already has 1 open
 
   # On-chain cycle top guard — suppress Tier 3/4 BUYs at macro peak (#205)
